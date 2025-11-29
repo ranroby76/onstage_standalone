@@ -10,28 +10,21 @@ using namespace juce;
 AudioEngine::AudioEngine()
 {
     LOG_INFO("=== AudioEngine Constructor START ===");
-    
-    // FIX: Enable Internal Media Player by default
     backingTrackInputEnabled[0] = true;
 
     try {
         LOG_INFO("Step 1: Registering audio formats");
         formatManager.registerBasicFormats();
 
-        // --- STRICT REQUIREMENT: START IN "OFF" STATE ---
         LOG_INFO("Step 2: Enforcing OFF state (Closing Audio Device)...");
         deviceManager.closeAudioDevice();
         
-        // Step 3: Set Safe Defaults
         currentSampleRate = 44100.0;
         currentBlockSize = 512;
         
-        masterLevel[0].store(0.0f);
-        masterLevel[1].store(0.0f);
-        micLevel[0].store(0.0f); 
-        micLevel[1].store(0.0f);
-        for(int i=0; i<9; ++i) 
-            backingTrackLevels[i].store(0.0f);
+        masterLevel[0].store(0.0f); masterLevel[1].store(0.0f);
+        micLevel[0].store(0.0f); micLevel[1].store(0.0f);
+        for(int i=0; i<9; ++i) backingTrackLevels[i].store(0.0f);
 
         LOG_INFO("Step 4: Adding audio callback");
         deviceManager.addAudioCallback(this);
@@ -90,13 +83,9 @@ void AudioEngine::openDriverControlPanel()
     if (auto* device = deviceManager.getCurrentAudioDevice())
     {
         if (device->hasControlPanel()) device->showControlPanel();
-        else NativeMessageBox::showMessageBoxAsync(AlertWindow::InfoIcon, "ASIO Control Panel", "This driver does not support opening the Control Panel directly.");
+        else NativeMessageBox::showMessageBoxAsync(AlertWindow::InfoIcon, "Driver Control Panel", "This driver does not support opening the Control Panel directly.");
     }
 }
-
-// ==============================================================================
-// MIDI HANDLING - COMPLETE IMPLEMENTATION
-// ==============================================================================
 
 static float mapMidi(int midiVal, float min, float max) {
     float norm = (float)midiVal / 127.0f;
@@ -112,10 +101,8 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
         if (cc == 7) setMasterVolume(mapMidi(val, -100.0f, 0.0f));
         else if (cc == 24) setLatencyCorrectionMs(mapMidi(val, 0.0f, 500.0f));
         else if (cc == 25) setVocalBoostDb(mapMidi(val, 0.0f, 24.0f));
-        else if (cc >= 20 && cc <= 23) { 
-            setBackingTrackPairGain(cc - 20, mapMidi(val, 0.0f, 2.0f)); 
-        }
-        // Mic 1 Comp
+        else if (cc >= 20 && cc <= 23) setBackingTrackPairGain(cc - 20, mapMidi(val, 0.0f, 2.0f)); 
+        
         else if (cc >= 32 && cc <= 36) {
             auto params = compressorProcessor[0].getParams();
             if (cc == 32) params.thresholdDb = mapMidi(val, -60.0f, 0.0f);
@@ -125,7 +112,6 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 36) params.makeupDb = mapMidi(val, 0.0f, 24.0f);
             compressorProcessor[0].setParams(params);
         }
-        // Mic 2 Comp
         else if (cc >= 42 && cc <= 46) {
             auto params = compressorProcessor[1].getParams();
             if (cc == 42) params.thresholdDb = mapMidi(val, -60.0f, 0.0f);
@@ -135,23 +121,21 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 46) params.makeupDb = mapMidi(val, 0.0f, 24.0f);
             compressorProcessor[1].setParams(params);
         }
-        // Exciter
-        else if (cc == 53 || cc == 54 || cc == 39) { // Mic 1
+        else if (cc == 53 || cc == 54 || cc == 39) {
             auto params = exciterProcessor[0].getParams();
             if (cc == 53) params.frequency = mapMidi(val, 1000.0f, 10000.0f);
             else if (cc == 54) params.amount = mapMidi(val, 0.0f, 24.0f);
             else if (cc == 39) params.mix = mapMidi(val, 0.0f, 1.0f);
             exciterProcessor[0].setParams(params);
         }
-        else if (cc == 63 || cc == 64 || cc == 40) { // Mic 2
+        else if (cc == 63 || cc == 64 || cc == 40) {
             auto params = exciterProcessor[1].getParams();
             if (cc == 63) params.frequency = mapMidi(val, 1000.0f, 10000.0f);
             else if (cc == 64) params.amount = mapMidi(val, 0.0f, 24.0f);
             else if (cc == 40) params.mix = mapMidi(val, 0.0f, 1.0f);
             exciterProcessor[1].setParams(params);
         }
-        // EQ
-        else if ((cc >= 68 && cc <= 75)) { // Mic 1
+        else if ((cc >= 68 && cc <= 75)) {
             auto& eq = eqProcessor[0];
             if (cc == 70) eq.setLowGain(mapMidi(val, -12.0f, 12.0f));
             else if (cc == 71) eq.setLowQ(mapMidi(val, 0.1f, 10.0f));
@@ -162,7 +146,7 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 68) eq.setLowFrequency(mapMidi(val, 20.0f, 20000.0f));
             else if (cc == 69) eq.setHighFrequency(mapMidi(val, 20.0f, 20000.0f));
         }
-        else if ((cc >= 78 && cc <= 85)) { // Mic 2
+        else if ((cc >= 78 && cc <= 85)) {
             auto& eq = eqProcessor[1];
             if (cc == 80) eq.setLowGain(mapMidi(val, -12.0f, 12.0f));
             else if (cc == 81) eq.setLowQ(mapMidi(val, 0.1f, 10.0f));
@@ -173,7 +157,6 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 78) eq.setLowFrequency(mapMidi(val, 20.0f, 20000.0f));
             else if (cc == 79) eq.setHighFrequency(mapMidi(val, 20.0f, 20000.0f));
         }
-        // Reverb
         else if (cc == 28 || cc == 37 || cc == 38) {
             auto p = reverbProcessor.getParams();
             if (cc == 28) p.wetGain = mapMidi(val, 0.0f, 10.0f);
@@ -181,7 +164,6 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 38) p.highCutHz = mapMidi(val, 1000.0f, 20000.0f);
             reverbProcessor.setParams(p);
         }
-        // Delay
         else if ((cc >= 47 && cc <= 52) || cc == 29) {
             auto p = delayProcessor.getParams();
             if (cc == 47) p.delayMs = mapMidi(val, 1.0f, 2000.0f);
@@ -193,7 +175,6 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 29) p.mix = mapMidi(val, 0.0f, 1.0f);
             delayProcessor.setParams(p);
         }
-        // Harmonizer
         else if ((cc >= 55 && cc <= 58) || cc == 30) {
             auto p = harmonizerProcessor.getParams();
             if (cc == 55) p.voices[0].fixedSemitones = floor(mapMidi(val, -12.0f, 12.0f));
@@ -203,7 +184,6 @@ void AudioEngine::handleIncomingMidiMessage(juce::MidiInput* source, const juce:
             else if (cc == 30) p.wetDb = mapMidi(val, -24.0f, 12.0f);
             harmonizerProcessor.setParams(p);
         }
-        // Dynamic EQ
         else if ((cc >= 59 && cc <= 62) || (cc >= 65 && cc <= 67)) {
             auto p = dynamicEQProcessor.getParams();
             if (cc == 59) p.duckBandHz = mapMidi(val, 100.0f, 8000.0f);
@@ -651,6 +631,8 @@ void AudioEngine::setSpecificDriver(const String& driverType, const String& spec
     String effectiveType = driverType;
     #if JUCE_LINUX
     if (effectiveType.isEmpty() || effectiveType == "ASIO") effectiveType = "ALSA";
+    #elif JUCE_MAC
+    if (effectiveType.isEmpty() || effectiveType == "ASIO") effectiveType = "CoreAudio";
     #endif
 
     if (effectiveType.isNotEmpty())
