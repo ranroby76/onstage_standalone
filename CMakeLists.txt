@@ -1,5 +1,3 @@
-# **Change:** I added logic to detect the OS. * **Windows:** Uses your local folders (`D:/...`) and links `winmm`, `comdlg32`, etc. * **Linux:** Looks for system-installed libraries (`libvlc`, `alsa`, `x11`, `freetype`) instead of local folders. <!-- end list -->
-
 cmake_minimum_required(VERSION 3.22)
 
 project(OnStage VERSION 1.0.0)
@@ -12,29 +10,42 @@ set_property(GLOBAL PROPERTY USE_FOLDERS YES)
 # OS Detection & Paths
 # ================================================================
 if (WIN32)
+    # --- WINDOWS CONFIG ---
     set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
     set(JUCE_DIR     "${PROJECT_ROOT}/JUCE")
     set(ASIO_DIR     "${PROJECT_ROOT}/asiosdk")
     set(VLC_DIR      "${PROJECT_ROOT}/vlc-3.0.21")
     set(ASSETS_DIR   "${PROJECT_ROOT}/assets")
     
-    # Windows Definitions
     add_definitions(-DJUCE_WINDOWS=1)
-elseif (UNIX AND NOT APPLE)
+
+elseif (APPLE)
+    # --- MAC OS CONFIG ---
     set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
-    set(JUCE_DIR     "${PROJECT_ROOT}/JUCE") # Keep JUCE local or system? Assuming local for now
+    set(JUCE_DIR     "${PROJECT_ROOT}/JUCE")
+    # ASIO not used on Mac, CoreAudio is native
     set(ASSETS_DIR   "${PROJECT_ROOT}/assets")
     
-    # Linux Definitions
+    add_definitions(-DJUCE_MAC=1)
+    
+    # Mac VLC Search Paths (Homebrew)
+    list(APPEND CMAKE_PREFIX_PATH "/usr/local/opt/vlc" "/opt/homebrew/opt/vlc")
+    include_directories("/usr/local/include" "/opt/homebrew/include")
+    link_directories("/usr/local/lib" "/opt/homebrew/lib")
+
+elseif (UNIX AND NOT APPLE)
+    # --- LINUX CONFIG ---
+    set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+    set(JUCE_DIR     "${PROJECT_ROOT}/JUCE")
+    set(ASSETS_DIR   "${PROJECT_ROOT}/assets")
+    
     add_definitions(-DJUCE_LINUX=1)
     
-    # Find Linux System Packages
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(VLC REQUIRED libvlc)
     pkg_check_modules(ALSA REQUIRED alsa)
     pkg_check_modules(FREETYPE REQUIRED freetype2)
     
-    # Linux usually needs these for JUCE
     link_libraries(dl pthread rt)
 endif()
 
@@ -78,10 +89,7 @@ if (WIN32)
         ${VLC_DIR}/sdk/include
     )
 elseif (UNIX AND NOT APPLE)
-    include_directories(
-        ${VLC_INCLUDE_DIRS}
-        /usr/include/freetype2
-    )
+    include_directories(${VLC_INCLUDE_DIRS} /usr/include/freetype2)
 endif()
 
 # ================================================================
@@ -138,7 +146,7 @@ set(ONSTAGE_SOURCES
     ${SRC_DIR}/UI/TrackBannerComponent.h
     ${SRC_DIR}/UI/PlaylistDataStructures.h
     ${SRC_DIR}/UI/DebugConsole.h
-    ${SRC_DIR}/UI/ManualComponent.h 
+    ${SRC_DIR}/UI/ManualComponent.h
     
     # Panels & Controls
     ${SRC_DIR}/UI/CompressorPanel.h
@@ -170,114 +178,72 @@ juce_add_binary_data(OnStageAssets
 )
 
 # ================================================================
-# Executable
+# Executable Configuration
 # ================================================================
 if (WIN32)
-    add_executable(OnStage WIN32
-        ${ONSTAGE_SOURCES}
-        "${PROJECT_ROOT}/resources.rc"
-        "${PROJECT_ROOT}/icon.ico"
-    )
-else()
-    add_executable(OnStage
-        ${ONSTAGE_SOURCES}
-    )
-endif()
-
-# ================================================================
-# Target Properties
-# ================================================================
-if (WIN32)
+    add_executable(OnStage WIN32 ${ONSTAGE_SOURCES} "${PROJECT_ROOT}/resources.rc" "${PROJECT_ROOT}/icon.ico")
     set_target_properties(OnStage PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${CMAKE_BINARY_DIR}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/Debug"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release"
-        VS_DEBUGGER_WORKING_DIRECTORY    "$<TARGET_FILE_DIR:OnStage>"
+        VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:OnStage>"
     )
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_ASIO=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0 _CRT_SECURE_NO_WARNINGS)
+
+elseif (APPLE)
+    # Bundle creation on Mac
+    add_executable(OnStage MACOSX_BUNDLE ${ONSTAGE_SOURCES} "${PROJECT_ROOT}/icon.ico")
     
-    target_compile_definitions(OnStage PRIVATE
-        JUCE_STANDALONE_APPLICATION=1
-        JUCE_ASIO=1
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CAMERA=0
-        JUCE_USE_CURL=0
-        _CRT_SECURE_NO_WARNINGS
-    )
-elseif (UNIX AND NOT APPLE)
     set_target_properties(OnStage PROPERTIES
-        OUTPUT_NAME "OnStage"
+        MACOSX_BUNDLE_BUNDLE_NAME "OnStage"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.fanan.onstage"
+        MACOSX_BUNDLE_ICON_FILE "icon.ico"
     )
     
-    target_compile_definitions(OnStage PRIVATE
-        JUCE_STANDALONE_APPLICATION=1
-        JUCE_ALSA=1 
-        JUCE_WEB_BROWSER=0
-        JUCE_USE_CAMERA=0
-        JUCE_USE_CURL=0
-        JUCE_USE_X11=1
-    )
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0)
+
+elseif (UNIX)
+    add_executable(OnStage ${ONSTAGE_SOURCES})
+    set_target_properties(OnStage PROPERTIES OUTPUT_NAME "OnStage")
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_ALSA=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0 JUCE_USE_X11=1)
 endif()
 
 # ================================================================
 # Linking
 # ================================================================
 target_link_libraries(OnStage PRIVATE
-    juce::juce_core
-    juce::juce_events
-    juce::juce_data_structures
-    juce::juce_graphics
-    juce::juce_gui_basics
-    juce::juce_gui_extra
-    juce::juce_audio_basics
-    juce::juce_audio_devices
-    juce::juce_audio_formats
-    juce::juce_audio_utils
-    juce::juce_audio_processors
-    juce::juce_dsp
+    juce::juce_core juce::juce_events juce::juce_data_structures
+    juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_audio_utils juce::juce_audio_processors juce::juce_dsp
     OnStageAssets
 )
 
 if (WIN32)
-    set(VLC_LIB      "${VLC_DIR}/sdk/lib/libvlc.lib")
+    set(VLC_LIB "${VLC_DIR}/sdk/lib/libvlc.lib")
     set(VLC_CORE_LIB "${VLC_DIR}/sdk/lib/libvlccore.lib")
+    target_link_libraries(OnStage PRIVATE ${VLC_LIB} ${VLC_CORE_LIB} winmm ws2_32 gdi32 ole32 uuid comdlg32)
     
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VLC_DIR}/libvlc.dll" "$<TARGET_FILE_DIR:OnStage>")
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VLC_DIR}/libvlccore.dll" "$<TARGET_FILE_DIR:OnStage>")
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory "${VLC_DIR}/plugins" "$<TARGET_FILE_DIR:OnStage>/plugins")
+
+elseif (APPLE)
+    # Link Mac Frameworks and VLC (via dynamic lookup or path)
     target_link_libraries(OnStage PRIVATE
-        ${VLC_LIB}
-        ${VLC_CORE_LIB}
-        winmm
-        ws2_32
-        gdi32
-        ole32
-        uuid
-        comdlg32
-    )
-    
-    # Windows Post-Build: Copy DLLs
-    add_custom_command(TARGET OnStage POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${VLC_DIR}/libvlc.dll" "$<TARGET_FILE_DIR:OnStage>"
-        COMMENT "Copying libvlc.dll..."
-    )
-    add_custom_command(TARGET OnStage POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${VLC_DIR}/libvlccore.dll" "$<TARGET_FILE_DIR:OnStage>"
-        COMMENT "Copying libvlccore.dll..."
-    )
-    add_custom_command(TARGET OnStage POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${VLC_DIR}/plugins" "$<TARGET_FILE_DIR:OnStage>/plugins"
-        COMMENT "Copying VLC plugins..."
+        vlc
+        "-framework Cocoa"
+        "-framework CoreAudio"
+        "-framework CoreMIDI"
+        "-framework AudioToolbox"
+        "-framework IOKit"
+        "-framework Accelerate"
+        "-framework QuartzCore"
+        "-framework WebKit"
+        "-framework Foundation"
     )
 
-elseif (UNIX AND NOT APPLE)
-    target_link_libraries(OnStage PRIVATE
-        ${VLC_LIBRARIES}
-        ${ALSA_LIBRARIES}
-        ${FREETYPE_LIBRARIES}
-        X11
-        Xext
-        Xinerama
-        asound
-    )
+elseif (UNIX)
+    target_link_libraries(OnStage PRIVATE ${VLC_LIBRARIES} ${ALSA_LIBRARIES} ${FREETYPE_LIBRARIES} X11 Xext Xinerama asound)
 endif()
 
 message(STATUS "OnStage build configuration complete.")
