@@ -1,0 +1,23 @@
+sliders design: all sliders will have same size proportion, unless i've requested a unique design for specifice slider! the design is vertical. gold "on" color for the bar, gold circle handle with black inner circle in it, and medium gray "off" color the the bar ("off" color refers the area of the bar which the handle did not reached yet) 
+-------------------------------------------------------------
+
+upper header pannel - is for the logos. at the left, fanan team logo represented by logo.png from the assets folder (C:\Users\ranro\Workspace\onstage_with_chatgpt_6\assets). at the right, the onstage logo, represented by On_stage_logo.png (also located in the assets). in the app's container upper bar we will use the favicon represented by favicon.ico (located in the assets folder as well). the assets sizes: 
+appicon.png=256x256
+favicon.ico=128x128
+logo.png-562x244
+On_stage_logo.png=960x148
+they'll need resizing to fit the app's header so you should do the math. 
+
+-----------------------------
+
+under the upper header, there will be a separator line, and under it, app main functions; 3 buttons selector for i\o, vocals, media aligned to the left side of the app (in a size of half app's width). at the right side, 2 preamp horizonal sliders (aligned to the right, in a size of half app's width) for giving pre-gain to the microphoe in the range of 0% to 200% gain. 
+
+------------------------------------------------------------------
+
+under them another separator line, and under it, the main conteiner that contains the 3 tabs: i\o, vocals and media. 
+---------------------------------------------------------------------
+
+i\o tab - at the top - the auio driver type selector (selects between the different types: wasapi, asio, or any other driver the user has installed on his machine. a droplist in a size of half width of tab). under it the specific driver selector (e.g. rme asio, asio4all, fl asio). the app will not manage the sample rates nor the buffer sizes but adopt any setting that has been set by the user like a pipe. let's continue: inder the specific asio droplist, we'll add separator line and under it, the 2 singer inputs selector (2 vocalists can sing together whenever the driver allows), one under the other. under that another separator line and under that the backing track inputs selector; backing 1 left, near it backing 1 right, under it backing 2 left, near it backing 2 right... and so on till backing 4 left, near it backing 4 right.under them a separator line and under it the output selector (multi selection allowed). the outputs will be sorted in stereo pairs while each pair has maatching outputs paired together from those which available at the user's outputs (e.g ht output1 + ht output2, looback output1 + loopback output2, and so on). the output multi selection will done with check boxes. 
+
+** all the droplists will also have "off" option with disable them and the "off" option will be always the default initial selection!). 
+---------------------------------------------------------------------

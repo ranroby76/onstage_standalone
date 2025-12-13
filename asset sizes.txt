@@ -1,0 +1,6 @@
+appicon.png=256x256
+favicon.ico=128x128
+logo.png-562x244
+On_stage_logo.png=960x148
+
+defaukt iir=01 Large Warm Hall.wav

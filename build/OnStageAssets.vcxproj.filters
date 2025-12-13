@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData1.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData3.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData4.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData5.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\Workspace\onstage_with_chatgpt_9\build\juce_binarydata_OnStageAssets\JuceLibraryCode\BinaryData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Workspace\onstage_with_chatgpt_9\build\CMakeFiles\d337335a15636568da4f01c8321a90ce\BinaryData1.cpp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Workspace\onstage_with_chatgpt_9\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{58B3E83C-D678-3C78-A738-BF0F4C4E7F5B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{BA369B94-98F6-3364-8CDE-D046F3AC858B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{1C78943D-9B2A-322A-A034-13CE9F0EDE7C}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

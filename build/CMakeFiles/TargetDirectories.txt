@@ -1,0 +1,10 @@
+D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/OnStage.dir
+D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/OnStageAssets.dir
+D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/INSTALL.dir
+D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/ALL_BUILD.dir
+D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/ZERO_CHECK.dir
+D:/Workspace/onstage_with_chatgpt_9/build/JUCE/CMakeFiles/INSTALL.dir
+D:/Workspace/onstage_with_chatgpt_9/build/JUCE/CMakeFiles/ALL_BUILD.dir
+D:/Workspace/onstage_with_chatgpt_9/build/JUCE/modules/CMakeFiles/INSTALL.dir
+D:/Workspace/onstage_with_chatgpt_9/build/JUCE/extras/Build/CMakeFiles/INSTALL.dir
+D:/Workspace/onstage_with_chatgpt_9/build/JUCE/extras/Build/juceaide/CMakeFiles/INSTALL.dir

@@ -1,0 +1,228 @@
+cmake_minimum_required(VERSION 3.22)
+
+project(OnStage VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set_property(GLOBAL PROPERTY USE_FOLDERS YES)
+
+set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+set(JUCE_DIR     "${PROJECT_ROOT}/JUCE")
+set(ASSETS_DIR   "${PROJECT_ROOT}/assets")
+set(SRC_DIR      "${PROJECT_ROOT}/src")
+
+message(STATUS "Project Root: ${PROJECT_ROOT}")
+message(STATUS "JUCE Dir:     ${JUCE_DIR}")
+
+if(EXISTS "${JUCE_DIR}/CMakeLists.txt")
+    add_subdirectory("${JUCE_DIR}")
+else()
+    message(FATAL_ERROR "JUCE directory not found at ${JUCE_DIR}! Build cannot continue.")
+endif()
+
+if (MSVC)
+    add_compile_options(/MP)
+endif()
+
+set(ONSTAGE_SOURCES
+    ${SRC_DIR}/App.cpp
+    ${SRC_DIR}/App.h
+    ${SRC_DIR}/AudioEngine.cpp
+    ${SRC_DIR}/AudioEngine.h
+    ${SRC_DIR}/Main.cpp
+    ${SRC_DIR}/IOSettingsManager.cpp
+    ${SRC_DIR}/IOSettingsManager.h
+    ${SRC_DIR}/PresetManager.cpp
+    ${SRC_DIR}/PresetManager.h
+    ${SRC_DIR}/AppLogger.h
+    ${SRC_DIR}/IPC/SharedMemoryManager.cpp
+    ${SRC_DIR}/IPC/SharedMemoryManager.h
+    ${SRC_DIR}/RegistrationManager.cpp
+    ${SRC_DIR}/RegistrationManager.h
+    ${SRC_DIR}/engine/VideoSurfaceComponent.cpp
+    ${SRC_DIR}/engine/VideoSurfaceComponent.h
+    ${SRC_DIR}/engine/VLCMediaPlayer.h 
+    ${SRC_DIR}/dsp/EQProcessor.cpp
+    ${SRC_DIR}/dsp/EQProcessor.h
+    ${SRC_DIR}/dsp/ExciterProcessor.cpp
+    ${SRC_DIR}/dsp/ExciterProcessor.h
+    ${SRC_DIR}/dsp/ReverbProcessor.cpp
+    ${SRC_DIR}/dsp/ReverbProcessor.h
+    ${SRC_DIR}/dsp/CompressorProcessor.h
+    ${SRC_DIR}/dsp/DelayProcessor.h
+    ${SRC_DIR}/dsp/DynamicEQProcessor.h
+    ${SRC_DIR}/dsp/HarmonizerProcessor.h
+    ${SRC_DIR}/dsp/SimplePitchShifter.h
+    ${SRC_DIR}/UI/MainComponent.cpp
+    ${SRC_DIR}/UI/MainComponent.h
+    ${SRC_DIR}/UI/HeaderBar.cpp
+    ${SRC_DIR}/UI/HeaderBar.h
+    ${SRC_DIR}/UI/RegistrationComponent.h
+    ${SRC_DIR}/UI/IOPage.cpp
+    ${SRC_DIR}/UI/IOPage.h
+    ${SRC_DIR}/UI/VocalsPage.cpp
+    ${SRC_DIR}/UI/VocalsPage.h
+    ${SRC_DIR}/UI/MediaPage.cpp
+    ${SRC_DIR}/UI/MediaPage.h
+    ${SRC_DIR}/UI/PlaylistComponent.cpp
+    ${SRC_DIR}/UI/PlaylistComponent.h
+    ${SRC_DIR}/UI/TrackBannerComponent.cpp
+    ${SRC_DIR}/UI/TrackBannerComponent.h
+    ${SRC_DIR}/UI/PlaylistDataStructures.h
+    ${SRC_DIR}/UI/DebugConsole.h
+    ${SRC_DIR}/UI/ManualComponent.h
+    ${SRC_DIR}/UI/LongPressDetector.h
+    ${SRC_DIR}/UI/CompressorPanel.h
+    ${SRC_DIR}/UI/DelayPanel.h
+    ${SRC_DIR}/UI/DualHandleSlider.h
+    ${SRC_DIR}/UI/DynamicEQPanel.h
+    ${SRC_DIR}/UI/EffectToggleButton.h
+    ${SRC_DIR}/UI/EQPanel.h
+    ${SRC_DIR}/UI/ExciterPanel.h
+    ${SRC_DIR}/UI/HarmonizerPanel.h
+    ${SRC_DIR}/UI/ReverbPanel.h
+    ${SRC_DIR}/UI/StyledSlider.h
+    ${SRC_DIR}/UI/SignalLed.h
+    ${SRC_DIR}/UI/LevelMeter.h
+    ${SRC_DIR}/UI/MasterMeter.cpp
+    ${SRC_DIR}/UI/MasterMeter.h
+)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    message(STATUS "Detected OS: iOS")
+    add_definitions(-DJUCE_IOS=1)
+    list(APPEND ONSTAGE_SOURCES 
+        ${SRC_DIR}/engine/NativeMediaPlayer_Apple.h
+        ${SRC_DIR}/engine/NativeMediaPlayer_Apple.mm
+    )
+    add_executable(OnStage MACOSX_BUNDLE ${ONSTAGE_SOURCES} "${PROJECT_ROOT}/icon.ico")
+    set_target_properties(OnStage PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "OnStage"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.fanan.onstage"
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.fanan.onstage"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
+        XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+    )
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0)
+    target_link_libraries(OnStage PRIVATE
+        juce::juce_core juce::juce_events juce::juce_data_structures
+        juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra
+        juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+        juce::juce_audio_utils juce::juce_audio_processors juce::juce_dsp
+        OnStageAssets
+        "-framework AVFoundation"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework AudioToolbox"
+        "-framework CoreAudio"
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework OpenGLES"
+        "-framework QuartzCore"
+        "-framework UIKit"
+    )
+    add_custom_command(TARGET OnStage POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${ASSETS_DIR}" "$<TARGET_FILE_DIR:OnStage>/OnStage.app/assets"
+    )
+
+elseif (WIN32)
+    message(STATUS "Detected OS: Windows")
+    add_definitions(-DJUCE_WINDOWS=1)
+    list(APPEND ONSTAGE_SOURCES 
+        ${SRC_DIR}/engine/VLCMediaPlayer_Desktop.h
+        ${SRC_DIR}/engine/VLCMediaPlayer_Desktop.cpp
+    )
+    set(ASIO_DIR "${PROJECT_ROOT}/asiosdk")
+    set(VLC_DIR  "${PROJECT_ROOT}/vlc-3.0.21")
+    include_directories(${ASIO_DIR}/common ${ASIO_DIR}/host ${VLC_DIR}/sdk/include)
+    add_executable(OnStage WIN32 ${ONSTAGE_SOURCES} "${PROJECT_ROOT}/resources.rc" "${PROJECT_ROOT}/icon.ico")
+    set_target_properties(OnStage PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release"
+        VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:OnStage>"
+    )
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_ASIO=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0 _CRT_SECURE_NO_WARNINGS)
+    set(VLC_LIB "${VLC_DIR}/sdk/lib/libvlc.lib")
+    set(VLC_CORE_LIB "${VLC_DIR}/sdk/lib/libvlccore.lib")
+    target_link_libraries(OnStage PRIVATE 
+        juce::juce_core juce::juce_events juce::juce_data_structures juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats juce::juce_audio_utils juce::juce_audio_processors juce::juce_dsp
+        OnStageAssets ${VLC_LIB} ${VLC_CORE_LIB} winmm ws2_32 gdi32 ole32 uuid comdlg32)
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VLC_DIR}/libvlc.dll" "$<TARGET_FILE_DIR:OnStage>")
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VLC_DIR}/libvlccore.dll" "$<TARGET_FILE_DIR:OnStage>")
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory "${VLC_DIR}/plugins" "$<TARGET_FILE_DIR:OnStage>/plugins")
+
+elseif (APPLE)
+    message(STATUS "Detected OS: macOS")
+    add_definitions(-DJUCE_MAC=1)
+    list(APPEND ONSTAGE_SOURCES 
+        ${SRC_DIR}/engine/NativeMediaPlayer_Apple.h
+        ${SRC_DIR}/engine/NativeMediaPlayer_Apple.mm
+    )
+    add_executable(OnStage MACOSX_BUNDLE ${ONSTAGE_SOURCES} "${PROJECT_ROOT}/icon.ico")
+    set_target_properties(OnStage PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "OnStage" MACOSX_BUNDLE_GUI_IDENTIFIER "com.fanan.onstage" MACOSX_BUNDLE_ICON_FILE "icon.ico")
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0)
+    target_link_libraries(OnStage PRIVATE 
+        juce::juce_core juce::juce_events juce::juce_data_structures juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats juce::juce_audio_utils juce::juce_audio_processors juce::juce_dsp
+        OnStageAssets
+        "-framework AVFoundation"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework Cocoa" "-framework CoreAudio" "-framework CoreMIDI" "-framework AudioToolbox" "-framework IOKit" "-framework Accelerate" "-framework QuartzCore" "-framework WebKit" "-framework Foundation")
+    add_custom_command(TARGET OnStage POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory "${ASSETS_DIR}" "$<TARGET_FILE_DIR:OnStage>/../Resources/assets")
+
+elseif (UNIX AND NOT APPLE)
+    message(STATUS "Detected OS: Linux")
+    add_definitions(-DJUCE_LINUX=1)
+    list(APPEND ONSTAGE_SOURCES 
+        ${SRC_DIR}/engine/VLCMediaPlayer_Desktop.h
+        ${SRC_DIR}/engine/VLCMediaPlayer_Desktop.cpp
+    )
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(VLC REQUIRED libvlc)
+    pkg_check_modules(ALSA REQUIRED alsa)
+    pkg_check_modules(FREETYPE REQUIRED freetype2)
+    include_directories(${VLC_INCLUDE_DIRS} /usr/include/freetype2)
+    link_libraries(dl pthread rt)
+    add_executable(OnStage ${ONSTAGE_SOURCES})
+    set_target_properties(OnStage PROPERTIES OUTPUT_NAME "OnStage")
+    target_compile_definitions(OnStage PRIVATE JUCE_STANDALONE_APPLICATION=1 JUCE_ALSA=1 JUCE_WEB_BROWSER=0 JUCE_USE_CAMERA=0 JUCE_USE_CURL=0 JUCE_USE_X11=1)
+    target_link_libraries(OnStage PRIVATE 
+        juce::juce_core juce::juce_events juce::juce_data_structures juce::juce_graphics juce::juce_gui_basics juce::juce_gui_extra juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats juce::juce_audio_utils juce::juce_audio_processors juce::juce_dsp
+        OnStageAssets 
+        ${VLC_LIBRARIES} ${ALSA_LIBRARIES} ${FREETYPE_LIBRARIES} X11 Xext Xinerama asound)
+endif()
+
+include_directories(
+    ${PROJECT_ROOT}
+    ${SRC_DIR}
+    ${SRC_DIR}/engine
+    ${SRC_DIR}/dsp
+    ${SRC_DIR}/UI
+    ${JUCE_DIR}/modules
+    ${JUCE_DIR}/modules/juce_core
+    ${JUCE_DIR}/modules/juce_events
+    ${JUCE_DIR}/modules/juce_data_structures
+    ${JUCE_DIR}/modules/juce_graphics
+    ${JUCE_DIR}/modules/juce_gui_basics
+    ${JUCE_DIR}/modules/juce_gui_extra
+    ${JUCE_DIR}/modules/juce_audio_basics
+    ${JUCE_DIR}/modules/juce_audio_devices
+    ${JUCE_DIR}/modules/juce_audio_formats
+    ${JUCE_DIR}/modules/juce_audio_utils
+    ${JUCE_DIR}/modules/juce_audio_processors
+    ${JUCE_DIR}/modules/juce_dsp
+)
+
+juce_add_binary_data(OnStageAssets
+    SOURCES
+        "${PROJECT_ROOT}/icon.ico"
+        "${ASSETS_DIR}/logo.png"
+        "${ASSETS_DIR}/On_stage_logo.png"
+        "${ASSETS_DIR}/ir.wav"
+        "${ASSETS_DIR}/license.mid"
+)
+
+message(STATUS "OnStage build configuration complete.")

@@ -1,0 +1,75 @@
+RoomWorks is a highly adjustable reverb plug-in for creating realistic room ambience and reverb effects in stereo and surround formats. The CPU usage is adjustable to fit the needs of any system. From short room reflections to cavern-sized reverb, this plug-in delivers high quality reverberation.
+
+Input Filters
+Low Frequency
+Determines the frequency at which the low-shelving filter takes effect. Both the high and low settings filter the input signal prior to reverb processing.
+
+High Frequency
+Determines the frequency at which the high-shelving filter takes effect. Both the high and low settings filter the input signal prior to reverb processing.
+
+Low Gain
+Sets the amount of boost or attenuation for the low-shelving filter.
+
+High Gain
+Sets the amount of boost or attenuation for the high-shelving filter.
+
+Reverb Character
+Pre-Delay
+Determines how much time passes before the reverb is applied. This allows you to simulate larger rooms by increasing the time it takes for the first reflections to reach the listener.
+
+Size
+Alters the delay times of the early reflections to simulate larger or smaller spaces.
+
+Reverb Time
+Sets the reverb time in seconds.
+
+Diffusion
+Affects the character of the reverb tail. Higher values lead to more diffusion and a smoother sound, while lower values lead to a clearer sound.
+
+Width
+Controls the width of the stereo image. At a setting of 0 %, the output of the reverb is mono, at 100 % it is stereo.
+
+Variation
+Clicking this button generates a new version of the same reverb program using altered reflection patterns. This is helpful if some sounds are causing odd ringing or undesirable results. Creating a new variation often solves these issues. There are 1000 possible variations.
+
+Hold
+Activating this button freezes the reverb buffer in an infinite loop. You can create some interesting pad sounds using this feature.
+
+Damping
+Low Frequency
+Determines the frequency below which low-frequency damping occurs.
+
+High Frequency
+Determines the frequency above which high-frequency damping occurs.
+
+Low Level
+Affects the decay time of the low frequencies. Normal room reverb decays quicker in the high- and low-frequency range than in the mid-range. Lowering the level percentage causes low frequencies to decay quicker. Values above 100 % cause low frequencies to decay more slowly than the mid-range frequencies.
+
+High Level
+Affects the decay time of the high frequencies. Normal room reverb decays quicker in the high- and low-frequency range than in the mid-range. Lowering the level percentage causes high frequencies to decay quicker. Values above 100 % cause high frequencies to decay more slowly than the mid-range frequencies.
+
+Envelope
+Amount
+Determines how much the envelope attack and release controls affect the reverb itself. Lower values have a more subtle effect while higher values lead to a more drastic sound.
+
+Attack
+The envelope settings in RoomWorks control how the reverb follows the dynamics of the input signal in a fashion similar to a noise gate or downward expander. Attack determines how long it takes for the reverb to reach full volume after a signal peak (in milliseconds). This is similar to a pre-delay, but the reverb is ramping up instead of starting all at once.
+
+Release
+Determines how long after a signal peak the reverb can be heard before being cut off, similar to a release time of a gate.
+
+Output
+Mix
+Sets the level balance between the dry signal and the wet signal. If RoomWorks is used as an insert effect for an FX channel, you most likely want to set this to 100 % or use the wet only button.
+
+Wet only
+This button deactivates the Mix parameter, setting the effect to 100 % wet or affected signal. This button should normally be activated if RoomWorks is used as a send effect for an FX channel or a group channel.
+
+Efficiency
+Determines how much processing power is used for RoomWorks. The lower the value, the more CPU resources are used, and the higher the quality of the reverb. Interesting effects can be created with very high Efficiency settings (>90 %).
+
+Export
+Determines if during audio export RoomWorks uses the maximum CPU power for the highest quality reverb. During export, you may want to keep a higher efficiency setting to achieve a specific effect. If you want the highest quality reverb during export, make sure this button is activated.
+
+Output meter
+Shows the level of the output signal.

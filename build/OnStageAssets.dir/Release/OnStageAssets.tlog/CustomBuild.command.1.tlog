@@ -1,0 +1,24 @@
+^D:\WORKSPACE\ONSTAGE_WITH_CHATGPT_9\BUILD\CMAKEFILES\D337335A15636568DA4F01C8321A90CE\BINARYDATA1.CPP.RULE
+setlocal
+cd D:\Workspace\onstage_with_chatgpt_9
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+D:\Workspace\onstage_with_chatgpt_9\build\JUCE\tools\extras\Build\juceaide\juceaide_artefacts\Custom\juceaide.exe binarydata BinaryData BinaryData.h D:/Workspace/onstage_with_chatgpt_9/build/juce_binarydata_OnStageAssets/JuceLibraryCode D:/Workspace/onstage_with_chatgpt_9/build/juce_binarydata_OnStageAssets/JuceLibraryCode/input_file_list
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\WORKSPACE\ONSTAGE_WITH_CHATGPT_9\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Workspace/onstage_with_chatgpt_9 -BD:/Workspace/onstage_with_chatgpt_9/build --check-stamp-file D:/Workspace/onstage_with_chatgpt_9/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

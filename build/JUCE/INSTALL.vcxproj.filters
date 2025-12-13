@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Workspace\onstage_with_chatgpt_9\build\CMakeFiles\77dc01a622880658e0fe45a23cbc6069\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{58B3E83C-D678-3C78-A738-BF0F4C4E7F5B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

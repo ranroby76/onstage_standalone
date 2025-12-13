@@ -1,0 +1,3 @@
+[submodule "FFmpegVideoComponent"]
+	path = FFmpegVideoComponent
+	url = https://github.com/Cle3000/FFmpegVideoComponent-for-JUCE.git

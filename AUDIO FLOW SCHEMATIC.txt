@@ -1,0 +1,96 @@
+Here’s a detailed **text-based audio signal flow document** describing the schematic you provided:
+
+---
+
+# 🎛️ OnStage Vocal + Backing Audio Flow
+
+*(Flowstone schematic interpretation – based on “Screenshot_11.jpg”)*
+
+---
+
+## 🔹 1. Input Stage
+
+### MIC 1 and MIC 2
+
+* Each mic input passes through its own **EQ** and **Compressor** module.
+* Both EQs shape tonal balance (HPF, presence boost, low-cut, etc.).
+* The compressors control vocal dynamics individually before any global effects.
+
+---
+
+## 🔹 2. Vocal FX Chain
+
+After the per-mic compressors, both signals feed a shared **FX processing chain**:
+
+1. **Harmonizer** – Adds pitch-shifted harmonies or doubling.
+2. **Reverb** – Adds spatial ambience; stereo wet mix output.
+3. **Delay** – Provides echo/repeat effect.
+
+All three modules output to a **side-chain stage** for controlled ducking relative to the backing track.
+
+---
+
+## 🔹 3. Backing Sources
+
+### a. Media Player
+
+* Plays the main backing track or audio media file.
+* Has its own **Media Volume** control before entering the master bus.
+
+### b. “6 Backing Track Inputs with L/R Option”
+
+* Accepts up to six separate stereo inputs (e.g., stems or multitrack playback).
+* Each track can be summed or routed left/right individually.
+* These signals also go toward the **side-chain compressor** for ducking interaction.
+
+---
+
+## 🔹 4. Side-Chaining and Dynamics Control
+
+### Side-Chaining Compressor
+
+* **Audio Inputs (blue)**: receive the combined processed vocal signal (post-delay).
+* **Side-chain Inputs (green)**: receive signal from Media Player + Backing Tracks.
+* Function: lowers the vocal FX output level when backing audio is strong — maintaining vocal clarity.
+* Output of this compressor continues to the **Master Bus**.
+
+---
+
+## 🔹 5. Master Section
+
+### Master Bus
+
+* Combines all processed signals (vocals, harmonized FX, media/backing).
+* Provides final **Recording Level** control.
+* Sends parallel feeds to:
+
+  * **Main Out** (for live PA or speakers)
+  * **Audio Meters** (for monitoring)
+  * **Recorder** (for capturing the final mix)
+
+---
+
+## 🔹 6. Monitoring & Output
+
+* **Main Out** → System audio output / live monitoring chain.
+* **Audio Meters** → Real-time visual metering of output levels.
+* **Recorder** → Captures post-master mix for storage or broadcast.
+
+---
+
+## 🔹 7. Signal Flow Summary
+
+**MIC 1/2 → EQ → Compressor → (merge) → Harmonizer → Reverb → Delay → Side-Chaining Compressor → Master Bus → Main Out / Meters / Recorder**
+
+**MEDIA PLAYER + BACKING TRACKS → (Side-chain inputs to Compressor) → Master Bus → Main Out / Meters / Recorder**
+
+---
+
+## 🔹 8. Functional Overview
+
+* **Blue paths** = primary audio routing.
+* **Green paths** = side-chain control lines.
+* **Goal:** Vocal signal is dynamically balanced against the backing tracks via side-chain compression while passing through tonal and spatial processing before final output.
+
+---
+

@@ -1,0 +1,989 @@
+continuing the development of onstage, juce karaoke app. please read the attached files, learn the project and verify you understand it. 
+
+------------------------------------------------------------------
+
+root folder is juce 8 is located at D:\Workspace\onstage_with_chatgpt_9
+
+juce 8 is located at D:\Workspace\JUCE
+
+vlc library located at D:\Workspace\onstage_with_chatgpt_9\vlc-3.0.21
+
+asio sdk is located at D:\Workspace\ASIOSDK
+
+assets are located at D:\Workspace\onstage_with_chatgpt_9\assets 
+
+resources.rc located at D:\Workspace\onstage_with_chatgpt_9
+
+icon.ico located at D:\Workspace\onstage_with_chatgpt_9
+
+ASIO sample rate and buffer is externally controlled by the user's audio interface
+
+-----------------------------------------------------------
+
+always print full fixed files, always mark full file paths for fixes, always works step by step without flooding, create summary documents only when i tell you to, avoid of long summaries, guides and references documents after fixes, unless i told you to do it. never hesitate to ask any file reference or file location when needed. always print all full files and add the full path title on each by using plain text (very important!)
+
+
+---------------------------------------------------------------
+working with juce 8
+---------------------
+JuceHeader.h is a convenience header that JUCE's Projucer tool automatically generates. It includes ALL JUCE modules at once. When you bypass juce_add_gui_app() and build manually, this file doesn't exist. do not create guides and summaries or any extra text file, unless i've asked for them.
+
+What I Fixed:
+1. Replaced the "magic include"
+cpp
+// BEFORE (broken):
+#include "JuceHeader.h"
+
+// AFTER (fixed):
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_devices/juce_audio_devices.h>
+// ... etc for each module needed
+2. Told CMake which modules we're using
+cmake
+target_compile_definitions(OnStage
+    PRIVATE
+        JUCE_MODULE_AVAILABLE_juce_audio_basics=1
+        JUCE_MODULE_AVAILABLE_juce_audio_devices=1
+        # ... etc
+)
+Why This Works:
+Manual control: Instead of one "magic" header, we explicitly include only what we need
+
+No Projucer dependency: We don't rely on JUCE's project generation tool
+
+CMake knows exactly which modules to build and link
+
+In short: We went from "include everything automatically" to "include only what we explicitly declare" - giving us full control over the build process.
+
+----------------------------------------------------------------------------------------------
+
+# 🎛️ OnStage - Complete Project Summary & Documentation
+
+---
+
+## 📋 Table of Contents
+1. [Project Goals](#project-goals)
+2. [Detailed Project Structure](#detailed-project-structure)
+3. [Development Guidelines & Rules](#development-guidelines--rules)
+4. [What We've Achieved So Far](#what-weve-achieved-so-far)
+5. [What's Left to Achieve](#whats-left-to-achieve)
+
+---
+
+## 🎯 Project Goals
+
+### Primary Objective
+Build a professional live performance audio application called **OnStage** for Windows, designed for live vocal performances with backing tracks.
+
+### Core Requirements
+
+#### Audio Routing
+- **2 Microphone Inputs** with independent processing chains
+- **Backing Track Playback** from MP3/WAV files via FFmpeg
+- **6 inputs Backing track option from available user's inputs
+- **Real-time Monitoring** with low latency
+- **Flexible Output Routing** to stereo or multi-channel audio interfaces
+
+#### Vocal Processing (Per Microphone)
+1. **Pre-Amp Gain** (-20dB to +20dB)
+2. **3-Band Parametric EQ** with dual-handle frequency selector
+3. **Compressor** with full dynamics control
+4. **Harmonizer** for pitch shifting and vocal harmony
+5. **Convolution Reverb** with impulse response loading
+6. **Stereo Delay** with tempo sync and feedback
+7. **Dynamic EQ** with sidechain from backing track
+
+#### User Interface
+- **Modern Dark Theme** with golden accents (#D4AF37)
+- **3 Main Pages:** I/O Setup, Vocals (effects), Backing Track
+- **Tabbed Interface** for vocal effects (6 tabs)
+- **Real-time Meters** for input/output levels
+- **Professional Styling** with custom golden sliders
+- **Dual Panel Layout** for per-mic effects (EQ, Compressor)
+
+#### Technical Requirements
+- **Framework:** JUCE 8.x
+- **Build System:** CMake
+- **Target Platform:** Windows 10/11
+- **Audio Backend:** WASAPI
+- **File Handling:** FFmpeg for MP3/WAV decoding
+- **Real-time Processing:** Low-latency DSP chain
+
+---
+
+## 🏗️ Detailed Project Structure
+
+### Directory Layout
+
+```
+onstage with chatgpt_3/
+├── CMakeLists.txt                 # Main CMake build configuration
+├── JUCE/                          # JUCE framework (submodule)
+├── ffmpeg/                        # FFmpeg libraries
+│   ├── bin/
+│   ├── include/
+│   └── lib/
+├── assets/                        # Images and resources
+│   ├── background.jpg
+│   ├── logo.png
+│   └── icons/
+├── src/                           # Source code
+│   ├── App.cpp                    # Application entry point
+│   ├── AudioEngine.h              # Core audio processing engine
+│   ├── AudioEngine.cpp
+│   │
+│   ├── dsp/                       # DSP Processors
+│   │   ├── EQProcessor.h          # 3-band parametric EQ
+│   │   ├── EQProcessor.cpp
+│   │   ├── CompressorProcessor.h  # Dynamics compressor
+│   │   ├── CompressorProcessor.cpp
+│   │   ├── HarmonizerProcessor.h  # Pitch shift & harmony
+│   │   ├── HarmonizerProcessor.cpp
+│   │   ├── ReverbProcessor.h      # Convolution reverb
+│   │   ├── ReverbProcessor.cpp
+│   │   ├── DelayProcessor.h       # Stereo delay
+│   │   ├── DelayProcessor.cpp
+│   │   ├── DynamicEQProcessor.h   # Sidechain dynamic EQ
+│   │   └── DynamicEQProcessor.cpp
+│   │
+│   ├── audio/                     # Audio File Handling
+│   │   ├── FFmpegAudioSource.h    # MP3/WAV decoder
+│   │   └── FFmpegAudioSource.cpp
+│   │
+│   └── UI/                        # User Interface Components
+│       ├── MainComponent.h        # Root UI component
+│       ├── MainComponent.cpp
+│       ├── HeaderBar.h            # Top navigation bar
+│       ├── HeaderBar.cpp
+│       ├── IOPage.h               # I/O setup page
+│       ├── IOPage.cpp
+│       ├── VocalsPage.h           # Vocals effects page (6 tabs)
+│       ├── VocalsPage.cpp
+│       ├── BackingTrackPage.h     # Backing track player
+│       ├── BackingTrackPage.cpp
+│       ├── StyledSlider.h         # Custom golden slider
+│       ├── DualHandleSlider.h     # Dual-handle frequency selector
+│       ├── EQPanel.h              # 3-band EQ UI
+│       ├── EQPanel.cpp
+│       ├── CompressorPanel.h      # Compressor UI
+│       ├── HarmonizerPanel.h      # Harmonizer UI
+│       ├── ReverbPanel.h          # Reverb UI
+│       ├── DelayPanel.h           # Delay UI
+│       └── DynamicEQPanel.h       # Dynamic EQ UI
+│
+└── build/                         # Build output directory
+    └── bin/Release/OnStage.exe    # Compiled application
+```
+
+---
+
+## 📜 Development Guidelines & Rules
+
+### Code Delivery Standards
+
+**From the initial project requirements:**
+
+> *"well it compiled and working! but partly. first remark: mic 1 is flowing somehow into mic 2 and creates double voice while the second voice sounds distorted completely. 2nd. , about the the eq, it works. but i want to make changes: i want to move to 3 bands eq. it will have q slider for each band, but the frequency selector will be one slider for all 3 bands which will have 2 handles! the left handle will determine the low band frequency while the right will determine the high band frequency. the mid range will be between them. now the 3 bands gain and q sliders will sit each near the other in horizional formation (at the left the lows gain and above the gain the q slider, at the middle the middle gain and above it it's q and at the right the highs gain and above it it's q. under them, there will be placed the 2 handles global band selector. i also wanna see the vocals tab already divided into 6 tabs, tab for each effect."*
+
+> *"great. always remark the folder path of shared fixed files (e.g src\ui\delaypanel) in the download section of your comments"*
+
+### Mandatory Guidelines
+
+1. **Always Provide Full File Contents**
+   - Never provide partial code snippets
+   - Always include complete, compilable files
+   - Include all necessary #include directives
+   - Include all class members and methods
+
+2. **Always Specify Full File Paths**
+   - Format: `[**FileName.ext**](link) → **src/folder/FileName.ext**`
+   - Example: `[**EQPanel.cpp**](link) → **src/UI/EQPanel.cpp**`
+   - Use backslashes for Windows: `src\UI\EQPanel.cpp`
+   - Be explicit about folder structure
+
+3. **Organized Download Sections**
+   - Separate **NEW files** from **REPLACE files**
+   - Use clear symbols: ✨ (new), ⚠️ (replace)
+   - Group files by category (Engine, DSP, UI)
+   - Always include full folder paths
+
+4. **Clear Build Instructions**
+   - Specify when clean build is needed vs regular build
+   - Provide exact CMake commands
+   - Include expected output/success indicators
+   - List common errors and solutions
+
+5. **Testing Checklists**
+   - Provide clear "what to expect" sections
+   - Include interaction testing steps
+   - List all features to verify
+   - Describe visual appearance details
+
+### Example Format
+
+```markdown
+## 📥 Download All Files:
+
+### 🆕 NEW Files (Add):
+1. [**CompressorPanel.h**](link) → **src/UI/CompressorPanel.h** ✨
+2. [**DualHandleSlider.h**](link) → **src/UI/DualHandleSlider.h** ✨
+
+### 🔄 REPLACE Files:
+3. [**AudioEngine.cpp**](link) → **src/AudioEngine.cpp** ⚠️
+4. [**VocalsPage.cpp**](link) → **src/UI/VocalsPage.cpp** ⚠️
+
+### 🔨 Build:
+```batch
+cd "C:\Users\ranro\Workspace\onstage with chatgpt_3"
+cmake --build build --config Release
+build\bin\Release\OnStage.exe
+```
+```
+
+---
+
+## ✅ What We've Achieved So Far
+
+### Phase 1: Project Foundation ✅ COMPLETE
+- [x] JUCE 8.x project structure with CMake
+- [x] Basic audio device management (WASAPI)
+- [x] 3-page UI structure (I/O, Vocals, Backing Track)
+- [x] Custom golden slider styling (#D4AF37)
+- [x] Dark theme UI (#1A1A1A background)
+- [x] Header navigation bar with page switching
+- [x] Background image integration
+- [x] FFmpeg integration for MP3/WAV playback
+
+### Phase 2A: I/O Page ✅ COMPLETE
+- [x] Audio interface selection dropdowns
+- [x] Input device configuration
+- [x] Output device configuration
+- [x] Sample rate display
+- [x] Output channel routing configuration
+- [x] Real-time device status monitoring
+- [x] Device connection handling
+
+### Phase 2B: Audio Engine Core ✅ COMPLETE
+- [x] Dual microphone input processing
+- [x] Independent processing chains per mic
+- [x] Fixed mic crosstalk issue (separate EQ processors)
+- [x] Real-time audio callback implementation
+- [x] Mute controls per microphone
+- [x] FX bypass functionality
+- [x] Level metering per microphone
+- [x] Pre-amp gain control (-20dB to +20dB per mic)
+
+### Phase 3: 3-Band Parametric EQ ✅ COMPLETE
+- [x] 3-band EQ (Low Shelf, Mid Peak, High Shelf)
+- [x] Dual-handle frequency selector
+  - [x] Left handle: Low/Mid crossover (20-2000 Hz)
+  - [x] Right handle: Mid/High crossover (1000-20kHz)
+  - [x] Color-coded sections (Blue/Green/Red)
+  - [x] Logarithmic frequency scale
+  - [x] Golden circular handles
+  - [x] Frequency labels
+- [x] Per-band controls:
+  - [x] Gain slider (-12dB to +12dB)
+  - [x] Q slider (0.1 to 10)
+- [x] Horizontal layout (Low, Mid, High columns)
+- [x] Separate EQ instance per microphone
+- [x] Real-time audio processing
+
+### Phase 4: Tabbed Vocals Interface ✅ COMPLETE
+- [x] 6-tab layout in Vocals page
+  - [x] EQ tab
+  - [x] Compressor tab
+  - [x] Harmonizer tab
+  - [x] Reverb tab
+  - [x] Delay tab
+  - [x] Dynamic EQ tab
+- [x] Pre-amp gain sliders above tabs (Mic 1 & Mic 2)
+- [x] Dual panel layout for EQ tab (one panel per mic)
+- [x] Dual panel layout for Compressor tab (one panel per mic)
+- [x] Single panel layout for time-based effects (shared)
+- [x] Golden accent on active tab
+- [x] Tab switching functionality
+- [x] Proper component lifecycle management
+
+### Phase 5: UI Components ✅ COMPLETE
+- [x] StyledSlider with golden theme
+- [x] DualHandleSlider for frequency selection
+- [x] EQPanel with 3-band layout
+- [x] CompressorPanel (placeholder)
+- [x] HarmonizerPanel (placeholder)
+- [x] ReverbPanel (placeholder)
+- [x] DelayPanel (placeholder)
+- [x] DynamicEQPanel (placeholder)
+
+### Current System Status
+
+**Working Features:**
+- ✅ Audio I/O setup and configuration
+- ✅ Dual microphone input processing
+- ✅ Pre-amp gain control per mic
+- ✅ 3-band parametric EQ per mic with dual-handle selector
+- ✅ Real-time audio processing
+- ✅ Level metering
+- ✅ Mute controls
+- ✅ 6-tab interface with proper layout
+- ✅ Professional UI styling
+
+**Known Issues:**
+- None currently! System is stable.
+
+---
+
+## 🚀 What's Left to Achieve
+
+### Phase 6: Compressor Implementation 🔜 NEXT
+**Priority: HIGH**
+
+#### Features to Implement:
+- [ ] **Threshold Control** (-60dB to 0dB)
+- [ ] **Ratio Control** (1:1 to 20:1)
+- [ ] **Attack Time** (0.1ms to 100ms)
+- [ ] **Release Time** (10ms to 1000ms)
+- [ ] **Knee Control** (Hard/Soft, 0dB to 12dB)
+- [ ] **Makeup Gain** (0dB to +24dB)
+- [ ] **Auto Makeup Gain** toggle
+- [ ] **Gain Reduction Meter** (real-time visualization)
+- [ ] **Sidechain HPF** (removes low frequencies from detection)
+- [ ] Separate compressor per mic (already in AudioEngine)
+
+#### UI Layout:
+```
+┌─────────────────────────────────────┐
+│ Mic 1 - Compressor                  │
+├─────────────────────────────────────┤
+│ Threshold: [●══════] -20 dB         │
+│ Ratio:     [●══════] 4:1            │
+│ Attack:    [●══════] 5 ms           │
+│ Release:   [●══════] 50 ms          │
+│ Knee:      [●══════] 3 dB           │
+│ Makeup:    [●══════] +6 dB          │
+│ [✓] Auto Makeup                     │
+│                                     │
+│ GR Meter: [━━━━━━━━━━] -6 dB       │
+└─────────────────────────────────────┘
+```
+
+#### Technical Approach:
+- Use `juce::dsp::Compressor<float>` as base
+- Add custom envelope follower for GR metering
+- Implement RMS/Peak detection modes
+- Add lookahead buffer for improved transient handling
+
+---
+
+### Phase 7: Harmonizer Implementation 🔜
+**Priority: MEDIUM**
+
+#### Features to Implement:
+- [ ] **Pitch Shift** (-12 to +12 semitones)
+- [ ] **Harmony Voice 1** with interval selector
+- [ ] **Harmony Voice 2** with interval selector
+- [ ] **Mix Control** (Dry/Wet per voice)
+- [ ] **Formant Preservation** toggle
+- [ ] **Key/Scale Selection** for intelligent harmonies
+- [ ] **Voice Pan** (L/C/R positioning)
+
+#### Harmony Presets:
+- [ ] Unison (slight detune)
+- [ ] Octave Up/Down
+- [ ] Perfect 5th
+- [ ] Major/Minor 3rd
+- [ ] Full chord (triad)
+- [ ] Custom intervals
+
+#### Technical Approach:
+- Use pitch detection (autocorrelation or YIN algorithm)
+- Implement phase vocoder for pitch shifting
+- PSOLA (Pitch Synchronous Overlap-Add) for formant preservation
+- Real-time latency < 20ms
+
+---
+
+### Phase 8: Convolution Reverb Implementation 🔜
+**Priority: MEDIUM**
+
+#### Features to Implement:
+- [ ] **IR (Impulse Response) Loading** from WAV files
+- [ ] **Pre-delay** (0ms to 500ms)
+- [ ] **Decay Time** adjustment
+- [ ] **Pre-EQ** (HPF/LPF on input)
+- [ ] **Wet/Dry Mix** control
+- [ ] **Width** (stereo spread)
+- [ ] **Reverb Level** per frequency band
+- [ ] **IR Library Browser** with presets
+
+#### IR Categories:
+- [ ] Concert Halls
+- [ ] Cathedrals/Churches
+- [ ] Studios
+- [ ] Rooms (Small/Medium/Large)
+- [ ] Plates
+- [ ] Springs
+- [ ] Custom user IRs
+
+#### Technical Approach:
+- Use `juce::dsp::Convolution` engine
+- Implement IR trimming and normalization
+- Zero-latency mode for live use
+- Partitioned convolution for efficiency
+
+---
+
+### Phase 9: Stereo Delay Implementation 🔜
+**Priority: MEDIUM**
+
+#### Features to Implement:
+- [ ] **Delay Time** (0ms to 2000ms) per channel
+- [ ] **Tempo Sync** (1/4, 1/8, 1/16, dotted, triplet)
+- [ ] **Feedback** (0% to 100%)
+- [ ] **Cross-Feedback** (L→R, R→L)
+- [ ] **Stereo Width** control
+- [ ] **HPF/LPF** in feedback loop
+- [ ] **Wet/Dry Mix** control
+- [ ] **Ping-Pong Mode** toggle
+- [ ] **Tap Tempo** button
+
+#### Technical Approach:
+- Circular buffer implementation
+- Interpolated delay line for smooth time changes
+- Separate L/R delay lines
+- Damping filter in feedback path
+
+---
+
+### Phase 10: Dynamic EQ (Sidechain) Implementation 🔜
+**Priority: LOW**
+
+#### Features to Implement:
+- [ ] **Sidechain Input** from backing track
+- [ ] **4-Band Dynamic EQ** 
+- [ ] **Per-Band Controls:**
+  - [ ] Frequency (20Hz to 20kHz)
+  - [ ] Q factor
+  - [ ] Threshold
+  - [ ] Attack/Release
+  - [ ] Gain reduction amount
+- [ ] **Frequency Visualization** with real-time response
+- [ ] **Solo Mode** per band
+- [ ] **Bypass** per band
+
+#### Use Cases:
+- Duck vocals when backing track gets loud
+- Reduce vocal low-mids when bass hits
+- Adaptive de-essing
+- Intelligent frequency carving
+
+#### Technical Approach:
+- FFT-based frequency analysis of sidechain
+- Multi-band envelope follower
+- Dynamic filter coefficient calculation
+- Real-time spectrum visualization
+
+---
+
+### Phase 11: Backing Track Player 🔜
+**Priority: MEDIUM**
+
+#### Features to Implement:
+- [ ] **File Browser** for MP3/WAV selection
+- [ ] **Waveform Display** with playback position
+- [ ] **Transport Controls** (Play, Pause, Stop, Loop)
+- [ ] **Pitch Control** (-12 to +12 semitones)
+- [ ] **Tempo Control** (50% to 200%) with pitch preservation
+- [ ] **Volume Control** with metering
+- [ ] **AB Loop** markers
+- [ ] **Playlist Management**
+- [ ] **Cue Points** for quick navigation
+- [ ] **BPM Detection** and display
+- [ ] **Key Detection** and display
+
+#### Technical Approach:
+- Already have FFmpegAudioSource for decoding
+- Add time-stretching (RubberBand or similar)
+- Implement waveform rendering
+- Add transport state machine
+
+---
+
+### Phase 12: Performance & Optimization 🔜
+**Priority: LOW (Post-Feature)**
+
+#### Optimizations:
+- [ ] SIMD optimization for DSP (SSE/AVX)
+- [ ] Multi-threading for non-real-time tasks
+- [ ] Buffer size optimization
+- [ ] Memory pool for DSP buffers
+- [ ] CPU usage monitoring and display
+- [ ] Latency compensation throughout chain
+- [ ] Zero-copy audio routing where possible
+
+---
+
+### Phase 13: Presets & Session Management 🔜
+**Priority: LOW**
+
+#### Features:
+- [ ] **Save/Load Presets** per effect
+- [ ] **Save/Load Sessions** (entire application state)
+- [ ] **Preset Browser** with categories
+- [ ] **A/B Comparison** mode
+- [ ] **Default Preset** on startup
+- [ ] **Auto-Save** functionality
+- [ ] **Import/Export Presets** (XML/JSON)
+
+---
+
+### Phase 14: Advanced Features (Future) 🔮
+**Priority: VERY LOW (Nice to Have)**
+
+- [ ] MIDI control surface support
+- [ ] OSC (Open Sound Control) support
+- [ ] Recording functionality (capture performance)
+- [ ] Spectrum analyzer display
+- [ ] Stereo correlator meter
+- [ ] Integrated tuner
+- [ ] Metronome with visual indicator
+- [ ] Lyrics display synchronized with backing track
+- [ ] Multiple skin/theme options
+- [ ] Multi-language support
+- [ ] Plugin hosting (VST3) for third-party effects
+- [ ] Cloud preset sharing
+
+---
+
+## 📊 Progress Summary
+
+### Overall Completion: ~35%
+
+| Component | Status | Progress |
+|-----------|--------|----------|
+| **Core Audio Engine** | ✅ Complete | 100% |
+| **I/O Configuration** | ✅ Complete | 100% |
+| **UI Framework** | ✅ Complete | 100% |
+| **Pre-Amp Gains** | ✅ Complete | 100% |
+| **3-Band EQ** | ✅ Complete | 100% |
+| **Compressor** | 🔜 Next | 0% |
+| **Harmonizer** | 📅 Planned | 0% |
+| **Reverb** | 📅 Planned | 0% |
+| **Delay** | 📅 Planned | 0% |
+| **Dynamic EQ** | 📅 Planned | 0% |
+| **Backing Track Player** | 📅 Planned | 0% |
+| **Presets/Sessions** | 📅 Planned | 0% |
+
+---
+
+## 🎯 Immediate Next Steps
+
+### 1. Test Current Build ✅
+- Verify all 6 tabs are visible
+- Test pre-amp gain controls
+- Test dual EQ panels (one per mic)
+- Confirm no audio crosstalk
+- Verify dual-handle frequency selector works
+
+### 2. Implement Compressor (Next Priority)
+- Design CompressorPanel UI
+- Wire to existing dsp::Compressor in AudioEngine
+- Add gain reduction metering
+- Implement auto makeup gain
+- Test with both mics independently
+
+### 3. Continue Through Effects List
+- One effect at a time
+- Test thoroughly before moving to next
+- Maintain dual-panel approach for per-mic effects
+- Keep single-panel approach for time-based shared effects
+
+---
+
+## 📝 Development Notes
+
+### Build Environment
+- **IDE:** Visual Studio 2022
+- **CMake:** 3.20+
+- **JUCE:** 8.0.4
+- **FFmpeg:** 7.x
+- **Compiler:** MSVC 19.4+
+
+### Git Workflow (If Using)
+```bash
+# Main branch for stable releases
+git checkout main
+
+# Feature branches for development
+git checkout -b feature/compressor-implementation
+# ... develop ...
+git commit -m "Add compressor with gain reduction metering"
+git checkout main
+git merge feature/compressor-implementation
+```
+
+### Testing Checklist Template
+For each new feature:
+- [ ] Compiles without errors/warnings
+- [ ] UI appears correctly
+- [ ] Controls respond to interaction
+- [ ] Audio processing works in real-time
+- [ ] No crashes or audio glitches
+- [ ] CPU usage is acceptable (<30% on modern CPU)
+- [ ] Memory usage is stable (no leaks)
+- [ ] Works with both mics independently
+- [ ] Proper state save/restore (future)
+
+---
+
+## 🎊 Conclusion
+
+**OnStage** is shaping up to be a professional-grade live vocal processing application. We've successfully built the foundation (audio engine, I/O, UI framework) and completed the first major effect (3-band parametric EQ with innovative dual-handle frequency selector).
+
+**Current State:** Fully functional dual-mic input with independent EQ processing, pre-amp controls, and a complete 6-tab interface ready for additional effects.
+
+**Next Milestone:** Implement the compressor to give performers complete dynamic control over their vocals.
+
+**Long-term Vision:** A comprehensive live performance tool that rivals commercial solutions, with unique features like the dual-handle EQ selector and intelligent dynamic EQ sidechaining from backing tracks.
+
+---
+
+**Document Version:** 1.0  
+**Last Updated:** October 24, 2025  
+**Project Status:** Active Development  
+**Completion:** ~35%
+
+---
+
+## 📞 Quick Reference
+
+### Build Commands
+```batch
+# Regular build
+cmake --build build --config Release
+
+# Clean build (when adding new files)
+rmdir /s /q build
+cmake -B build -G "Visual Studio 17 2022"
+cmake --build build --config Release
+
+# Run
+build\bin\Release\OnStage.exe
+```
+
+### File Locations Quick Reference
+- Audio Engine: `src/AudioEngine.h`, `src/AudioEngine.cpp`
+- DSP Processors: `src/dsp/*.h`, `src/dsp/*.cpp`
+- UI Components: `src/UI/*.h`, `src/UI/*.cpp`
+- Main Component: `src/UI/MainComponent.h`, `src/UI/MainComponent.cpp`
+- EQ Panel: `src/UI/EQPanel.h`, `src/UI/EQPanel.cpp`
+- Vocals Page: `src/UI/VocalsPage.h`, `src/UI/VocalsPage.cpp`
+
+### Key Classes
+- `AudioEngine` - Core audio processing
+- `EQProcessor` - 3-band parametric EQ
+- `MainComponent` - Root UI component
+- `VocalsPage` - 6-tab effects interface
+- `EQPanel` - EQ UI with dual-handle selector
+- `StyledSlider` - Golden-themed slider
+- `DualHandleSlider` - Dual-handle frequency selector
+
+---
+
+*This document serves as the single source of truth for the OnStage project. Keep it updated as development progresses!*
+
+# 🎛️ OnStage - Quick Reference Card
+
+---
+
+## 🎯 Project at a Glance
+
+**Name:** OnStage  
+**Type:** Live Vocal Performance Application  
+**Platform:** Windows 10/11  
+**Framework:** JUCE 8.x  
+**Status:** ~35% Complete (Foundation + EQ Done)  
+**Next:** Compressor Implementation  
+
+---
+
+## 📂 File Structure Cheat Sheet
+
+```
+src/
+├── AudioEngine.h/cpp           # Core audio processing
+├── dsp/
+│   ├── EQProcessor.h/cpp       # ✅ 3-band EQ (DONE)
+│   ├── CompressorProcessor.h   # 🔜 Next priority
+│   ├── HarmonizerProcessor.h   # 📅 Planned
+│   ├── ReverbProcessor.h       # 📅 Planned
+│   ├── DelayProcessor.h        # 📅 Planned
+│   └── DynamicEQProcessor.h    # 📅 Planned
+└── UI/
+    ├── MainComponent.h/cpp     # Root UI
+    ├── VocalsPage.h/cpp        # ✅ 6-tab interface (DONE)
+    ├── EQPanel.h/cpp           # ✅ 3-band EQ UI (DONE)
+    ├── DualHandleSlider.h      # ✅ Frequency selector (DONE)
+    ├── CompressorPanel.h       # 🔜 Placeholder (needs impl)
+    ├── HarmonizerPanel.h       # 📅 Placeholder
+    ├── ReverbPanel.h           # 📅 Placeholder
+    ├── DelayPanel.h            # 📅 Placeholder
+    └── DynamicEQPanel.h        # 📅 Placeholder
+```
+
+---
+
+## ⚡ Build Commands
+
+```batch
+# Regular build (most cases)
+cd "C:\Users\ranro\Workspace\onstage with chatgpt_3"
+cmake --build build --config Release
+build\bin\Release\OnStage.exe
+
+# Clean build (when adding NEW files or major changes)
+rmdir /s /q build
+cmake -B build -G "Visual Studio 17 2022"
+cmake --build build --config Release
+build\bin\Release\OnStage.exe
+```
+
+---
+
+## 📋 Development Rules (ALWAYS FOLLOW!)
+
+### ✅ Code Delivery
+- ✅ Always provide FULL file contents (never snippets)
+- ✅ Always specify folder paths: `src/UI/FileName.cpp`
+- ✅ Mark NEW files with ✨ and REPLACE files with ⚠️
+- ✅ Include complete download section with paths
+
+### 📥 Download Format
+```markdown
+## 📥 Download Files:
+
+### 🆕 NEW Files:
+1. [**File.h**](link) → **src/folder/File.h** ✨
+
+### 🔄 REPLACE Files:
+2. [**File.cpp**](link) → **src/folder/File.cpp** ⚠️
+```
+
+---
+
+## ✅ What's Working Right Now
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Audio I/O | ✅ | Device selection, routing |
+| 2 Mic Inputs | ✅ | Independent processing |
+| Pre-Amp Gains | ✅ | -20dB to +20dB per mic |
+| 3-Band EQ | ✅ | Dual-handle selector, per-mic |
+| 6-Tab UI | ✅ | EQ, Comp, Harm, Rev, Delay, DynEQ |
+| Dual Panels | ✅ | Side-by-side for EQ/Compressor |
+| Golden Styling | ✅ | Professional dark theme |
+| Level Meters | ✅ | Per-mic metering |
+| Mute Controls | ✅ | Per-mic mute |
+
+---
+
+## 🔜 Priority Order
+
+1. **Compressor** 🔥 (Next - HIGH priority)
+2. **Backing Track Player** (File loading, playback)
+3. **Harmonizer** (Pitch shift + harmony)
+4. **Reverb** (Convolution with IR loading)
+5. **Delay** (Stereo delay with sync)
+6. **Dynamic EQ** (Sidechain from backing track)
+7. **Presets/Sessions** (Save/load state)
+
+---
+
+## 🎨 UI Layout Reference
+
+### Vocals Page Structure:
+```
+┌─────────────────────────────────────────┐
+│ Pre-Amp Gains                           │
+│ Mic 1 [●══] 0dB    Mic 2 [●══] 0dB     │
+├─────────────────────────────────────────┤
+│ [EQ][Comp][Harm][Rev][Delay][DynEQ]    │
+│ ═══                                     │
+├─────────────────────────────────────────┤
+│ ┌─────────────┐  ┌─────────────┐       │
+│ │ MIC 1 - EQ  │  │ MIC 2 - EQ  │       │
+│ │ LOW MID HIGH│  │ LOW MID HIGH│       │
+│ └─────────────┘  └─────────────┘       │
+└─────────────────────────────────────────┘
+```
+
+### EQ Panel (Per Mic):
+```
+┌────────────────────────────┐
+│    3-Band Parametric EQ    │
+├────────────────────────────┤
+│  LOW     MID     HIGH      │
+│  Q[●]    Q[●]    Q[●]      │
+│  Gain[●] Gain[●] Gain[●]   │
+│                            │
+│  [🔵●=====🟢=====●🔴]      │
+│   300Hz          3kHz      │
+└────────────────────────────┘
+```
+
+---
+
+## 🐛 Common Issues & Fixes
+
+### Build Error: "Cannot open include file"
+→ Check file paths are correct  
+→ Do clean build if adding new files
+
+### Build Error: "Identifier not found"
+→ Check namespace (might need `juce::`)  
+→ Check #include directives
+
+### Audio Crosstalk
+→ FIXED! Each mic has own EQ processor
+
+### UI Not Showing
+→ Check `addAndMakeVisible()` calls  
+→ Check `resized()` method layout
+
+---
+
+## 🎯 Key Design Patterns
+
+### Dual Processing (Per-Mic)
+```cpp
+EQProcessor eqProcessor[2];  // One per mic
+eqProcessor[0].process(...); // Mic 1
+eqProcessor[1].process(...); // Mic 2
+```
+
+### Pre-Amp Gain Application
+```cpp
+float preampGain = Decibels::decibelsToGain(micPreampGain[micIdx]);
+workBuffer.applyGain(preampGain);
+// Then apply effects chain
+```
+
+### Dual Panel Layout
+```cpp
+class DualPanelTab : public Component {
+    void resized() override {
+        auto area = getLocalBounds();
+        int half = area.getWidth() / 2;
+        leftPanel->setBounds(area.removeFromLeft(half));
+        rightPanel->setBounds(area);
+    }
+};
+```
+
+---
+
+## 🎨 Color Scheme
+
+- **Background:** `#1A1A1A` (dark gray)
+- **Golden Accent:** `#D4AF37` (primary highlight)
+- **Panel Background:** `#2A2A2A` (lighter dark)
+- **Border:** `#404040` (subtle outline)
+- **Text:** `#FFFFFF` (white)
+- **EQ Low Band:** `#4A90E2` (blue)
+- **EQ Mid Band:** `#7ED321` (green)
+- **EQ High Band:** `#D0021B` (red)
+
+---
+
+## 📊 Project Stats
+
+- **Lines of Code:** ~5,000+
+- **Source Files:** ~30
+- **Header Files:** ~30
+- **DSP Processors:** 6 (1 complete, 5 planned)
+- **UI Components:** 15+
+- **Completion:** 35%
+
+---
+
+## 💡 Quick Tips
+
+1. **Always test with both mics** - ensure independence
+2. **Watch CPU usage** - audio apps must be efficient
+3. **Test at different buffer sizes** - 128, 256, 512 samples
+4. **Use Debug build** for development, Release for testing
+5. **Keep backups** of working versions before major changes
+6. **Test real-time** - don't just check if it compiles!
+
+---
+
+## 🚀 When Starting New Effect
+
+1. Read existing processor files for patterns
+2. Create processor class in `src/dsp/`
+3. Create panel class in `src/UI/`
+4. Wire processor to AudioEngine
+5. Wire panel to VocalsPage tab
+6. Test with real audio input
+7. Optimize if needed
+
+---
+
+## 📞 Critical File Locations
+
+| What | Where |
+|------|-------|
+| Audio callback | `AudioEngine.cpp` line ~67 |
+| EQ processor | `src/dsp/EQProcessor.cpp` |
+| Pre-amp gains | `AudioEngine.cpp` line ~109 |
+| Tab creation | `VocalsPage.cpp` setupTabbedComponent() |
+| EQ dual panels | `VocalsPage.cpp` createEQTab() |
+| Golden slider | `src/UI/StyledSlider.h` |
+| Dual-handle | `src/UI/DualHandleSlider.h` |
+
+---
+
+## ✅ Testing Checklist (Use for Each Feature)
+
+- [ ] Compiles without errors
+- [ ] UI looks correct
+- [ ] Controls respond to mouse
+- [ ] Audio processes in real-time
+- [ ] No audio dropouts/glitches
+- [ ] CPU usage < 30%
+- [ ] Works with both mics
+- [ ] Proper parameter ranges
+- [ ] Clean shutdown (no crashes)
+
+---
+
+## 📚 Useful JUCE Classes
+
+- `AudioIODevice` - Audio device management
+- `AudioBuffer<float>` - Audio data container
+- `dsp::ProcessSpec` - DSP configuration
+- `dsp::Compressor` - Built-in compressor
+- `dsp::IIR::Filter` - IIR filters
+- `TabbedComponent` - Tab container
+- `Slider` - Parameter control
+- `Label` - Text display
+- `Component` - Base UI class
+
+---
+
+## 🎊 Success Indicators
+
+You'll know it's working when:
+- ✅ Build completes with 0 errors
+- ✅ App launches without crashes
+- ✅ Audio flows through cleanly
+- ✅ UI responds smoothly
+- ✅ Parameters affect sound in real-time
+- ✅ Both mics work independently
+- ✅ No audio artifacts or glitches
+
+---
+
+*Keep this card handy for quick reference during development!*
+
+**Last Updated:** October 24, 2025

@@ -1,0 +1,410 @@
+
+
+[2 Dec 2025 17:25:53] [INFO] ========================================
+[2 Dec 2025 17:25:53] [INFO] OnStage Application Started
+[2 Dec 2025 17:25:53] [INFO] Log file: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows\onstage.log
+[2 Dec 2025 17:25:53] [INFO] Working directory: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows
+[2 Dec 2025 17:25:53] [INFO] ========================================
+[2 Dec 2025 17:25:53] [INFO] === OnStageApplication::initialise START ===
+[2 Dec 2025 17:25:53] [INFO] Creating MainWindow...
+[2 Dec 2025 17:25:53] [INFO] MainWindow constructor starting
+[2 Dec 2025 17:25:53] [INFO] Step 1: Setting native title bar
+[2 Dec 2025 17:25:53] [INFO] Step 2: Creating MainComponent...
+[2 Dec 2025 17:25:54] [INFO] === AudioEngine Constructor START ===
+[2 Dec 2025 17:25:54] [INFO] Step 1: Registering audio formats
+[2 Dec 2025 17:25:54] [INFO] Step 2: Enforcing OFF state (Closing Audio Device)...
+[2 Dec 2025 17:25:54] [INFO] Step 4: Adding audio callback
+[2 Dec 2025 17:25:54] [INFO] === AudioEngine Constructor COMPLETE (State: OFF) ===
+[2 Dec 2025 17:25:54] [INFO] === MainComponent Constructor START ===
+[2 Dec 2025 17:25:54] [INFO] Step 0a: Checking License...
+[2 Dec 2025 17:25:54] [INFO] Input Serial: 32888
+[2 Dec 2025 17:25:54] [INFO] License Status: REGISTERED (PRO MODE)
+[2 Dec 2025 17:25:54] [INFO] Step 0b: Allocating GoldenSliderLookAndFeel...
+[2 Dec 2025 17:25:54] [INFO] Step 0c: Setting LookAndFeel for Tabs...
+[2 Dec 2025 17:25:54] [INFO] Step 0d: Loading IO Settings from file...
+[2 Dec 2025 17:25:54] [INFO] IOSettingsManager: Loading settings from C:\Users\ranro\AppData\Roaming\OnStage\io_settings.json
+[2 Dec 2025 17:25:54] [INFO] IOSettingsManager: Load Complete. Driver=Duo22 Live
+[2 Dec 2025 17:25:54] [INFO] Settings loaded successfully.
+[2 Dec 2025 17:25:54] [INFO] Step 1: Adding header
+[2 Dec 2025 17:25:54] [INFO] Step 2: Adding mainTabs
+[2 Dec 2025 17:25:54] [INFO] Step 3: Creating IOPage
+[2 Dec 2025 17:25:54] [INFO] IOPage: Constructor START
+[2 Dec 2025 17:25:55] [INFO] IOPage: Constructor END
+[2 Dec 2025 17:25:55] [INFO] Step 4: Creating VocalsPage
+[2 Dec 2025 17:25:55] [INFO] Step 5: Creating MediaPage
+[2 Dec 2025 17:25:55] [INFO] Step 6: Adding tabs
+[2 Dec 2025 17:25:55] [INFO] Step 7: Setting up record button
+[2 Dec 2025 17:25:55] [INFO] Step 8: Setting up download button
+[2 Dec 2025 17:25:55] [INFO] Step 9: Adding master meter
+[2 Dec 2025 17:25:55] [INFO] Step 10: Setting up master volume slider
+[2 Dec 2025 17:25:55] [INFO] Step 11: Adding master volume label
+[2 Dec 2025 17:25:55] [INFO] Step 12: Setting up header callbacks
+[2 Dec 2025 17:25:55] [INFO] Step 13: Setting window size
+[2 Dec 2025 17:25:55] [INFO] === MainComponent Constructor COMPLETE ===
+[2 Dec 2025 17:25:55] [INFO] Step 3: MainComponent created, setting as content
+[2 Dec 2025 17:25:55] [INFO] Step 4: Window set as resizable
+[2 Dec 2025 17:25:55] [INFO] Step 5: Window centered with size 1280x720
+[2 Dec 2025 17:25:55] [INFO] Step 6: Window set to visible
+[2 Dec 2025 17:25:55] [INFO] MainWindow constructor completed successfully
+[2 Dec 2025 17:25:55] [INFO] MainWindow created successfully
+[2 Dec 2025 17:25:55] [INFO] === OnStageApplication::initialise COMPLETE ===
+[2 Dec 2025 17:25:55] [INFO] Triggering restoreIOSettings() from MainWindow
+[2 Dec 2025 17:25:55] [INFO] === MainComponent::restoreIOSettings START ===
+[2 Dec 2025 17:25:55] [INFO] IOPage: Restoring Saved Settings...
+[2 Dec 2025 17:25:55] [INFO] Restoring saved ASIO driver: Duo22 Live
+[2 Dec 2025 17:25:55] [INFO] AudioEngine::setSpecificDriver - Switching to: Duo22 Live
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:25:55] [WARN] Device started with 0 active inputs. Attempting to enable 2 channels.
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:25:55] [WARN] Device started with 0 active inputs. Attempting to enable 16 channels.
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:25:55] [INFO] setSpecificDriver successful.
+[2 Dec 2025 17:25:55] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:25:56] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:25:56] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:25:56] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:25:56] [INFO] Saved MIDI device not available or OFF. Defaulting to OFF.
+[2 Dec 2025 17:25:56] [INFO] === MainComponent::restoreIOSettings COMPLETE ===
+[2 Dec 2025 17:25:56] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:25:56] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:25:56] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:25:56] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:25:56] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:25:56] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:33:46] [INFO] Close button pressed - quitting application
+[2 Dec 2025 17:33:46] [INFO] System requested quit
+[2 Dec 2025 17:33:46] [INFO] OnStageApplication shutdown - closing MainWindow
+[2 Dec 2025 17:33:46] [INFO] MainComponent destructor called
+[2 Dec 2025 17:33:46] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:33:46] [INFO] OnStage Application Closed
+[2 Dec 2025 17:33:46] [INFO] ========================================
+
+
+[2 Dec 2025 17:54:16] [INFO] ========================================
+[2 Dec 2025 17:54:16] [INFO] OnStage Application Started
+[2 Dec 2025 17:54:16] [INFO] Log file: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows\onstage.log
+[2 Dec 2025 17:54:16] [INFO] Working directory: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows
+[2 Dec 2025 17:54:16] [INFO] ========================================
+[2 Dec 2025 17:54:16] [INFO] === OnStageApplication::initialise START ===
+[2 Dec 2025 17:54:16] [INFO] Creating MainWindow...
+[2 Dec 2025 17:54:16] [INFO] MainWindow constructor starting
+[2 Dec 2025 17:54:16] [INFO] Step 1: Setting native title bar
+[2 Dec 2025 17:54:16] [INFO] Step 2: Creating MainComponent...
+[2 Dec 2025 17:54:21] [INFO] === AudioEngine Constructor START ===
+[2 Dec 2025 17:54:21] [INFO] Step 1: Registering audio formats
+[2 Dec 2025 17:54:21] [INFO] Step 2: Enforcing OFF state (Closing Audio Device)...
+[2 Dec 2025 17:54:21] [INFO] Step 4: Adding audio callback
+[2 Dec 2025 17:54:21] [INFO] === AudioEngine Constructor COMPLETE (State: OFF) ===
+[2 Dec 2025 17:54:21] [INFO] === MainComponent Constructor START ===
+[2 Dec 2025 17:54:21] [INFO] Step 0a: Checking License...
+[2 Dec 2025 17:54:21] [INFO] Input Serial: 32888
+[2 Dec 2025 17:54:21] [INFO] License Status: REGISTERED (PRO MODE)
+[2 Dec 2025 17:54:21] [INFO] Step 0b: Allocating GoldenSliderLookAndFeel...
+[2 Dec 2025 17:54:21] [INFO] Step 0c: Setting LookAndFeel for Tabs...
+[2 Dec 2025 17:54:21] [INFO] Step 0d: Loading IO Settings from file...
+[2 Dec 2025 17:54:21] [INFO] IOSettingsManager: Loading settings from C:\Users\ranro\AppData\Roaming\OnStage\io_settings.json
+[2 Dec 2025 17:54:21] [INFO] IOSettingsManager: Load Complete. Driver=Duo22 Live
+[2 Dec 2025 17:54:21] [INFO] Settings loaded successfully.
+[2 Dec 2025 17:54:21] [INFO] Step 1: Adding header
+[2 Dec 2025 17:54:21] [INFO] Step 2: Adding mainTabs
+[2 Dec 2025 17:54:21] [INFO] Step 3: Creating IOPage
+[2 Dec 2025 17:54:21] [INFO] IOPage: Constructor START
+[2 Dec 2025 17:54:21] [INFO] IOPage: Constructor END
+[2 Dec 2025 17:54:21] [INFO] Step 4: Creating VocalsPage
+[2 Dec 2025 17:54:21] [INFO] Step 5: Creating MediaPage
+[2 Dec 2025 17:54:21] [INFO] Step 6: Adding tabs
+[2 Dec 2025 17:54:21] [INFO] Step 7: Setting up record button
+[2 Dec 2025 17:54:21] [INFO] Step 8: Setting up download button
+[2 Dec 2025 17:54:21] [INFO] Step 9: Adding master meter
+[2 Dec 2025 17:54:21] [INFO] Step 10: Setting up master volume slider
+[2 Dec 2025 17:54:21] [INFO] Step 11: Adding master volume label
+[2 Dec 2025 17:54:21] [INFO] Step 12: Setting up header callbacks
+[2 Dec 2025 17:54:21] [INFO] Step 13: Setting window size
+[2 Dec 2025 17:54:21] [INFO] === MainComponent Constructor COMPLETE ===
+[2 Dec 2025 17:54:21] [INFO] Step 3: MainComponent created, setting as content
+[2 Dec 2025 17:54:21] [INFO] Step 4: Window set as resizable
+[2 Dec 2025 17:54:21] [INFO] Step 5: Window centered with size 1280x720
+[2 Dec 2025 17:54:21] [INFO] Step 6: Window set to visible
+[2 Dec 2025 17:54:21] [INFO] MainWindow constructor completed successfully
+[2 Dec 2025 17:54:21] [INFO] MainWindow created successfully
+[2 Dec 2025 17:54:21] [INFO] === OnStageApplication::initialise COMPLETE ===
+[2 Dec 2025 17:54:21] [INFO] Triggering restoreIOSettings() from MainWindow
+[2 Dec 2025 17:54:21] [INFO] === MainComponent::restoreIOSettings START ===
+[2 Dec 2025 17:54:21] [INFO] IOPage: Restoring Saved Settings...
+[2 Dec 2025 17:54:21] [INFO] Restoring saved ASIO driver: Duo22 Live
+[2 Dec 2025 17:54:21] [INFO] AudioEngine::setSpecificDriver - Switching to: Duo22 Live
+[2 Dec 2025 17:54:21] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:54:21] [WARN] Device started with 0 active inputs. Attempting to enable 2 channels.
+[2 Dec 2025 17:54:21] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:54:21] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:54:22] [WARN] Device started with 0 active inputs. Attempting to enable 16 channels.
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:54:22] [INFO] setSpecificDriver successful.
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:54:22] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:54:22] [INFO] Saved MIDI device not available or OFF. Defaulting to OFF.
+[2 Dec 2025 17:54:22] [INFO] === MainComponent::restoreIOSettings COMPLETE ===
+[2 Dec 2025 17:54:22] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:54:22] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:54:22] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:54:22] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:54:36] [INFO] Close button pressed - quitting application
+[2 Dec 2025 17:54:36] [INFO] System requested quit
+[2 Dec 2025 17:54:36] [INFO] OnStageApplication shutdown - closing MainWindow
+[2 Dec 2025 17:54:36] [INFO] MainComponent destructor called
+[2 Dec 2025 17:54:36] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:54:37] [INFO] OnStage Application Closed
+[2 Dec 2025 17:54:37] [INFO] ========================================
+
+
+[2 Dec 2025 17:59:45] [INFO] ========================================
+[2 Dec 2025 17:59:45] [INFO] OnStage Application Started
+[2 Dec 2025 17:59:45] [INFO] Log file: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows\onstage.log
+[2 Dec 2025 17:59:45] [INFO] Working directory: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows
+[2 Dec 2025 17:59:45] [INFO] ========================================
+[2 Dec 2025 17:59:45] [INFO] === OnStageApplication::initialise START ===
+[2 Dec 2025 17:59:45] [INFO] Creating MainWindow...
+[2 Dec 2025 17:59:46] [INFO] MainWindow constructor starting
+[2 Dec 2025 17:59:46] [INFO] Step 1: Setting native title bar
+[2 Dec 2025 17:59:46] [INFO] Step 2: Creating MainComponent...
+[2 Dec 2025 17:59:46] [INFO] === AudioEngine Constructor START ===
+[2 Dec 2025 17:59:46] [INFO] Step 1: Registering audio formats
+[2 Dec 2025 17:59:46] [INFO] Step 2: Enforcing OFF state (Closing Audio Device)...
+[2 Dec 2025 17:59:46] [INFO] Step 4: Adding audio callback
+[2 Dec 2025 17:59:46] [INFO] === AudioEngine Constructor COMPLETE (State: OFF) ===
+[2 Dec 2025 17:59:46] [INFO] === MainComponent Constructor START ===
+[2 Dec 2025 17:59:46] [INFO] Step 0a: Checking License...
+[2 Dec 2025 17:59:46] [INFO] Input Serial: 32888
+[2 Dec 2025 17:59:46] [INFO] License Status: REGISTERED (PRO MODE)
+[2 Dec 2025 17:59:46] [INFO] Step 0b: Allocating GoldenSliderLookAndFeel...
+[2 Dec 2025 17:59:46] [INFO] Step 0c: Setting LookAndFeel for Tabs...
+[2 Dec 2025 17:59:46] [INFO] Step 0d: Loading IO Settings from file...
+[2 Dec 2025 17:59:46] [INFO] IOSettingsManager: Loading settings from C:\Users\ranro\AppData\Roaming\OnStage\io_settings.json
+[2 Dec 2025 17:59:46] [INFO] IOSettingsManager: Load Complete. Driver=Duo22 Live
+[2 Dec 2025 17:59:46] [INFO] Settings loaded successfully.
+[2 Dec 2025 17:59:46] [INFO] Step 1: Adding header
+[2 Dec 2025 17:59:46] [INFO] Step 2: Adding mainTabs
+[2 Dec 2025 17:59:46] [INFO] Step 3: Creating IOPage
+[2 Dec 2025 17:59:46] [INFO] IOPage: Constructor START
+[2 Dec 2025 17:59:46] [INFO] IOPage: Constructor END
+[2 Dec 2025 17:59:46] [INFO] Step 4: Creating VocalsPage
+[2 Dec 2025 17:59:46] [INFO] Step 5: Creating MediaPage
+[2 Dec 2025 17:59:46] [INFO] Step 6: Adding tabs
+[2 Dec 2025 17:59:46] [INFO] Step 7: Setting up record button
+[2 Dec 2025 17:59:46] [INFO] Step 8: Setting up download button
+[2 Dec 2025 17:59:46] [INFO] Step 9: Adding master meter
+[2 Dec 2025 17:59:46] [INFO] Step 10: Setting up master volume slider
+[2 Dec 2025 17:59:46] [INFO] Step 11: Adding master volume label
+[2 Dec 2025 17:59:46] [INFO] Step 12: Setting up header callbacks
+[2 Dec 2025 17:59:46] [INFO] Step 13: Setting window size
+[2 Dec 2025 17:59:46] [INFO] === MainComponent Constructor COMPLETE ===
+[2 Dec 2025 17:59:46] [INFO] Step 3: MainComponent created, setting as content
+[2 Dec 2025 17:59:46] [INFO] Step 4: Window set as resizable
+[2 Dec 2025 17:59:46] [INFO] Step 5: Window centered with size 1280x720
+[2 Dec 2025 17:59:46] [INFO] Step 6: Window set to visible
+[2 Dec 2025 17:59:46] [INFO] MainWindow constructor completed successfully
+[2 Dec 2025 17:59:46] [INFO] MainWindow created successfully
+[2 Dec 2025 17:59:46] [INFO] === OnStageApplication::initialise COMPLETE ===
+[2 Dec 2025 17:59:46] [INFO] Triggering restoreIOSettings() from MainWindow
+[2 Dec 2025 17:59:46] [INFO] === MainComponent::restoreIOSettings START ===
+[2 Dec 2025 17:59:46] [INFO] IOPage: Restoring Saved Settings...
+[2 Dec 2025 17:59:46] [INFO] Restoring saved ASIO driver: Duo22 Live
+[2 Dec 2025 17:59:46] [INFO] AudioEngine::setSpecificDriver - Switching to: Duo22 Live
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:59:47] [WARN] Device started with 0 active inputs. Attempting to enable 2 channels.
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:59:47] [WARN] Device started with 0 active inputs. Attempting to enable 16 channels.
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:59:47] [INFO] setSpecificDriver successful.
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:59:47] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 17:59:47] [INFO] Saved MIDI device not available or OFF. Defaulting to OFF.
+[2 Dec 2025 17:59:47] [INFO] === MainComponent::restoreIOSettings COMPLETE ===
+[2 Dec 2025 17:59:47] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:59:47] [INFO] Applying corrected input configuration...
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 17:59:47] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 17:59:47] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:17:54] [INFO] Close button pressed - quitting application
+[2 Dec 2025 18:17:54] [INFO] System requested quit
+[2 Dec 2025 18:17:54] [INFO] OnStageApplication shutdown - closing MainWindow
+[2 Dec 2025 18:17:54] [INFO] MainComponent destructor called
+[2 Dec 2025 18:17:54] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:17:56] [INFO] OnStage Application Closed
+[2 Dec 2025 18:17:56] [INFO] ========================================
+
+
+[2 Dec 2025 18:18:02] [INFO] ========================================
+[2 Dec 2025 18:18:02] [INFO] OnStage Application Started
+[2 Dec 2025 18:18:02] [INFO] Log file: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows\onstage.log
+[2 Dec 2025 18:18:02] [INFO] Working directory: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows
+[2 Dec 2025 18:18:02] [INFO] ========================================
+[2 Dec 2025 18:18:02] [INFO] === OnStageApplication::initialise START ===
+[2 Dec 2025 18:18:02] [INFO] Creating MainWindow...
+[2 Dec 2025 18:18:02] [INFO] MainWindow constructor starting
+[2 Dec 2025 18:18:02] [INFO] Step 1: Setting native title bar
+[2 Dec 2025 18:18:02] [INFO] Step 2: Creating MainComponent...
+[2 Dec 2025 18:18:03] [INFO] === AudioEngine Constructor START ===
+[2 Dec 2025 18:18:03] [INFO] Step 1: Registering audio formats
+[2 Dec 2025 18:18:03] [INFO] Step 2: Enforcing OFF state (Closing Audio Device)...
+[2 Dec 2025 18:18:03] [INFO] Step 4: Adding audio callback
+[2 Dec 2025 18:18:03] [INFO] === AudioEngine Constructor COMPLETE (State: OFF) ===
+[2 Dec 2025 18:18:03] [INFO] === MainComponent Constructor START ===
+[2 Dec 2025 18:18:03] [INFO] Step 0a: Checking License...
+[2 Dec 2025 18:18:03] [INFO] Input Serial: 32888
+[2 Dec 2025 18:18:03] [INFO] License Status: REGISTERED (PRO MODE)
+[2 Dec 2025 18:18:03] [INFO] Step 0b: Allocating GoldenSliderLookAndFeel...
+[2 Dec 2025 18:18:03] [INFO] Step 0c: Setting LookAndFeel for Tabs...
+[2 Dec 2025 18:18:03] [INFO] Step 0d: Loading IO Settings from file...
+[2 Dec 2025 18:18:03] [INFO] IOSettingsManager: Loading settings from C:\Users\ranro\AppData\Roaming\OnStage\io_settings.json
+[2 Dec 2025 18:18:03] [INFO] IOSettingsManager: Load Complete. Driver=Duo22 Live
+[2 Dec 2025 18:18:03] [INFO] Settings loaded successfully.
+[2 Dec 2025 18:18:03] [INFO] Step 1: Adding header
+[2 Dec 2025 18:18:03] [INFO] Step 2: Adding mainTabs
+[2 Dec 2025 18:18:03] [INFO] Step 3: Creating IOPage
+[2 Dec 2025 18:18:03] [INFO] IOPage: Constructor START
+[2 Dec 2025 18:18:03] [INFO] IOPage: Constructor END
+[2 Dec 2025 18:18:03] [INFO] Step 4: Creating VocalsPage
+[2 Dec 2025 18:18:03] [INFO] Step 5: Creating MediaPage
+[2 Dec 2025 18:18:03] [INFO] Step 6: Adding tabs
+[2 Dec 2025 18:18:03] [INFO] Step 7: Setting up record button
+[2 Dec 2025 18:18:03] [INFO] Step 8: Setting up download button
+[2 Dec 2025 18:18:03] [INFO] Step 9: Adding master meter
+[2 Dec 2025 18:18:03] [INFO] Step 10: Setting up master volume slider
+[2 Dec 2025 18:18:03] [INFO] Step 11: Adding master volume label
+[2 Dec 2025 18:18:03] [INFO] Step 12: Setting up header callbacks
+[2 Dec 2025 18:18:03] [INFO] Step 13: Setting window size
+[2 Dec 2025 18:18:03] [INFO] === MainComponent Constructor COMPLETE ===
+[2 Dec 2025 18:18:03] [INFO] Step 3: MainComponent created, setting as content
+[2 Dec 2025 18:18:03] [INFO] Step 4: Window set as resizable
+[2 Dec 2025 18:18:03] [INFO] Step 5: Window centered with size 1280x720
+[2 Dec 2025 18:18:03] [INFO] Step 6: Window set to visible
+[2 Dec 2025 18:18:03] [INFO] MainWindow constructor completed successfully
+[2 Dec 2025 18:18:03] [INFO] MainWindow created successfully
+[2 Dec 2025 18:18:03] [INFO] === OnStageApplication::initialise COMPLETE ===
+[2 Dec 2025 18:18:03] [INFO] Triggering restoreIOSettings() from MainWindow
+[2 Dec 2025 18:18:03] [INFO] === MainComponent::restoreIOSettings START ===
+[2 Dec 2025 18:18:03] [INFO] IOPage: Restoring Saved Settings...
+[2 Dec 2025 18:18:03] [INFO] Restoring saved ASIO driver: Duo22 Live
+[2 Dec 2025 18:18:03] [INFO] AudioEngine::setSpecificDriver - Switching to: Duo22 Live
+[2 Dec 2025 18:18:03] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:18:03] [WARN] Device started with 0 active inputs. Attempting to enable 2 channels.
+[2 Dec 2025 18:18:03] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:18:03] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:18:04] [WARN] Device started with 0 active inputs. Attempting to enable 16 channels.
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:18:04] [INFO] setSpecificDriver successful.
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:18:04] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:18:04] [INFO] Saved MIDI device not available or OFF. Defaulting to OFF.
+[2 Dec 2025 18:18:04] [INFO] === MainComponent::restoreIOSettings COMPLETE ===
+[2 Dec 2025 18:18:04] [INFO] Applying corrected input configuration...
+[2 Dec 2025 18:18:04] [INFO] Applying corrected input configuration...
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:18:04] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 18:18:04] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:24:32] [INFO] Close button pressed - quitting application
+[2 Dec 2025 18:24:32] [INFO] System requested quit
+[2 Dec 2025 18:24:32] [INFO] OnStageApplication shutdown - closing MainWindow
+[2 Dec 2025 18:24:32] [INFO] MainComponent destructor called
+[2 Dec 2025 18:24:32] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:24:33] [INFO] OnStage Application Closed
+[2 Dec 2025 18:24:33] [INFO] ========================================
+
+
+[2 Dec 2025 18:26:04] [INFO] ========================================
+[2 Dec 2025 18:26:04] [INFO] OnStage Application Started
+[2 Dec 2025 18:26:04] [INFO] Log file: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows\onstage.log
+[2 Dec 2025 18:26:04] [INFO] Working directory: D:\Workspace\onstage_with_chatgpt_9\OnStage_Windows
+[2 Dec 2025 18:26:04] [INFO] ========================================
+[2 Dec 2025 18:26:04] [INFO] === OnStageApplication::initialise START ===
+[2 Dec 2025 18:26:04] [INFO] Creating MainWindow...
+[2 Dec 2025 18:26:05] [INFO] MainWindow constructor starting
+[2 Dec 2025 18:26:05] [INFO] Step 1: Setting native title bar
+[2 Dec 2025 18:26:05] [INFO] Step 2: Creating MainComponent...
+[2 Dec 2025 18:26:05] [INFO] === AudioEngine Constructor START ===
+[2 Dec 2025 18:26:05] [INFO] Step 1: Registering audio formats
+[2 Dec 2025 18:26:05] [INFO] Step 2: Enforcing OFF state (Closing Audio Device)...
+[2 Dec 2025 18:26:05] [INFO] Step 4: Adding audio callback
+[2 Dec 2025 18:26:05] [INFO] === AudioEngine Constructor COMPLETE (State: OFF) ===
+[2 Dec 2025 18:26:05] [INFO] === MainComponent Constructor START ===
+[2 Dec 2025 18:26:05] [INFO] Step 0a: Checking License...
+[2 Dec 2025 18:26:05] [INFO] Input Serial: 32888
+[2 Dec 2025 18:26:05] [INFO] License Status: REGISTERED (PRO MODE)
+[2 Dec 2025 18:26:05] [INFO] Step 0b: Allocating GoldenSliderLookAndFeel...
+[2 Dec 2025 18:26:05] [INFO] Step 0c: Setting LookAndFeel for Tabs...
+[2 Dec 2025 18:26:05] [INFO] Step 0d: Loading IO Settings from file...
+[2 Dec 2025 18:26:05] [INFO] IOSettingsManager: Loading settings from C:\Users\ranro\AppData\Roaming\OnStage\io_settings.json
+[2 Dec 2025 18:26:05] [INFO] IOSettingsManager: Load Complete. Driver=Duo22 Live
+[2 Dec 2025 18:26:05] [INFO] Settings loaded successfully.
+[2 Dec 2025 18:26:05] [INFO] Step 1: Adding header
+[2 Dec 2025 18:26:05] [INFO] Step 2: Adding mainTabs
+[2 Dec 2025 18:26:05] [INFO] Step 3: Creating IOPage
+[2 Dec 2025 18:26:05] [INFO] IOPage: Constructor START
+[2 Dec 2025 18:26:05] [INFO] IOPage: Constructor END
+[2 Dec 2025 18:26:05] [INFO] Step 4: Creating VocalsPage
+[2 Dec 2025 18:26:05] [INFO] Step 5: Creating MediaPage
+[2 Dec 2025 18:26:05] [INFO] Step 6: Adding tabs
+[2 Dec 2025 18:26:05] [INFO] Step 7: Setting up record button
+[2 Dec 2025 18:26:05] [INFO] Step 8: Setting up download button
+[2 Dec 2025 18:26:05] [INFO] Step 9: Adding master meter
+[2 Dec 2025 18:26:05] [INFO] Step 10: Setting up master volume slider
+[2 Dec 2025 18:26:05] [INFO] Step 11: Adding master volume label
+[2 Dec 2025 18:26:05] [INFO] Step 12: Setting up header callbacks
+[2 Dec 2025 18:26:05] [INFO] Step 13: Setting window size
+[2 Dec 2025 18:26:05] [INFO] === MainComponent Constructor COMPLETE ===
+[2 Dec 2025 18:26:05] [INFO] Step 3: MainComponent created, setting as content
+[2 Dec 2025 18:26:05] [INFO] Step 4: Window set as resizable
+[2 Dec 2025 18:26:05] [INFO] Step 5: Window centered with size 1280x720
+[2 Dec 2025 18:26:05] [INFO] Step 6: Window set to visible
+[2 Dec 2025 18:26:05] [INFO] MainWindow constructor completed successfully
+[2 Dec 2025 18:26:05] [INFO] MainWindow created successfully
+[2 Dec 2025 18:26:05] [INFO] === OnStageApplication::initialise COMPLETE ===
+[2 Dec 2025 18:26:05] [INFO] Triggering restoreIOSettings() from MainWindow
+[2 Dec 2025 18:26:05] [INFO] === MainComponent::restoreIOSettings START ===
+[2 Dec 2025 18:26:05] [INFO] IOPage: Restoring Saved Settings...
+[2 Dec 2025 18:26:05] [INFO] Restoring saved ASIO driver: Duo22 Live
+[2 Dec 2025 18:26:05] [INFO] AudioEngine::setSpecificDriver - Switching to: Duo22 Live
+[2 Dec 2025 18:26:05] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:26:05] [WARN] Device started with 0 active inputs. Attempting to enable 2 channels.
+[2 Dec 2025 18:26:05] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:26:05] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:26:06] [WARN] Device started with 0 active inputs. Attempting to enable 16 channels.
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:26:06] [INFO] setSpecificDriver successful.
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:26:06] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:26:06] [INFO] Saved MIDI device not available or OFF. Defaulting to OFF.
+[2 Dec 2025 18:26:06] [INFO] === MainComponent::restoreIOSettings COMPLETE ===
+[2 Dec 2025 18:26:06] [INFO] Applying corrected input configuration...
+[2 Dec 2025 18:26:06] [INFO] Applying corrected input configuration...
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: audioDeviceAboutToStart
+[2 Dec 2025 18:26:06] [INFO] Active Inputs: 1111111111111111
+[2 Dec 2025 18:26:06] [INFO] AudioEngine: prepareToPlay (44100 Hz)
+[2 Dec 2025 18:48:31] [INFO] Close button pressed - quitting application
+[2 Dec 2025 18:48:31] [INFO] System requested quit
+[2 Dec 2025 18:48:31] [INFO] OnStageApplication shutdown - closing MainWindow
+[2 Dec 2025 18:48:31] [INFO] MainComponent destructor called
+[2 Dec 2025 18:48:31] [INFO] AudioEngine: audioDeviceStopped
+[2 Dec 2025 18:48:31] [INFO] OnStage Application Closed
+[2 Dec 2025 18:48:31] [INFO] ========================================

@@ -1,0 +1,21 @@
+1. Don't forget to warn your Mac tester about the "Unsigned App" issue.
+
+Tell them to Right-Click → Open (not double-click) the first time they run it, or macOS will block it.
+
+2. Comparison TableOSJUCE userApplicationDataDirectory Maps To
+
+WindowsC:\Users\<User>\AppData\Roamin\OnStage\ 
+
+macOS/Users/<User>/Library/Application Support/OnStage/
+
+Linux~/.config/OnStage/ (usually)
+-----------------------------------------------------
+what needed for installation:
+
+Windows: Just Unzip and Run! (Everything is included).
+
+Mac: Requires VLC Media Player to be installed on your system.
+
+Linux: Requires VLC (sudo apt install vlc).
+-------------------------------------------------
+app is now "Touch-Native" across all platforms.

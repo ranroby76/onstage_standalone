@@ -1,0 +1,135 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build_mac_app:
+    name: Build macOS Standalone
+    runs-on: macos-latest
+    
+    steps:
+      # 1. Checkout
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      # 2. Install Build Tools
+      - name: Install Dependencies
+        run: brew install ninja cmake
+
+      # 3. Import Signing Certificate
+      - name: Import Signing Certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: "admin"
+        run: |
+          echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+      # 4. Clone JUCE (Into project root as expected by CMakeLists.txt)
+      - name: Clone JUCE Framework
+        run: |
+          git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
+
+      # 5. Configure CMake
+      - name: Configure CMake
+        run: |
+          # We use Ninja generator for speed. 
+          # Targeting both Intel and Apple Silicon (Universal Binary).
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      # 6. Build
+      - name: Build App
+        run: cmake --build build --config Release --parallel 4
+
+      # 7. Create Notarization Script
+      # This script finds the built .app, signs it, zips it, and submits to Apple.
+      - name: Create Notarization Script
+        run: |
+          cat > notarize_app.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # Unlock keychain for signing
+          security unlock-keychain -p "admin" build.keychain
+          
+          # Find Identity
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | head -1 | grep '"' | sed 's/^.*"\(.*\)".*$/\1/')
+          echo "Signing with identity: $IDENTITY"
+          
+          # Find the built App
+          if [ -d "build/OnStage.app" ]; then
+            APP_PATH="build/OnStage.app"
+          elif [ -d "build/Release/OnStage.app" ]; then
+            APP_PATH="build/Release/OnStage.app"
+          else
+            echo "::error::OnStage.app not found!"
+            exit 1
+          fi
+          
+          echo "Processing $APP_PATH..."
+          
+          # Deep sign the app bundle (Entitlements should be added here if needed)
+          # --force replaces any ad-hoc signature from the build process
+          # --options runtime enables Hardened Runtime (required for notarization)
+          codesign --force --deep --options runtime --sign "$IDENTITY" "$APP_PATH"
+          
+          # Verify signature
+          echo "Verifying signature..."
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          
+          # Create Zip for Notarization submission
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Submission.zip"
+          
+          # Submit to Apple
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "OnStage_Mac_Submission.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+          
+          # Staple the ticket to the app so it works offline
+          echo "Stapling..."
+          xcrun stapler staple "$APP_PATH" || echo "Stapling warning (might succeed anyway)"
+          
+          # Re-zip the finalized, stapled app for distribution
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Signed.zip"
+          
+          EOF
+          chmod +x notarize_app.sh
+
+      # 8. Run Notarization
+      - name: Sign & Notarize
+        uses: nick-fields/retry@v3
+        env:
+          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_wait_seconds: 60
+          command: ./notarize_app.sh
+
+      # 9. Upload Artifacts
+      - name: Upload Signed App
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnStage-Mac-App-Signed
+          path: OnStage_Mac_Signed.zip
