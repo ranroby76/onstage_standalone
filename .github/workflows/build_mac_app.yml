@@ -30,7 +30,10 @@ jobs:
           security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          
+          # List available identities to verify import
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning build.keychain
 
       - name: Configure CMake
         run: |
@@ -42,17 +45,26 @@ jobs:
       - name: Build App
         run: cmake --build build --config Release --parallel 4
 
-      - name: Create Notarization Script
+      - name: Sign & Notarize
+        env:
+          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+          KEYCHAIN_PASSWORD: "admin"
         run: |
-          cat > notarize_app.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
           # Unlock keychain
-          security unlock-keychain -p "admin" build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
           
-          # Find Identity
-          IDENTITY=$(security find-identity -v -p codesigning build.keychain | head -1 | grep '"' | sed 's/^.*"\(.*\)".*$/\1/')
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | sed 's/"//g')
+          
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+          
           echo "Signing with identity: $IDENTITY"
           
           # Locate App
@@ -70,14 +82,19 @@ jobs:
           
           echo "Processing $APP_PATH..."
           
-          # Sign
-          codesign --force --deep --options runtime --sign "APP_PATH"
+          # Sign all frameworks and dylibs first
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.framework" \) -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
+          
+          # Sign the app bundle
+          codesign --force --deep --options runtime --sign "$IDENTITY" --timestamp "$APP_PATH"
+          
+          # Verify signature
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           
-          # Zip for Submission
+          # Create zip for notarization
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Submission.zip"
           
-          # Submit
+          # Submit for notarization
           echo "Submitting for notarization..."
           xcrun notarytool submit "OnStage_Mac_Submission.zip" \
             --apple-id "$APPLE_ID" \
@@ -85,25 +102,11 @@ jobs:
             --team-id "$TEAM_ID" \
             --wait
           
-          # Staple
-          xcrun stapler staple "$APP_PATH" || echo "Stapling warning"
+          # Staple the notarization ticket
+          xcrun stapler staple "$APP_PATH" || echo "::warning::Stapling failed but continuing"
           
-          # Final Zip
+          # Create final signed zip
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Signed.zip"
-          EOF
-          chmod +x notarize_app.sh
-
-      - name: Sign & Notarize
-        uses: nick-fields/retry@v3
-        env:
-          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
-          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
-          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
-        with:
-          timeout_minutes: 30
-          max_attempts: 3
-          retry_wait_seconds: 60
-          command: ./notarize_app.sh
 
       - name: Upload Signed App
         uses: actions/upload-artifact@v4
