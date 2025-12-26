@@ -114,7 +114,7 @@ bool AVFMediaPlayer_Mac::loadFile(const juce::String& path)
     {
         cleanupPlayer();
         
-        NSURL* url = [NSURL fileURLWithPath: path.toNSString()];
+        NSURL* url = [NSURL fileURLWithPath: [NSString stringWithUTF8String: path.toRawUTF8()]];
         if (!url)
             return false;
         

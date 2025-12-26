@@ -16,8 +16,14 @@
 #include <juce_graphics/juce_graphics.h>
 #include "UI/PlaylistDataStructures.h"
 
-// INTERNAL PLAYER DIRECT DEPENDENCY
-#include "engine/VLCMediaPlayer_Desktop.h" 
+// Platform-specific media player includes
+#if JUCE_WINDOWS || JUCE_LINUX
+    #include "engine/VLCMediaPlayer_Desktop.h"
+    using MediaPlayerType = VLCMediaPlayer_Desktop;
+#elif JUCE_MAC || JUCE_IOS
+    #include "engine/AVFMediaPlayer_Mac.h"
+    using MediaPlayerType = AVFMediaPlayer_Mac;
+#endif
 
 // DSP Headers
 #include "dsp/EQProcessor.h"
@@ -52,7 +58,7 @@ public:
     
     // Playback Control
     void stopAllPlayback();
-    VLCMediaPlayer_Desktop& getMediaPlayer() { return *mediaPlayer; } // Direct Access
+    MediaPlayerType& getMediaPlayer() { return *mediaPlayer; }
     std::vector<PlaylistItem>& getPlaylist() { return playlist; }
     
     // Recording
@@ -141,8 +147,8 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::AudioFormatManager formatManager;
     
-    // INTERNAL PLAYER
-    std::unique_ptr<VLCMediaPlayer_Desktop> mediaPlayer;
+    // Platform-specific media player
+    std::unique_ptr<MediaPlayerType> mediaPlayer;
     
     std::vector<PlaylistItem> playlist;
     
@@ -167,7 +173,7 @@ private:
     std::vector<float> inputGains;      
 
     std::atomic<float> inputLevelMeters[32]; 
-    std::atomic<float> outputLevels[32];  // Changed from [2] to [32] for all physical outputs
+    std::atomic<float> outputLevels[32];  
     std::atomic<float> internalPlayerLevel { 0.0f };
     std::atomic<float> backingLevels[9];
 
