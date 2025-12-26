@@ -202,17 +202,14 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
             dsp::ProcessContextReplacing<float> ctx(block);
             harmonizer.process(ctx);
         }
-        {
-            dsp::AudioBlock<float> block(vocalBus);
-            dsp::ProcessContextReplacing<float> ctx(block);
-            reverb.process(ctx);
-        }
-        delay.process(vocalBus.getArrayOfWritePointers(), 2, numSamples);
-        {
-            dsp::AudioBlock<float> block(vocalBus);
-            dsp::ProcessContextReplacing<float> ctx(block);
-            dynamicEQ.process(ctx);
-        }
+        
+        reverb.process(vocalBus);
+        delay.process(vocalBus);
+        
+        // Dynamic EQ needs backing track as sidechain
+        AudioBuffer<float> emptyBacking(2, numSamples);
+        emptyBacking.clear();
+        dynamicEQ.process(emptyBacking, vocalBus);
     }
 
     vocalBus.applyGain(vocalBoostLinear);
