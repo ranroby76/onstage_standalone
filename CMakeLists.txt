@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(OnStage VERSION 1.0.0 LANGUAGES CXX)
+project(OnStage VERSION 1.0.0 LANGUAGES CXX C OBJCXX)
 
 # =========================
 # JUCE
