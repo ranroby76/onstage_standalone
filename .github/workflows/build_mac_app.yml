@@ -13,9 +13,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          lfs: true
 
       - name: Install Dependencies
         run: brew install ninja cmake
@@ -34,8 +31,6 @@ jobs:
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-
-      # JUCE Clone step removed because it is already in the repo
 
       - name: Configure CMake
         run: |
@@ -61,19 +56,22 @@ jobs:
           echo "Signing with identity: $IDENTITY"
           
           # Locate App
-          if [ -d "build/OnStage.app" ]; then
+          if [ -d "build/OnStage_artefacts/Release/OnStage.app" ]; then
+            APP_PATH="build/OnStage_artefacts/Release/OnStage.app"
+          elif [ -d "build/OnStage.app" ]; then
             APP_PATH="build/OnStage.app"
           elif [ -d "build/Release/OnStage.app" ]; then
             APP_PATH="build/Release/OnStage.app"
           else
             echo "::error::OnStage.app not found!"
+            find build -name "OnStage.app" -type d
             exit 1
           fi
           
           echo "Processing $APP_PATH..."
           
           # Sign
-          codesign --force --deep --options runtime --sign "$IDENTITY" "$APP_PATH"
+          codesign --force --deep --options runtime --sign "APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           
           # Zip for Submission

@@ -99,7 +99,7 @@ void HeaderBar::paint(Graphics& g)
     if (fananLogo.isValid())
     {
         int logoHeight = height - 20;
-        int logoWidth = (int)(logoHeight * 2.303f);
+        int logoWidth = (int)(logoHeight * 5.668f); // 1060/187 aspect ratio for Subcore logo
         Rectangle<int> fananArea(55, (height - logoHeight) / 2, logoWidth, logoHeight);
         g.drawImageWithin(fananLogo, fananArea.getX(), fananArea.getY(), 
                          fananArea.getWidth(), fananArea.getHeight(),
@@ -122,19 +122,57 @@ void HeaderBar::resized()
 {
     auto area = getLocalBounds();
     int height = area.getHeight();
+    int width = getWidth();
     
+    // ---------------------------------------------------------
+    // 1. Calculate Logos Dimensions (Must match paint() logic)
+    // ---------------------------------------------------------
+    
+    // Left Logo (Fanan)
+    int leftMargin = 55;
+    int fananHeight = height - 20;
+    int fananWidth = (int)(fananHeight * 5.668f);
+    int fananRightEdge = leftMargin + fananWidth;
+    
+    // Right Logo (OnStage)
+    int rightMargin = 15;
+    int onstageHeight = (int)((height - 20) * 0.805f);
+    int onstageWidth = (int)(onstageHeight * 6.486f);
+    int onstageLeftEdge = width - rightMargin - onstageWidth;
+
+    // ---------------------------------------------------------
+    // 2. Calculate Gap
+    // ---------------------------------------------------------
+    // The space between the left logo's right edge and the right logo's left edge
+    int availableSpaceBetweenLogos = onstageLeftEdge - fananRightEdge;
+    
+    // ---------------------------------------------------------
+    // 3. Calculate Center Components Width
+    // ---------------------------------------------------------
     int buttonWidth = 100;
     int buttonHeight = 30;
-    int manualWidth = 80; // Slightly smaller for Manual
+    int manualWidth = 80;
     int spacing = 10;
     int buttonY = (height - buttonHeight) / 2;
-
-    // Calculate total width of center block
-    int totalCenterGroupWidth = manualWidth + (buttonWidth * 2) + 150 + 80 + (spacing * 4);
     int modeLabelWidth = 50;
     
-    totalCenterGroupWidth += modeLabelWidth + spacing;
-    int startX = (getWidth() - totalCenterGroupWidth) / 2;
+    // Total width of the center group: Manual | Save | Load | Label | Register | Mode
+    int totalCenterGroupWidth = manualWidth + (buttonWidth * 2) + 150 + 80 + (spacing * 4) + modeLabelWidth + spacing;
+
+    // ---------------------------------------------------------
+    // 4. Calculate Identical Gap
+    // ---------------------------------------------------------
+    // We want: [Left Logo] [GAP] [Center] [GAP] [Right Logo]
+    // So: availableSpaceBetweenLogos = (2 * Gap) + totalCenterGroupWidth
+    // Therefore: Gap = (availableSpaceBetweenLogos - totalCenterGroupWidth) / 2
+    
+    int gap = (availableSpaceBetweenLogos - totalCenterGroupWidth) / 2;
+    if (gap < 0) gap = 0; // Prevent overlap if window is too small
+    
+    // ---------------------------------------------------------
+    // 5. Position Components
+    // ---------------------------------------------------------
+    int startX = fananRightEdge + gap; // Start immediately after the first gap
 
     // 1. Manual Button
     manualButton.setBounds(startX, buttonY, manualWidth, buttonHeight);

@@ -42,6 +42,8 @@ private:
     StyledSlider masterVolumeSlider;
     MidiTooltipLabel masterVolumeLabel;
     MasterMeter masterMeter;
+    
+    juce::Label sloganLabel;  // NEW: Slogan display
 
     // Recorder
     MidiTooltipTextButton recordButton;

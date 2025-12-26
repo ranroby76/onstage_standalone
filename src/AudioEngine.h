@@ -17,13 +17,13 @@
 #include "UI/PlaylistDataStructures.h"
 
 // INTERNAL PLAYER DIRECT DEPENDENCY
-#include "engine/VLCMediaPlayer.h" 
+#include "engine/VLCMediaPlayer_Desktop.h" 
 
 // DSP Headers
-#include "dsp/SimplePitchShifter.h"
 #include "dsp/EQProcessor.h"
 #include "dsp/CompressorProcessor.h"
 #include "dsp/ExciterProcessor.h"
+#include "dsp/SculptProcessor.h"
 #include "dsp/ReverbProcessor.h"
 #include "dsp/DelayProcessor.h"
 #include "dsp/HarmonizerProcessor.h"
@@ -52,7 +52,7 @@ public:
     
     // Playback Control
     void stopAllPlayback();
-    VLCMediaPlayer& getMediaPlayer() { return *mediaPlayer; } // Direct Access
+    VLCMediaPlayer_Desktop& getMediaPlayer() { return *mediaPlayer; } // Direct Access
     std::vector<PlaylistItem>& getPlaylist() { return playlist; }
     
     // Recording
@@ -115,6 +115,7 @@ public:
     EQProcessor& getEQProcessor(int micIndex);
     CompressorProcessor& getCompressorProcessor(int micIndex);
     ExciterProcessor& getExciterProcessor(int micIndex);
+    SculptProcessor& getSculptProcessor(int micIndex);
     
     HarmonizerProcessor& getHarmonizerProcessor() { return harmonizer; }
     ReverbProcessor& getReverbProcessor() { return reverb; }
@@ -141,7 +142,7 @@ private:
     juce::AudioFormatManager formatManager;
     
     // INTERNAL PLAYER
-    std::unique_ptr<VLCMediaPlayer> mediaPlayer;
+    std::unique_ptr<VLCMediaPlayer_Desktop> mediaPlayer;
     
     std::vector<PlaylistItem> playlist;
     
@@ -149,9 +150,10 @@ private:
         float preampGainDb = 0.0f;
         bool muted = false;
         bool fxBypassed = false;
-        EQProcessor eq;
-        CompressorProcessor comp;
-        ExciterProcessor exciter;
+        ExciterProcessor exciter;    // 1. AIR (first)
+        SculptProcessor sculpt;      // 2. SCULPT (new)
+        EQProcessor eq;              // 3. EQ
+        CompressorProcessor comp;    // 4. COMPRESSOR (last)
     };
     MicChain micChains[2]; 
 
@@ -159,16 +161,13 @@ private:
     ReverbProcessor reverb;
     DelayProcessor delay;
     DynamicEQProcessor dynamicEQ;
-    
-    SimplePitchShifter pitchShifterL;
-    SimplePitchShifter pitchShifterR;
 
     std::vector<int> outputRoutingMasks; 
     std::vector<int> inputRoutingMasks; 
     std::vector<float> inputGains;      
 
     std::atomic<float> inputLevelMeters[32]; 
-    std::atomic<float> outputLevels[2] { 0.0f, 0.0f };
+    std::atomic<float> outputLevels[32];  // Changed from [2] to [32] for all physical outputs
     std::atomic<float> internalPlayerLevel { 0.0f };
     std::atomic<float> backingLevels[9];
 

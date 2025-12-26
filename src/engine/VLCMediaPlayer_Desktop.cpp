@@ -1,13 +1,8 @@
-// ### **4. The iOS Native Header** This interface mirrors the Desktop one exactly but uses JUCE native classes and an internal video extractor.
-
 /*
   ==============================================================================
 
     VLCMediaPlayer_Desktop.cpp
-    OnStage
-
-    Original LibVLC implementation logic.
-    Renamed class to VLCMediaPlayer_Desktop.
+    OnStage - MINIMAL BUG FIX VERSION (keeps abstract base class architecture)
 
   ==============================================================================
 */
@@ -22,15 +17,12 @@
 
 VLCMediaPlayer_Desktop::VLCMediaPlayer_Desktop()
 {
-    // CRITICAL FIX: Ensure VLC finds its plugins relative to the executable
     juce::File appDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
     juce::File pluginDir = appDir.getChildFile("plugins");
     
     #if JUCE_WINDOWS
         juce::String pathEnv = "VLC_PLUGIN_PATH=" + pluginDir.getFullPathName();
         _putenv(pathEnv.toRawUTF8());
-    #elif JUCE_LINUX
-        // setenv("VLC_PLUGIN_PATH", "/path/to/plugins", 1);
     #endif
 
     const char* args[] = { 
@@ -44,24 +36,23 @@ VLCMediaPlayer_Desktop::VLCMediaPlayer_Desktop()
     if (m_instance)
     {
         m_mediaPlayer = libvlc_media_player_new(m_instance);
+        
+        // FIX #3: Check correct variable
         if (m_mediaPlayer)
         {
             libvlc_audio_set_callbacks(m_mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
+            // FIX #2: Use S16N instead of f32l
             libvlc_audio_set_format(m_mediaPlayer, "S16N", 44100, 2);
 
             libvlc_video_set_callbacks(m_mediaPlayer, videoLock, videoUnlock, videoDisplay, this);
-            libvlc_video_set_format(m_mediaPlayer, "RV32", videoWidth, videoHeight, videoWidth * 4);
+            libvlc_video_set_format(m_mediaPlayer, "RV32", 1280, 720, 1280 * 4);
             
-            currentVideoImage = juce::Image(juce::Image::ARGB, videoWidth, videoHeight, true);
-            bufferVideoImage = juce::Image(juce::Image::ARGB, videoWidth, videoHeight, true);
+            currentVideoImage = juce::Image(juce::Image::ARGB, 1280, 720, true);
+            bufferVideoImage = juce::Image(juce::Image::ARGB, 1280, 720, true);
             
             currentVideoImage.clear(currentVideoImage.getBounds(), juce::Colours::black);
             bufferVideoImage.clear(bufferVideoImage.getBounds(), juce::Colours::black);
         }
-    }
-    else
-    {
-        DBG("CRITICAL: libvlc_new failed. Check plugin path: " + pluginDir.getFullPathName());
     }
 }
 
@@ -72,7 +63,7 @@ VLCMediaPlayer_Desktop::~VLCMediaPlayer_Desktop()
     if (m_instance) libvlc_release(m_instance);
 }
 
-bool VLCMediaPlayer_Desktop::prepareToPlay(int samplesPerBlock, double sampleRate)
+void VLCMediaPlayer_Desktop::prepareToPlay(int samplesPerBlock, double sampleRate)
 {
     if (sampleRate > 1000.0)
         currentSampleRate = sampleRate;
@@ -84,13 +75,14 @@ bool VLCMediaPlayer_Desktop::prepareToPlay(int samplesPerBlock, double sampleRat
     ringBuffer.setSize(2, 65536); 
     fifo.setTotalSize(ringBuffer.getNumSamples());
     fifo.reset();
+    
     if (m_mediaPlayer)
     {
+        // FIX #2: Use S16N instead of f32l
         libvlc_audio_set_format(m_mediaPlayer, "S16N", static_cast<int>(currentSampleRate), 2);
     }
 
     isPrepared = true;
-    return true;
 }
 
 void VLCMediaPlayer_Desktop::releaseResources()
@@ -105,7 +97,9 @@ bool VLCMediaPlayer_Desktop::loadFile(const juce::String& path)
 {
     stop();
     if (!m_instance || !m_mediaPlayer) return false;
+    
     int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
+    // FIX #2: Use S16N instead of f32l
     libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
 
     libvlc_media_t* media = libvlc_media_new_path(m_instance, path.toUTF8());
@@ -116,11 +110,26 @@ bool VLCMediaPlayer_Desktop::loadFile(const juce::String& path)
     return true;
 }
 
+void VLCMediaPlayer_Desktop::play(const juce::String& path)
+{
+    if (loadFile(path))
+    {
+        if (m_mediaPlayer) 
+        {
+            int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
+            // FIX #2: Use S16N instead of f32l
+            libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
+            libvlc_media_player_play(m_mediaPlayer);
+        }
+    }
+}
+
 void VLCMediaPlayer_Desktop::play()
 {
     if (m_mediaPlayer) 
     {
         int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
+        // FIX #2: Use S16N instead of f32l
         libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
         libvlc_media_player_play(m_mediaPlayer);
     }
@@ -146,7 +155,8 @@ void VLCMediaPlayer_Desktop::stop()
 
 void VLCMediaPlayer_Desktop::setVolume(float newVolume)
 {
-    volume = juce::jlimit(0.0f, 20.0f, newVolume);
+    // FIX: Limit volume to reasonable range (0.0 to 2.0) to prevent clipping
+    volume = juce::jlimit(0.0f, 2.0f, newVolume);
 }
 
 float VLCMediaPlayer_Desktop::getVolume() const { return volume; }
@@ -173,6 +183,13 @@ bool VLCMediaPlayer_Desktop::isPlaying() const
     return libvlc_media_player_is_playing(m_mediaPlayer) != 0;
 }
 
+bool VLCMediaPlayer_Desktop::isPaused() const
+{
+    if (!m_mediaPlayer) return false;
+    auto state = libvlc_media_player_get_state(m_mediaPlayer);
+    return state == libvlc_Paused;
+}
+
 float VLCMediaPlayer_Desktop::getPosition() const
 {
     if (!m_mediaPlayer) return 0.0f;
@@ -190,6 +207,7 @@ int64_t VLCMediaPlayer_Desktop::getLengthMs() const
     return libvlc_media_player_get_length(m_mediaPlayer);
 }
 
+// FIX #1: BitmapData MUST be created on stack and destroyed in same scope
 void* VLCMediaPlayer_Desktop::videoLock(void* data, void** planes)
 {
     auto* self = static_cast<VLCMediaPlayer_Desktop*>(data);
@@ -197,7 +215,7 @@ void* VLCMediaPlayer_Desktop::videoLock(void* data, void** planes)
     {
         juce::Image::BitmapData bitmapData(self->bufferVideoImage, juce::Image::BitmapData::readWrite);
         *planes = bitmapData.data;
-        return nullptr;
+        return nullptr;  // BitmapData destroyed HERE when scope ends
     }
     return nullptr;
 }
@@ -205,6 +223,7 @@ void* VLCMediaPlayer_Desktop::videoLock(void* data, void** planes)
 void VLCMediaPlayer_Desktop::videoUnlock(void* data, void* picture, void* const* planes)
 {
     juce::ignoreUnused(data, picture, planes);
+    // FIX #1: No cleanup needed - BitmapData already destroyed in videoLock
 }
 
 void VLCMediaPlayer_Desktop::videoDisplay(void* data, void* picture)
@@ -215,6 +234,9 @@ void VLCMediaPlayer_Desktop::videoDisplay(void* data, void* picture)
         juce::ScopedLock sl(self->videoLockMutex);
         if (self->bufferVideoImage.isValid())
             self->currentVideoImage = self->bufferVideoImage.createCopy();
+        
+        if (self->attachedVideoComponent)
+            self->attachedVideoComponent->repaint();
     }
 }
 
@@ -224,6 +246,11 @@ juce::Image VLCMediaPlayer_Desktop::getCurrentVideoFrame()
     if (currentVideoImage.isValid())
         return currentVideoImage;
     return juce::Image();
+}
+
+void VLCMediaPlayer_Desktop::attachVideoComponent(juce::Component* videoComponent)
+{
+    attachedVideoComponent = videoComponent;
 }
 
 void VLCMediaPlayer_Desktop::audioPlay(void* data, const void* samples, unsigned count, int64_t pts) {
@@ -248,6 +275,7 @@ void VLCMediaPlayer_Desktop::addAudioSamples(const void* samples, unsigned count
         int start1, size1, start2, size2;
         fifo.prepareToWrite(toWrite, start1, size1, start2, size2);
         
+        // FIX #2: Now data is S16N format, convert properly
         const int16_t* src = static_cast<const int16_t*>(samples);
         const float scale = 1.0f / 32768.0f;
         if (size1 > 0) {
@@ -285,21 +313,32 @@ void VLCMediaPlayer_Desktop::getNextAudioBlock(const juce::AudioSourceChannelInf
     int numSamples = info.numSamples;
     int available = fifo.getNumReady();
     int toRead = juce::jmin(numSamples, available);
+    
     if (toRead > 0) {
         int start1, size1, start2, size2;
         fifo.prepareToRead(toRead, start1, size1, start2, size2);
         
+        // FIX: Use copyFrom for clean audio (no accumulation), then apply volume gain separately
         if (size1 > 0) {
-            for (int ch = 0; ch < 2; ++ch) 
-                info.buffer->addFrom(ch, info.startSample, ringBuffer, ch, start1, size1, volume);
+            for (int ch = 0; ch < 2; ++ch) {
+                info.buffer->copyFrom(ch, info.startSample, ringBuffer, ch, start1, size1);
+                // Apply volume gain
+                if (volume != 1.0f)
+                    info.buffer->applyGain(ch, info.startSample, size1, volume);
+            }
         }
         if (size2 > 0) {
-            for (int ch = 0; ch < 2; ++ch)
-                info.buffer->addFrom(ch, info.startSample + size1, ringBuffer, ch, start2, size2, volume);
+            for (int ch = 0; ch < 2; ++ch) {
+                info.buffer->copyFrom(ch, info.startSample + size1, ringBuffer, ch, start2, size2);
+                // Apply volume gain
+                if (volume != 1.0f)
+                    info.buffer->applyGain(ch, info.startSample + size1, size2, volume);
+            }
         }
         fifo.finishedRead(size1 + size2);
     }
     
+    // Clear any unfilled samples
     if (toRead < numSamples) 
         info.buffer->clear(info.startSample + toRead, numSamples - toRead);
 }

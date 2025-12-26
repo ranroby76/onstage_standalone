@@ -13,7 +13,7 @@ void PresetManager::loadDefaultPreset()
     // Channel 1 settings (Based on UPDATED Preset "a12")
     // ==============================================================================
     audioEngine.setMicPreampGain(0, -1.9f);
-    audioEngine.setMicMute(0, false);       // Updated: Mute is false
+    audioEngine.setMicMute(0, false);       
     audioEngine.setFxBypass(0, false);
 
     // --- EQ 1 ---
@@ -47,7 +47,7 @@ void PresetManager::loadDefaultPreset()
     auto& exc1 = audioEngine.getExciterProcessor(0);
     ExciterProcessor::Params exParams1;
     exParams1.frequency = 1990.0f;
-    exParams1.amount = 6.96f;  // Updated
+    exParams1.amount = 6.96f;
     exParams1.mix = 0.58f;
     exc1.setParams(exParams1);
     exc1.setBypassed(false);
@@ -61,9 +61,9 @@ void PresetManager::loadDefaultPreset()
 
     // --- EQ 2 ---
     auto& eq2 = audioEngine.getEQProcessor(1);
-    eq2.setLowFrequency(648.96f); // Updated
+    eq2.setLowFrequency(648.96f); 
     eq2.setMidFrequency(1000.0f);
-    eq2.setHighFrequency(2731.96f); // Updated
+    eq2.setHighFrequency(2731.96f); 
     
     eq2.setLowGain(0.0f);
     eq2.setMidGain(0.0f);
@@ -89,9 +89,9 @@ void PresetManager::loadDefaultPreset()
     // --- Exciter 2 ---
     auto& exc2 = audioEngine.getExciterProcessor(1);
     ExciterProcessor::Params exParams2;
-    exParams2.frequency = 2350.0f; // Updated
-    exParams2.amount = 1.92f;      // Updated
-    exParams2.mix = 0.11f;         // Updated
+    exParams2.frequency = 2350.0f; 
+    exParams2.amount = 1.92f;      
+    exParams2.mix = 0.11f;         
     exc2.setParams(exParams2);
     exc2.setBypassed(false);
 
@@ -99,28 +99,48 @@ void PresetManager::loadDefaultPreset()
     // Global Effects
     // ==============================================================================
 
-    // --- Harmonizer ---
+    // --- Harmonizer - 4 voices ---
     auto& harmonizer = audioEngine.getHarmonizerProcessor();
     HarmonizerProcessor::Params harmParams;
     harmParams.enabled = true;
     harmParams.wetDb = -3.12f;
-    harmParams.glideMs = 50.0f; 
-    
+    harmParams.glideMs = 50.0f;
+
+    // Voice 1: Minor 3rd, slight left
     harmParams.voices[0].enabled = true;
-    harmParams.voices[0].fixedSemitones = 2.88f;
+    harmParams.voices[0].semitones = 3.0f;
+    harmParams.voices[0].pan = -0.3f;
     harmParams.voices[0].gainDb = -6.0f;
-    
+    harmParams.voices[0].delayMs = 0.0f;
+
+    // Voice 2: Perfect 5th, slight right
     harmParams.voices[1].enabled = true;
-    harmParams.voices[1].fixedSemitones = 7.20f;
+    harmParams.voices[1].semitones = 7.0f;
+    harmParams.voices[1].pan = 0.3f;
     harmParams.voices[1].gainDb = -6.0f;
-    
+    harmParams.voices[1].delayMs = 0.0f;
+
+    // Voice 3: Major 3rd down, more left (disabled by default)
+    harmParams.voices[2].enabled = false;
+    harmParams.voices[2].semitones = -4.0f;
+    harmParams.voices[2].pan = -0.6f;
+    harmParams.voices[2].gainDb = -9.0f;
+    harmParams.voices[2].delayMs = 15.0f;
+
+    // Voice 4: Octave up, center (disabled by default)
+    harmParams.voices[3].enabled = false;
+    harmParams.voices[3].semitones = 12.0f;
+    harmParams.voices[3].pan = 0.0f;
+    harmParams.voices[3].gainDb = -9.0f;
+    harmParams.voices[3].delayMs = 0.0f;
+
     harmonizer.setParams(harmParams);
-    harmonizer.setBypassed(true); // Updated: Harmonizer bypass is TRUE in new JSON
+    harmonizer.setBypassed(true); 
 
     // --- Reverb ---
     auto& reverb = audioEngine.getReverbProcessor();
     ReverbProcessor::Params reverbParams;
-    reverbParams.wetGain = 1.9f; // Updated
+    reverbParams.wetGain = 1.9f; 
     reverbParams.lowCutHz = 470.8f;
     reverbParams.highCutHz = 9360.0f;
     reverbParams.irFilePath = ""; 
@@ -140,17 +160,31 @@ void PresetManager::loadDefaultPreset()
     delay.setParams(delayParams);
     delay.setBypassed(true);
 
-    // --- Dynamic EQ (Sidechain) ---
+    // --- Dynamic EQ (Sidechain) - Dual Band Support ---
     auto& dynEQ = audioEngine.getDynamicEQProcessor();
-    DynamicEQProcessor::Params dynEQParams;
-    dynEQParams.duckBandHz = 1838.0f;
-    dynEQParams.q = 7.33f;
-    dynEQParams.shape = 0.5f;
-    dynEQParams.threshold = -14.4f;
-    dynEQParams.ratio = 2.52f;
-    dynEQParams.attack = 6.09f;
-    dynEQParams.release = 128.8f;
-    dynEQ.setParams(dynEQParams);
+    
+    // Band 1
+    DynamicEQProcessor::BandParams dynEQParams1;
+    dynEQParams1.duckBandHz = 1838.0f;
+    dynEQParams1.q = 7.33f;
+    dynEQParams1.shape = 0.5f;
+    dynEQParams1.threshold = -14.4f;
+    dynEQParams1.ratio = 2.52f;
+    dynEQParams1.attack = 6.09f;
+    dynEQParams1.release = 128.8f;
+    dynEQ.setParams(0, dynEQParams1);
+
+    // Band 2 (Defaults)
+    DynamicEQProcessor::BandParams dynEQParams2;
+    dynEQParams2.duckBandHz = 2500.0f;
+    dynEQParams2.q = 4.0f;
+    dynEQParams2.shape = 0.5f;
+    dynEQParams2.threshold = -20.0f;
+    dynEQParams2.ratio = 2.0f;
+    dynEQParams2.attack = 10.0f;
+    dynEQParams2.release = 150.0f;
+    dynEQ.setParams(1, dynEQParams2);
+
     dynEQ.setBypassed(false);
     
     currentPresetName = "a12";
@@ -219,11 +253,12 @@ bool PresetManager::savePreset(const juce::File& file)
     root->setProperty("delayBypass", delay.isBypassed());
 
     auto& dynEq = audioEngine.getDynamicEQProcessor();
-    root->setProperty("dynamicEQ", dynEqParamsToVar(dynEq.getParams()));
+    root->setProperty("dynamicEQ", dynEqParamsToVar(dynEq));
     root->setProperty("dynEqBypass", dynEq.isBypassed());
 
-    juce::String jsonString = juce::JSON::toString(juce::var(root), false);
-    if (file.replaceWithText(jsonString))
+    juce::var presetData(root.get());
+    juce::String jsonStr = juce::JSON::toString(presetData, true);
+    if (file.replaceWithText(jsonStr))
     {
         currentPresetName = file.getFileNameWithoutExtension();
         return true;
@@ -236,25 +271,32 @@ bool PresetManager::savePreset(const juce::File& file)
 // ==============================================================================
 bool PresetManager::loadPreset(const juce::File& file)
 {
-    if (!file.existsAsFile()) return false;
-    auto jsonVar = juce::JSON::parse(file);
-    if (!jsonVar.isObject()) return false;
+    if (!file.existsAsFile())
+        return false;
 
-    auto* root = jsonVar.getDynamicObject();
+    juce::String content = file.loadFileAsString();
+    juce::var parsed = juce::JSON::parse(content);
+    if (parsed.isVoid())
+        return false;
 
-    if (auto* mics = root->getProperty("mics").getArray())
+    auto* root = parsed.getDynamicObject();
+    if (!root)
+        return false;
+
+    // --- Mics ---
+    if (auto* micsArray = root->getProperty("mics").getArray())
     {
-        for (int i = 0; i < juce::jmin(2, mics->size()); ++i)
+        for (int i = 0; i < juce::jmin(2, micsArray->size()); ++i)
         {
-            if (auto* micObj = mics->getReference(i).getDynamicObject())
+            if (auto* micObj = micsArray->getReference(i).getDynamicObject())
             {
                 audioEngine.setMicPreampGain(i, (float)micObj->getProperty("preampGain"));
                 audioEngine.setMicMute(i, (bool)micObj->getProperty("mute"));
                 audioEngine.setFxBypass(i, (bool)micObj->getProperty("fxBypass"));
 
+                auto& eq = audioEngine.getEQProcessor(i);
                 if (auto* eqObj = micObj->getProperty("eq").getDynamicObject())
                 {
-                    auto& eq = audioEngine.getEQProcessor(i);
                     eq.setLowFrequency((float)eqObj->getProperty("lowFreq"));
                     eq.setMidFrequency((float)eqObj->getProperty("midFreq"));
                     eq.setHighFrequency((float)eqObj->getProperty("highFreq"));
@@ -294,7 +336,7 @@ bool PresetManager::loadPreset(const juce::File& file)
     delay.setBypassed((bool)root->getProperty("delayBypass"));
 
     auto& dynEq = audioEngine.getDynamicEQProcessor();
-    dynEq.setParams(varToDynEqParams(root->getProperty("dynamicEQ")));
+    varToDynEqParams(root->getProperty("dynamicEQ"), dynEq);
     dynEq.setBypassed((bool)root->getProperty("dynEqBypass"));
 
     currentPresetName = file.getFileNameWithoutExtension();
@@ -410,19 +452,20 @@ juce::var PresetManager::harmonizerParamsToVar(const HarmonizerProcessor::Params
     juce::DynamicObject::Ptr obj = new juce::DynamicObject();
     obj->setProperty("enabled", p.enabled);
     obj->setProperty("wet", p.wetDb);
+    obj->setProperty("glide", p.glideMs);
     
-    juce::DynamicObject::Ptr v1 = new juce::DynamicObject();
-    v1->setProperty("on", p.voices[0].enabled);
-    v1->setProperty("pitch", p.voices[0].fixedSemitones);
-    v1->setProperty("gain", p.voices[0].gainDb);
-    obj->setProperty("v1", v1.get());
-
-    juce::DynamicObject::Ptr v2 = new juce::DynamicObject();
-    v2->setProperty("on", p.voices[1].enabled);
-    v2->setProperty("pitch", p.voices[1].fixedSemitones);
-    v2->setProperty("gain", p.voices[1].gainDb);
-    obj->setProperty("v2", v2.get());
-
+    // Save all 4 voices
+    for (int i = 0; i < 4; ++i)
+    {
+        juce::DynamicObject::Ptr voice = new juce::DynamicObject();
+        voice->setProperty("on", p.voices[i].enabled);
+        voice->setProperty("semitones", p.voices[i].semitones);
+        voice->setProperty("pan", p.voices[i].pan);
+        voice->setProperty("gain", p.voices[i].gainDb);
+        voice->setProperty("delay", p.voices[i].delayMs);
+        obj->setProperty("v" + juce::String(i + 1), voice.get());
+    }
+    
     return obj.get();
 }
 
@@ -433,48 +476,68 @@ HarmonizerProcessor::Params PresetManager::varToHarmonizerParams(const juce::var
     {
         p.enabled = (bool)obj->getProperty("enabled");
         p.wetDb = (float)obj->getProperty("wet");
+        p.glideMs = obj->hasProperty("glide") ? (float)obj->getProperty("glide") : 50.0f;
         
-        if (auto* v1 = obj->getProperty("v1").getDynamicObject())
+        // Load all 4 voices
+        for (int i = 0; i < 4; ++i)
         {
-            p.voices[0].enabled = (bool)v1->getProperty("on");
-            p.voices[0].fixedSemitones = (float)v1->getProperty("pitch");
-            p.voices[0].gainDb = (float)v1->getProperty("gain");
-        }
-        if (auto* v2 = obj->getProperty("v2").getDynamicObject())
-        {
-            p.voices[1].enabled = (bool)v2->getProperty("on");
-            p.voices[1].fixedSemitones = (float)v2->getProperty("pitch");
-            p.voices[1].gainDb = (float)v2->getProperty("gain");
+            juce::String voiceName = "v" + juce::String(i + 1);
+            if (auto* voice = obj->getProperty(voiceName).getDynamicObject())
+            {
+                p.voices[i].enabled = (bool)voice->getProperty("on");
+                
+                // Backward compatibility: try "semitones" first, fall back to "pitch"
+                if (voice->hasProperty("semitones"))
+                    p.voices[i].semitones = (float)voice->getProperty("semitones");
+                else if (voice->hasProperty("pitch"))
+                    p.voices[i].semitones = (float)voice->getProperty("pitch");
+                
+                p.voices[i].pan = voice->hasProperty("pan") ? (float)voice->getProperty("pan") : 0.0f;
+                p.voices[i].gainDb = (float)voice->getProperty("gain");
+                p.voices[i].delayMs = voice->hasProperty("delay") ? (float)voice->getProperty("delay") : 0.0f;
+            }
         }
     }
     return p;
 }
 
-juce::var PresetManager::dynEqParamsToVar(const DynamicEQProcessor::Params& p)
+juce::var PresetManager::dynEqParamsToVar(DynamicEQProcessor& dynEq)
 {
-    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-    obj->setProperty("freq", p.duckBandHz);
-    obj->setProperty("q", p.q);
-    obj->setProperty("shape", p.shape);
-    obj->setProperty("thresh", p.threshold);
-    obj->setProperty("ratio", p.ratio);
-    obj->setProperty("att", p.attack);
-    obj->setProperty("rel", p.release);
-    return obj.get();
-}
-
-DynamicEQProcessor::Params PresetManager::varToDynEqParams(const juce::var& v)
-{
-    DynamicEQProcessor::Params p;
-    if (auto* obj = v.getDynamicObject())
+    juce::Array<juce::var> bandArray;
+    for (int i = 0; i < 2; ++i)
     {
-        p.duckBandHz = (float)obj->getProperty("freq");
-        p.q = (float)obj->getProperty("q");
-        p.shape = (float)obj->getProperty("shape");
-        p.threshold = (float)obj->getProperty("thresh");
-        p.ratio = (float)obj->getProperty("ratio");
-        p.attack = (float)obj->getProperty("att");
-        p.release = (float)obj->getProperty("rel");
+        juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+        auto p = dynEq.getParams(i);
+        obj->setProperty("freq", p.duckBandHz);
+        obj->setProperty("q", p.q);
+        obj->setProperty("shape", p.shape);
+        obj->setProperty("thresh", p.threshold);
+        obj->setProperty("ratio", p.ratio);
+        obj->setProperty("att", p.attack);
+        obj->setProperty("rel", p.release);
+        bandArray.add(obj.get());
     }
-    return p;
+    return juce::var(bandArray);
+}
+
+void PresetManager::varToDynEqParams(const juce::var& v, DynamicEQProcessor& dynEq)
+{
+    if (auto* arr = v.getArray())
+    {
+        for (int i = 0; i < juce::jmin(2, arr->size()); ++i)
+        {
+            if (auto* obj = arr->getReference(i).getDynamicObject())
+            {
+                DynamicEQProcessor::BandParams p;
+                p.duckBandHz = (float)obj->getProperty("freq");
+                p.q = (float)obj->getProperty("q");
+                p.shape = (float)obj->getProperty("shape");
+                p.threshold = (float)obj->getProperty("thresh");
+                p.ratio = (float)obj->getProperty("ratio");
+                p.attack = (float)obj->getProperty("att");
+                p.release = (float)obj->getProperty("rel");
+                dynEq.setParams(i, p);
+            }
+        }
+    }
 }

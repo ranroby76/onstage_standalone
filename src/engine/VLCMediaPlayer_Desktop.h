@@ -1,13 +1,8 @@
-// ### **3. The Desktop Implementation (Source)** Your **original** `VLCMediaPlayer.cpp`, adapted to implement `VLCMediaPlayer_Desktop`.
-
 /*
   ==============================================================================
 
     VLCMediaPlayer_Desktop.h
-    OnStage
-
-    Original LibVLC implementation for Windows/Mac/Linux.
-    Renamed from VLCMediaPlayer to VLCMediaPlayer_Desktop.
+    OnStage - MINIMAL BUG FIX VERSION (keeps abstract base class architecture)
 
   ==============================================================================
 */
@@ -17,7 +12,9 @@
 
 #include <juce_core/juce_core.h>
 #include <juce_audio_basics/juce_audio_basics.h>
-#include <juce_graphics/juce_graphics.h> 
+#include <juce_graphics/juce_graphics.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+#include "VLCMediaPlayer.h"
 
 extern "C" {
     #include <vlc/libvlc.h>
@@ -26,31 +23,37 @@ extern "C" {
     #include <vlc/libvlc_media_player.h>
 }
 
-class VLCMediaPlayer_Desktop
+class VLCMediaPlayer_Desktop : public VLCMediaPlayer
 {
 public:
     VLCMediaPlayer_Desktop();
-    ~VLCMediaPlayer_Desktop();
+    ~VLCMediaPlayer_Desktop() override;
 
-    bool prepareToPlay(int samplesPerBlock, double sampleRate);
-    void releaseResources();
+    // VLCMediaPlayer overrides
+    void prepareToPlay(int samplesPerBlock, double sampleRate) override;
+    void releaseResources() override;
+
+    void play(const juce::String& path) override;
+    void stop() override;
+    bool isPlaying() const override;
+
+    void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
+    void attachVideoComponent(juce::Component* videoComponent) override;
+
+    // Additional methods for extended functionality
     bool loadFile(const juce::String& path);
-    void play();
+    void play();  // Play already loaded file
     void pause();
-    void stop();
+    bool isPaused() const;
     void setVolume(float newVolume);
     float getVolume() const;
     void setRate(float newRate);
     float getRate() const;
     bool hasFinished() const;
-
-    void getNextAudioBlock(const juce::AudioSourceChannelInfo& info);
-    juce::Image getCurrentVideoFrame();
-
-    bool isPlaying() const;
     float getPosition() const;
     void setPosition(float pos);
     int64_t getLengthMs() const;
+    juce::Image getCurrentVideoFrame();
 
 private:
     static void audioPlay(void* data, const void* samples, unsigned count, int64_t pts);
@@ -75,8 +78,10 @@ private:
     juce::CriticalSection videoLockMutex;
     juce::Image currentVideoImage; 
     juce::Image bufferVideoImage;
-    int videoWidth = 1280;
-    int videoHeight = 720;
+    
+    // FIX #1: REMOVED videoBitmapData member - this was causing the crash!
+    
+    juce::Component* attachedVideoComponent = nullptr;
 
     double currentSampleRate = 44100.0;
     int maxBlockSize = 512;

@@ -101,6 +101,14 @@ MainComponent::MainComponent()
         masterVolumeLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
         masterVolumeLabel.setJustificationType(juce::Justification::centred);
         masterVolumeLabel.setMidiInfo("MIDI: CC 7");
+        
+        LOG_INFO("Step 11a: Adding slogan label");
+        addAndMakeVisible(sloganLabel);
+        sloganLabel.setText("ADVANCED LIVE PERFORMANCE PLATFORM", juce::dontSendNotification);
+        sloganLabel.setFont(juce::Font(14.0f, juce::Font::bold));
+        sloganLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));  // Golden
+        sloganLabel.setJustificationType(juce::Justification::centredRight);
+        
         LOG_INFO("Step 12: Setting up header callbacks");
         header.onSavePreset = [this]() { savePreset(); };
         header.onLoadPreset = [this]() { loadPreset(); };
@@ -168,6 +176,18 @@ void MainComponent::resized()
     downloadWavButton.setBounds(rightEdge - 80 - 120 - 5, stripY, 120, 24);
     recordButton.toFront(true); 
     downloadWavButton.toFront(true);
+    
+    // Position slogan CENTERED between tabs and download button
+    int tabsEndX = 450;
+    int downloadStartX = rightEdge - 80 - 120 - 5;
+    int availableWidth = downloadStartX - tabsEndX - 20;
+    int sloganWidth = 350;
+    int sloganX = tabsEndX + (availableWidth - sloganWidth) / 2;
+    int sloganY = headerHeight + (60 - 20) / 2;
+    
+    sloganLabel.setBounds(sloganX, sloganY, sloganWidth, 20);
+    sloganLabel.setJustificationType(juce::Justification::centred);
+    sloganLabel.toFront(true);
 
     rightColumn.removeFromTop(headerHeight);
     masterVolumeLabel.setBounds(rightColumn.removeFromTop(20).reduced(2));

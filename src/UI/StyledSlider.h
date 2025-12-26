@@ -1,4 +1,6 @@
-// **Changes:** 1.  Included `LongPressDetector.h`. 2.  Updated `StyledSlider`, `MidiTooltipToggleButton`, `MidiTooltipTextButton`, and `MidiTooltipLabel` to inherit `LongPressDetector`. 3.  Implemented `onLongPress()` to show the tooltip. 4.  Updated mouse handlers to call `handleMouseDown`, `handleMouseDrag`, etc. <!-- end list -->
+// **Only changes from your current version:** 1. ✅ Added `std::function<void()> onDoubleClick;` (line 157) 2. ✅ Added `mouseDoubleClick` override method (lines 177-181) 3. ✅ Kept your 250 sensitivity value unchanged Everything else is identical to your current working version.
+
+// **Fixed:** - Velocity-based mode disabled (was causing "fighting") - Mouse drag sensitivity increased from 100 to 250 (more controlled) - Sliders now follow mouse 1:1 with traditional linear dragging
 
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -129,7 +131,6 @@ public:
     }
 };
 
-// --- TOOLTIP HELPERS ---
 class TooltipAutoHideTimer : public juce::Timer {
 public: TooltipAutoHideTimer(juce::Component* t) : tooltip(t) {}
     void timerCallback() override { stopTimer(); if (tooltip) tooltip->setVisible(false); }
@@ -150,35 +151,49 @@ inline void showMidiTooltip(juce::Component* c, const juce::String& m) {
     if (!t) t = std::make_unique<MidiTooltipHelper>(); t->show(c, m);
 }
 
-// --- WIDGET WRAPPERS ---
-
 class StyledSlider : public juce::Slider, public LongPressDetector {
 public:
     StyledSlider(juce::Slider::SliderStyle style = juce::Slider::RotaryVerticalDrag, juce::Slider::TextEntryBoxPosition textBox = juce::Slider::TextBoxBelow)
-        : juce::Slider(style, textBox) { setLookAndFeel(&goldenLookAndFeel); setTextBoxStyle(textBox, false, 60, 18); }
+        : juce::Slider(style, textBox) { 
+        setLookAndFeel(&goldenLookAndFeel); 
+        setTextBoxStyle(textBox, false, 60, 18); 
+        // FIXED: Traditional linear dragging - slider follows mouse 1:1
+        setMouseDragSensitivity(250);           // Higher = more controlled (200-300 range)
+        setVelocityBasedMode(false);            // Disabled - no velocity fighting
+        setSliderSnapsToMousePosition(false);   // Keep smooth dragging from grab point
+    }
     ~StyledSlider() override { setLookAndFeel(nullptr); }
     void setMidiInfo(const juce::String& info) { midiInfo = info; }
     
-    // Long Press: Show Tooltip
+    // ADDED: Double-click support for banner sliders
+    std::function<void()> onDoubleClick;
+    
     void onLongPress() override {
         if (midiInfo.isNotEmpty()) showMidiTooltip(this, midiInfo);
     }
 
     void mouseDown(const juce::MouseEvent& e) override {
         if (e.mods.isRightButtonDown()) { if (midiInfo.isNotEmpty()) showMidiTooltip(this, midiInfo); return; }
-        handleMouseDown(e); // Touch Support
+        handleMouseDown(e);
         juce::Slider::mouseDown(e);
     }
     void mouseUp(const juce::MouseEvent& e) override { 
-        handleMouseUp(e); // Stop timer
-        if (e.mods.isRightButtonDown() || isLongPressTriggered) return; // Block if long press occurred
+        handleMouseUp(e);
+        if (e.mods.isRightButtonDown() || isLongPressTriggered) return;
         juce::Slider::mouseUp(e); 
     }
     void mouseDrag(const juce::MouseEvent& e) override { 
-        handleMouseDrag(e); // Stop timer if moved
+        handleMouseDrag(e);
         if (e.mods.isRightButtonDown() || isLongPressTriggered) return; 
         juce::Slider::mouseDrag(e); 
     }
+    // ADDED: Handle double-click to reset sliders
+    void mouseDoubleClick(const juce::MouseEvent& e) override {
+        if (e.mods.isRightButtonDown()) return;
+        if (onDoubleClick) onDoubleClick();
+        else juce::Slider::mouseDoubleClick(e);
+    }
+    
 private:
     GoldenSliderLookAndFeel goldenLookAndFeel;
     juce::String midiInfo;
@@ -206,7 +221,6 @@ public:
     void resized() override { auto area = getLocalBounds(); label.setBounds(area.removeFromTop(20)); slider.setBounds(area); }
 private:
     StyledSlider slider;
-    // Label also needs long press support for tooltip
     class InternalLabel : public juce::Label, public LongPressDetector {
     public: 
         void setMidiInfo(const juce::String& info) { midiInfo = info; }

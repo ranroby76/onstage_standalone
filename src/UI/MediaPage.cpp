@@ -17,8 +17,16 @@ MediaPage::MediaPage(AudioEngine& engine, IOSettingsManager& settings) : audioEn
     playPauseBtn.setMidiInfo("MIDI: Note 15");
     playPauseBtn.onClick = [this] { 
         auto& player = audioEngine.getMediaPlayer();
-        if (player.isPlaying()) player.pause();
-        else player.play();
+        
+        if (playlistComponent->getCurrentTrackIndex() >= 0) {
+            if (player.isPlaying()) {
+                player.pause();
+            } else if (player.isPaused()) {
+                player.play();  // Resume
+            } else {
+                playlistComponent->playSelectedTrack();  // Start playing
+            }
+        }
     };
 
     addAndMakeVisible(stopBtn);
@@ -35,13 +43,19 @@ MediaPage::MediaPage(AudioEngine& engine, IOSettingsManager& settings) : audioEn
     progressSlider.setRange(0.0, 1.0, 0.001);
     progressSlider.setColour(juce::Slider::trackColourId, juce::Colour(0xFFD4AF37));
     progressSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xFF404040));
+    
+    // Click-to-jump: Set flag when mouse interaction starts
     progressSlider.onDragStart = [this] { isUserDraggingSlider = true; };
-    progressSlider.onDragEnd = [this] { 
-        isUserDraggingSlider = false;
-        audioEngine.getMediaPlayer().setPosition((float)progressSlider.getValue());
-    };
+    
+    // When drag ends, clear flag
+    progressSlider.onDragEnd = [this] { isUserDraggingSlider = false; };
+    
+    // Update position on ANY value change (click or drag)
     progressSlider.onValueChange = [this] {
-        if (isUserDraggingSlider) audioEngine.getMediaPlayer().setPosition((float)progressSlider.getValue());
+        // Check if user is interacting (either clicking or dragging)
+        if (progressSlider.isMouseButtonDown() || isUserDraggingSlider) {
+            audioEngine.getMediaPlayer().setPosition((float)progressSlider.getValue());
+        }
     };
 
     // Clocks
@@ -77,13 +91,13 @@ void MediaPage::timerCallback()
     bool isPlaying = player.isPlaying();
     playPauseBtn.setButtonText(isPlaying ? "PAUSE" : "PLAY");
     
-    if (!isUserDraggingSlider && isPlaying)
+    // Don't update slider if user is interacting with it (clicking or dragging)
+    if (!isUserDraggingSlider && !progressSlider.isMouseButtonDown() && isPlaying)
     {
         progressSlider.setValue(player.getPosition(), juce::dontSendNotification);
     }
 
     // Update Clocks
-    // VLC Length is in MS
     double lenMs = (double)player.getLengthMs(); 
     double posRatio = player.getPosition();
     double currentMs = lenMs * posRatio;
@@ -105,24 +119,15 @@ void MediaPage::resized()
     int transportHeight = 30;
     auto transportArea = playerArea.removeFromBottom(transportHeight);
     
-    // Bottom Row: Buttons
-    playPauseBtn.setBounds(transportArea.removeFromLeft(60).reduced(2));
-    stopBtn.setBounds(transportArea.removeFromLeft(60).reduced(2));
-    
-    // Time & Slider Area (Above Buttons)
-    // Actually, design request: Clock Left (Total) and Clock Right (Progress)? 
-    // Request: "Clock that shows tracks total length in the left... and another... in the right"
-    // Usually Total is on the right, but I will follow instructions: Total Left, Progress Right?
-    // "total length in the left... progress in the right" -> Okay.
-    
-    // Let's create a small strip ABOVE the slider for text? Or beside the slider?
-    // "above the time slider"
+    // FIXED #4: Buttons stretch across full width
+    int buttonWidth = transportArea.getWidth() / 2;
+    playPauseBtn.setBounds(transportArea.removeFromLeft(buttonWidth).reduced(2));
+    stopBtn.setBounds(transportArea.reduced(2));
     
     int sliderHeight = 20;
     int labelHeight = 15;
     
     auto sliderStrip = playerArea.removeFromBottom(sliderHeight + labelHeight + 5); 
-    // Strip contains Labels (Top) + Slider (Bottom)
     
     auto labelRow = sliderStrip.removeFromTop(labelHeight);
     totalTimeLabel.setBounds(labelRow.removeFromLeft(60));

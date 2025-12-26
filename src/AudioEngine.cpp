@@ -24,12 +24,15 @@ AudioEngine::AudioEngine()
 {
     formatManager.registerBasicFormats();
     
+    // Start recorder thread
+    writerThread.startThread();
+    
     // Start with 0/0 to let UI drive the config, allow auto-open of default if available
     deviceManager.initialise(0, 0, nullptr, true); 
     deviceManager.addAudioCallback(this);
 
     // Initialize Internal Player
-    mediaPlayer = std::make_unique<VLCMediaPlayer>();
+    mediaPlayer = std::make_unique<VLCMediaPlayer_Desktop>();
     
     startTimer(200); 
     
@@ -39,7 +42,10 @@ AudioEngine::AudioEngine()
     inputGains.resize(32, 1.0f);
     
     // Clear meters
-    for (int i=0; i<32; ++i) inputLevelMeters[i].store(0.0f);
+    for (int i=0; i<32; ++i) {
+        inputLevelMeters[i].store(0.0f);
+        outputLevels[i].store(0.0f);
+    }
     for (int i=0; i<9; ++i) backingLevels[i].store(0.0f);
 }
 
@@ -64,17 +70,15 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
 
     // Prep DSP
     for (int i=0; i<2; ++i) {
-        micChains[i].eq.prepare(spec);
-        micChains[i].comp.prepare(spec);
-        micChains[i].exciter.prepare(spec);
+        micChains[i].exciter.prepare(spec);  // 1. AIR
+        micChains[i].sculpt.prepare(spec);   // 2. SCULPT
+        micChains[i].eq.prepare(spec);       // 3. EQ
+        micChains[i].comp.prepare(spec);     // 4. COMP
     }
     harmonizer.prepare(spec);
     reverb.prepare(spec);
     delay.prepare(sampleRate, samplesPerBlock, 2);
     dynamicEQ.prepare(spec);
-    
-    pitchShifterL.prepare(sampleRate, samplesPerBlock);
-    pitchShifterR.prepare(sampleRate, samplesPerBlock);
     
     if (mediaPlayer) mediaPlayer->prepareToPlay(samplesPerBlock, sampleRate);
     
@@ -113,8 +117,9 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
     for (int i=0; i<numOutputChannels; ++i)
         if (outputChannelData[i]) FloatVectorOperations::clear(outputChannelData[i], numSamples);
 
-    AudioBuffer<float> mic1Sum(1, numSamples); mic1Sum.clear();
-    AudioBuffer<float> mic2Sum(1, numSamples); mic2Sum.clear();
+    // Mic buffers are STEREO (2 channels) for proper stereo effects processing
+    AudioBuffer<float> mic1Sum(2, numSamples); mic1Sum.clear();
+    AudioBuffer<float> mic2Sum(2, numSamples); mic2Sum.clear();
     AudioBuffer<float> musicBus(2, numSamples); musicBus.clear();
 
     // 1. INPUT MATRIX SUMMING
@@ -132,8 +137,17 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
 
         if (mask == 0) continue; 
 
-        if (mask & 1) mic1Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);
-        if (mask & 2) mic2Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);
+        // Mic inputs: Convert mono to stereo (duplicate to both L and R channels)
+        if (mask & 1) { 
+            mic1Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);  // Left
+            mic1Sum.addFrom(1, 0, inputChannelData[i], numSamples, gain);  // Right (same signal)
+        }
+        if (mask & 2) {
+            mic2Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);  // Left
+            mic2Sum.addFrom(1, 0, inputChannelData[i], numSamples, gain);  // Right (same signal)
+        }
+        
+        // Music bus routing (already handles stereo)
         if (mask & 4) musicBus.addFrom(0, 0, inputChannelData[i], numSamples, gain);
         if (mask & 8) musicBus.addFrom(1, 0, inputChannelData[i], numSamples, gain);
     }
@@ -142,46 +156,55 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
     AudioBuffer<float> vocalBus(2, numSamples);
     vocalBus.clear();
 
-    // -- MIC 1 --
+    // -- MIC 1 (Already Stereo) --
     if (!micChains[0].muted) {
         float chainGain = Decibels::decibelsToGain(micChains[0].preampGainDb);
         mic1Sum.applyGain(chainGain);
 
         if (!micChains[0].fxBypassed) {
-            dsp::AudioBlock<float> block(mic1Sum);
+            dsp::AudioBlock<float> block(mic1Sum);  // 2-channel stereo block
             dsp::ProcessContextReplacing<float> ctx(block);
-            micChains[0].exciter.process(ctx); // Air first
-            micChains[0].eq.process(ctx);      // EQ
-            micChains[0].comp.process(ctx);    // Comp
+            micChains[0].exciter.process(ctx);  // 1. AIR (stereo)
+            micChains[0].sculpt.process(ctx);   // 2. SCULPT (stereo)
+            micChains[0].eq.process(ctx);       // 3. EQ (stereo)
+            micChains[0].comp.process(ctx);     // 4. COMP (stereo)
         }
-        vocalBus.addFrom(0, 0, mic1Sum, 0, 0, numSamples);
-        vocalBus.addFrom(1, 0, mic1Sum, 0, 0, numSamples);
+        // Add stereo signal to vocal bus
+        vocalBus.addFrom(0, 0, mic1Sum, 0, 0, numSamples);  // L
+        vocalBus.addFrom(1, 0, mic1Sum, 1, 0, numSamples);  // R
     }
 
-    // -- MIC 2 --
+    // -- MIC 2 (Already Stereo) --
     if (!micChains[1].muted) {
         float chainGain = Decibels::decibelsToGain(micChains[1].preampGainDb);
         mic2Sum.applyGain(chainGain);
 
         if (!micChains[1].fxBypassed) {
-            dsp::AudioBlock<float> block(mic2Sum);
+            dsp::AudioBlock<float> block(mic2Sum);  // 2-channel stereo block
             dsp::ProcessContextReplacing<float> ctx(block);
-            micChains[1].exciter.process(ctx);
-            micChains[1].eq.process(ctx);
-            micChains[1].comp.process(ctx);
+            micChains[1].exciter.process(ctx);  // 1. AIR (stereo)
+            micChains[1].sculpt.process(ctx);   // 2. SCULPT (stereo)
+            micChains[1].eq.process(ctx);       // 3. EQ (stereo)
+            micChains[1].comp.process(ctx);     // 4. COMP (stereo)
         }
-        vocalBus.addFrom(0, 0, mic2Sum, 0, 0, numSamples);
-        vocalBus.addFrom(1, 0, mic2Sum, 0, 0, numSamples);
+        // Add stereo signal to vocal bus
+        vocalBus.addFrom(0, 0, mic2Sum, 0, 0, numSamples);  // L
+        vocalBus.addFrom(1, 0, mic2Sum, 1, 0, numSamples);  // R
     }
 
-    // 3. GLOBAL VOCAL FX (Vocals Only)
+    // FIX: 3. GLOBAL VOCAL FX (Harmonizer, Reverb, Delay) - Bypass if EITHER mic has FX bypassed
+    bool globalFxBypassed = micChains[0].fxBypassed || micChains[1].fxBypassed;
+    
+    if (!globalFxBypassed)
     {
-        dsp::AudioBlock<float> block(vocalBus);
-        dsp::ProcessContextReplacing<float> harmCtx(block);
-        harmonizer.process(harmCtx); 
+        {
+            dsp::AudioBlock<float> block(vocalBus);
+            dsp::ProcessContextReplacing<float> harmCtx(block);
+            harmonizer.process(harmCtx); 
+        }
+        if (!reverb.isBypassed()) reverb.process(vocalBus);
+        if (!delay.isBypassed()) delay.process(vocalBus);
     }
-    if (!reverb.isBypassed()) reverb.process(vocalBus);
-    if (!delay.isBypassed()) delay.process(vocalBus);
 
     // 4. MUSIC BUS PROCESSING
     
@@ -193,10 +216,6 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
     if (mediaPlayer) {
         mediaPlayer->getNextAudioBlock(info);
     }
-    
-    // Apply Pitch Shift to Internal Audio
-    pitchShifterL.processBlock(internalAudio.getWritePointer(0), numSamples);
-    pitchShifterR.processBlock(internalAudio.getWritePointer(1), numSamples);
     
     musicBus.addFrom(0, 0, internalAudio, 0, 0, numSamples);
     musicBus.addFrom(1, 0, internalAudio, 1, 0, numSamples);
@@ -216,16 +235,20 @@ void AudioEngine::processAudio(const float* const* inputChannelData, int numInpu
 
     master.applyGain(masterGain);
 
-    outputLevels[0].store(master.getMagnitude(0, numSamples));
-    outputLevels[1].store(master.getMagnitude(1, numSamples));
-
-    // Route to Physical Outputs
+    // Route to Physical Outputs & Meter Each Channel
     for (int i=0; i<numOutputChannels; ++i) {
         if (i >= (int)outputRoutingMasks.size()) break;
         int mask = outputRoutingMasks[i];
         
         if (mask & 1) FloatVectorOperations::add(outputChannelData[i], master.getReadPointer(0), numSamples);
         if (mask & 2) FloatVectorOperations::add(outputChannelData[i], master.getReadPointer(1), numSamples);
+        
+        // Meter each physical output channel
+        if (i < 32 && outputChannelData[i]) {
+            float level = AudioBuffer<float>(const_cast<float**>(&outputChannelData[i]), 1, numSamples)
+                         .getMagnitude(0, numSamples);
+            outputLevels[i].store(level);
+        }
     }
     
     if (isRecording && backgroundWriter) {
@@ -246,14 +269,12 @@ void AudioEngine::timerCallback() {
 // FIX: stopAllPlayback implementation
 void AudioEngine::stopAllPlayback() {
     if (mediaPlayer) mediaPlayer->stop();
-    pitchShifterL.reset();
-    pitchShifterR.reset();
 }
 
-// FIX: setBackingTrackPitch implementation
+// Backing track pitch control (removed - no longer used)
 void AudioEngine::setBackingTrackPitch(float semitones) {
-    pitchShifterL.setPitchSemitones(semitones);
-    pitchShifterR.setPitchSemitones(semitones);
+    // Pitch shifting removed to preserve audio quality
+    juce::ignoreUnused(semitones);
 }
 
 // Meters
@@ -261,7 +282,10 @@ float AudioEngine::getInputLevel(int channel) const {
     if (channel >= 0 && channel < 32) return inputLevelMeters[channel].load();
     return 0.0f;
 }
-float AudioEngine::getOutputLevel(int channel) const { return outputLevels[channel]; }
+float AudioEngine::getOutputLevel(int channel) const { 
+    if (channel >= 0 && channel < 32) return outputLevels[channel].load();
+    return 0.0f;
+}
 float AudioEngine::getBackingTrackLevel(int channel) const { 
     if (channel == 0) return internalPlayerLevel.load();
     return 0.0f; 
@@ -333,8 +357,10 @@ juce::StringArray AudioEngine::getAvailableMidiInputs() {
     return devices;
 }
 void AudioEngine::openDriverControlPanel() {
-    if (auto* device = deviceManager.getCurrentAudioDevice()) 
-        if (device->getTypeName() == "ASIO") {} 
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (!device || device->getTypeName() != "ASIO") return;
+    
+    device->showControlPanel();
 }
 void AudioEngine::setMidiInput(const juce::String& deviceName) { deviceManager.setMidiInputEnabled(deviceName, true); }
 
@@ -390,11 +416,17 @@ void AudioEngine::showVideoWindow() {}
 
 bool AudioEngine::startRecording() {
     stopRecording();
+    
+    // Get actual sample rate from device
+    auto* device = deviceManager.getCurrentAudioDevice();
+    double sampleRate = device ? device->getCurrentSampleRate() : 44100.0;
+    
     lastRecordingFile = File::getSpecialLocation(File::userMusicDirectory).getNonexistentChildFile("OnStage_Recording", ".wav");
     auto* wavFormat = new WavAudioFormat();
     auto* outputStream = new FileOutputStream(lastRecordingFile);
     if (outputStream->failedToOpen()) { delete outputStream; delete wavFormat; return false; }
-    auto* writer = wavFormat->createWriterFor(outputStream, 44100.0, 2, 24, {}, 0);
+    
+    auto* writer = wavFormat->createWriterFor(outputStream, sampleRate, 2, 24, {}, 0);
     if (writer != nullptr) {
         backgroundWriter.reset(new AudioFormatWriter::ThreadedWriter(writer, writerThread, 32768));
         isRecording = true; delete wavFormat; return true;
@@ -406,3 +438,4 @@ void AudioEngine::stopRecording() { isRecording = false; backgroundWriter = null
 EQProcessor& AudioEngine::getEQProcessor(int i) { return micChains[i].eq; }
 CompressorProcessor& AudioEngine::getCompressorProcessor(int i) { return micChains[i].comp; }
 ExciterProcessor& AudioEngine::getExciterProcessor(int i) { return micChains[i].exciter; }
+SculptProcessor& AudioEngine::getSculptProcessor(int i) { return micChains[i].sculpt; }

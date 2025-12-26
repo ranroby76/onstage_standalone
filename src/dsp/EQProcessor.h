@@ -2,13 +2,9 @@
 
 #include <juce_dsp/juce_dsp.h>
 
-// ============================================================================
-// EQProcessor - 3-band EQ with Low/Mid/High controls
-// ============================================================================
 class EQProcessor
 {
 public:
-    // NEW: Params struct for PresetManager
     struct Params
     {
         float lowFreq = 100.0f;
@@ -37,27 +33,21 @@ public:
     void process(juce::dsp::ProcessContextReplacing<float>& context);
     void reset();
     
-    // Param management (This was missing in the cpp)
     void setParams(const Params& params);
     Params getParams() const;
 
-    // Bypass control
     void setBypassed(bool shouldBeBypassed);
     bool isBypassed() const;
     
-    // Frequency setters
     void setLowFrequency(float freq);
     void setMidFrequency(float freq);
     void setHighFrequency(float freq);
-    // Gain setters (in dB)
     void setLowGain(float gain);
     void setMidGain(float gain);
     void setHighGain(float gain);
-    // Q factor setters
     void setLowQ(float q);
     void setMidQ(float q);
     void setHighQ(float q);
-    // Getters
     float getLowFrequency() const;
     float getMidFrequency() const;
     float getHighFrequency() const;
@@ -69,14 +59,12 @@ public:
     float getHighQ() const;
 
 private:
-    // Filter parameters
     float lowFreq, midFreq, highFreq;
     float lowGain, midGain, highGain;
     float lowQ, midQ, highQ;
     double sampleRate;
     bool bypassed;
     
-    // Filters
     juce::dsp::IIR::Filter<float> lowShelf[2];
     juce::dsp::IIR::Filter<float> midPeak[2];
     juce::dsp::IIR::Filter<float> highShelf[2];

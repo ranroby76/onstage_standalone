@@ -31,12 +31,14 @@ public:
         makeup.prepare (spec);
         applyParams();
         isPrepared = true;
+        currentInputLevel = 0.0f;
     }
 
     void reset()
     {
         comp.reset();
         makeup.reset();
+        currentInputLevel = 0.0f;
     }
 
     void setParams (const Params& p)
@@ -52,7 +54,28 @@ public:
     void process (Context&& ctx)
     {
         if (bypassed || !isPrepared)
-            return; // Skip processing if bypassed or not ready
+            return;
+
+        // Capture input level for visualization
+        auto& block = ctx.getOutputBlock();
+        float sumSquares = 0.0f;
+        int totalSamples = 0;
+        
+        for (size_t ch = 0; ch < block.getNumChannels(); ++ch)
+        {
+            auto* data = block.getChannelPointer(ch);
+            for (size_t i = 0; i < block.getNumSamples(); ++i)
+            {
+                sumSquares += data[i] * data[i];
+                totalSamples++;
+            }
+        }
+        
+        if (totalSamples > 0)
+        {
+            float rms = std::sqrt(sumSquares / totalSamples);
+            currentInputLevel = juce::Decibels::gainToDecibels(rms + 1e-6f);
+        }
 
         comp.process (ctx);
         makeup.process (ctx);
@@ -60,6 +83,19 @@ public:
 
     void setBypassed(bool shouldBypass) { bypassed = shouldBypass; }
     bool isBypassed() const { return bypassed; }
+    
+    // NEW: Get current input level for visualization
+    float getCurrentInputLevelDb() const { return currentInputLevel; }
+    
+    // NEW: Calculate theoretical gain reduction at given input level
+    float getGainReductionDb(float inputDb) const
+    {
+        if (inputDb <= params.thresholdDb)
+            return 0.0f;
+        
+        float overThreshold = inputDb - params.thresholdDb;
+        return overThreshold * (1.0f - (1.0f / params.ratio));
+    }
 
 private:
     void applyParams()
@@ -76,4 +112,5 @@ private:
     bool isPrepared = false;
     juce::dsp::Compressor<float> comp;
     juce::dsp::Gain<float> makeup;
+    std::atomic<float> currentInputLevel { 0.0f };
 };

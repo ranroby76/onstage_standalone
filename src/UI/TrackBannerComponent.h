@@ -11,10 +11,10 @@ public:
     TrackBannerComponent(int index, PlaylistItem& item, 
                          std::function<void()> onRemove,
                          std::function<void()> onExpandToggle,
-                         std::function<void()> onSelect,
+                         std::function<void()> onBannerClick,
+                         std::function<void()> onPlayButton,
                          std::function<void(float)> onVolChange,
-                         std::function<void(float)> onSpeedChange,
-                         std::function<void(float)> onPitchChange); // NEW
+                         std::function<void(float)> onSpeedChange);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -36,21 +36,20 @@ private:
 
     std::function<void()> onRemoveCallback;
     std::function<void()> onExpandToggleCallback;
-    std::function<void()> onSelectCallback;
+    std::function<void()> onBannerClickCallback;
+    std::function<void()> onPlayButtonCallback;
     std::function<void(float)> onVolChangeCallback;
     std::function<void(float)> onSpeedChangeCallback;
-    std::function<void(float)> onPitchChangeCallback; // NEW
 
     juce::Label indexLabel;
     MidiTooltipTextButton removeButton;
     MidiTooltipTextButton expandButton;
-    MidiTooltipTextButton crossfadeButton;
+    MidiTooltipTextButton playButton;
 
-    juce::Label volLabel, speedLabel, delayLabel, pitchLabel; // NEW pitchLabel
+    juce::Label volLabel, speedLabel, delayLabel;
     std::unique_ptr<StyledSlider> volSlider;
     std::unique_ptr<StyledSlider> speedSlider;
     std::unique_ptr<StyledSlider> delaySlider;
-    std::unique_ptr<StyledSlider> pitchSlider; // NEW
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TrackBannerComponent)
 };

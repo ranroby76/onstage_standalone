@@ -1,5 +1,3 @@
-// * **Fix:** Increased height of preamp section (`removeFromTop(80)` instead of 60) to provide reasonable distance for text boxes. <!-- end list -->
-
 #include "VocalsPage.h"
 #include "../RegistrationManager.h"
 
@@ -9,7 +7,6 @@ VocalsPage::VocalsPage(AudioEngine& engineRef, PresetManager& presetMgr)
     : audioEngine(engineRef), presetManager(presetMgr)
 {
     goldenLookAndFeel = std::make_unique<GoldenSliderLookAndFeel>();
-    setupPreampGains();
     setupTabbedComponent();
     
     updateAllControlsFromEngine();
@@ -21,11 +18,10 @@ VocalsPage::~VocalsPage()
 {
     stopTimer();
     if (tabbedComponent) tabbedComponent->setLookAndFeel(nullptr);
-    if (mic1GainSlider) mic1GainSlider->setLookAndFeel(nullptr);
-    if (mic2GainSlider) mic2GainSlider->setLookAndFeel(nullptr);
     eqPanel1 = nullptr; eqPanel2 = nullptr;
     compPanel1 = nullptr; compPanel2 = nullptr;
     excPanel1 = nullptr; excPanel2 = nullptr;
+    sculptPanel1 = nullptr; sculptPanel2 = nullptr;
     harmonizerPanel = nullptr; reverbPanel = nullptr;
     delayPanel = nullptr; dynEqPanel = nullptr;
 }
@@ -38,54 +34,10 @@ void VocalsPage::paint(juce::Graphics& g)
 void VocalsPage::resized()
 {
     auto area = getLocalBounds().reduced(20);
-
-    // Preamp Section at top
-    // FIX: Increased height to 80 to prevent text box clipping at bottom
-    auto preampArea = area.removeFromTop(80);
     
-    // Mic 1
-    auto m1Area = preampArea.removeFromLeft(300);
-    mic1GainLabel.setBounds(m1Area.removeFromTop(20));
-    mic1GainSlider->setBounds(m1Area);
-
-    preampArea.removeFromLeft(40);
-    // Gap
-
-    // Mic 2
-    auto m2Area = preampArea.removeFromLeft(300);
-    mic2GainLabel.setBounds(m2Area.removeFromTop(20));
-    mic2GainSlider->setBounds(m2Area);
-    
-    area.removeFromTop(10);
-    // Tabs
+    // Tabs take full area
     if (tabbedComponent)
         tabbedComponent->setBounds(area);
-}
-
-void VocalsPage::setupPreampGains()
-{
-    addAndMakeVisible(mic1GainLabel);
-    mic1GainLabel.setText("Mic 1 Preamp", dontSendNotification);
-    mic1GainLabel.setColour(Label::textColourId, Colours::white);
-    mic1GainSlider = std::make_unique<StyledSlider>(Slider::LinearHorizontal, Slider::TextBoxRight);
-    mic1GainSlider->setRange(-60.0, 24.0, 0.1);
-    mic1GainSlider->setValue(0.0);
-    mic1GainSlider->setTextValueSuffix(" dB");
-    mic1GainSlider->onValueChange = [this] {
-        audioEngine.setMicPreampGain(0, (float)mic1GainSlider->getValue());
-    };
-    addAndMakeVisible(mic1GainSlider.get());
-    addAndMakeVisible(mic2GainLabel);
-    mic2GainLabel.setText("Mic 2 Preamp", dontSendNotification);
-    mic2GainLabel.setColour(Label::textColourId, Colours::white);
-    mic2GainSlider = std::make_unique<StyledSlider>(Slider::LinearHorizontal, Slider::TextBoxRight);
-    mic2GainSlider->setRange(-60.0, 24.0, 0.1);
-    mic2GainSlider->setValue(0.0);
-    mic2GainSlider->setTextValueSuffix(" dB");
-    mic2GainSlider->onValueChange = [this] {
-        audioEngine.setMicPreampGain(1, (float)mic2GainSlider->getValue());
-    };
-    addAndMakeVisible(mic2GainSlider.get());
 }
 
 void VocalsPage::setupTabbedComponent()
@@ -96,18 +48,33 @@ void VocalsPage::setupTabbedComponent()
     tabbedComponent->setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
     juce::Colour tabBg = juce::Colour(0xFF202020);
 
-    eqPanel1 = new EQPanel(audioEngine.getEQProcessor(0), 0, "Mic 1");
-    tabbedComponent->addTab("Mic 1 EQ", tabBg, eqPanel1, true);
-    compPanel1 = new CompressorPanel(audioEngine, 0, "Mic 1");
-    tabbedComponent->addTab("Mic 1 Comp", tabBg, compPanel1, true);
+    // Mic 1 Chain: AIR → SCULPT → EQ → COMP
     excPanel1 = new ExciterPanel(audioEngine, 0, "Mic 1");
     tabbedComponent->addTab("Mic 1 Air", tabBg, excPanel1, true);
-    eqPanel2 = new EQPanel(audioEngine.getEQProcessor(1), 1, "Mic 2");
-    tabbedComponent->addTab("Mic 2 EQ", tabBg, eqPanel2, true);
-    compPanel2 = new CompressorPanel(audioEngine, 1, "Mic 2");
-    tabbedComponent->addTab("Mic 2 Comp", tabBg, compPanel2, true);
+    
+    sculptPanel1 = new SculptPanel(audioEngine, 0, "Mic 1");
+    tabbedComponent->addTab("Mic 1 Sculpt", tabBg, sculptPanel1, true);
+    
+    eqPanel1 = new EQPanel(audioEngine.getEQProcessor(0), 0, "Mic 1");
+    tabbedComponent->addTab("Mic 1 EQ", tabBg, eqPanel1, true);
+    
+    compPanel1 = new CompressorPanel(audioEngine, 0, "Mic 1");
+    tabbedComponent->addTab("Mic 1 Comp", tabBg, compPanel1, true);
+    
+    // Mic 2 Chain: AIR → SCULPT → EQ → COMP
     excPanel2 = new ExciterPanel(audioEngine, 1, "Mic 2");
     tabbedComponent->addTab("Mic 2 Air", tabBg, excPanel2, true);
+    
+    sculptPanel2 = new SculptPanel(audioEngine, 1, "Mic 2");
+    tabbedComponent->addTab("Mic 2 Sculpt", tabBg, sculptPanel2, true);
+    
+    eqPanel2 = new EQPanel(audioEngine.getEQProcessor(1), 1, "Mic 2");
+    tabbedComponent->addTab("Mic 2 EQ", tabBg, eqPanel2, true);
+    
+    compPanel2 = new CompressorPanel(audioEngine, 1, "Mic 2");
+    tabbedComponent->addTab("Mic 2 Comp", tabBg, compPanel2, true);
+    
+    // Global Effects
     harmonizerPanel = new HarmonizerPanel(audioEngine);
     tabbedComponent->addTab("Harmonizer", tabBg, harmonizerPanel, true);
     reverbPanel = new ReverbPanel(audioEngine);
@@ -117,24 +84,73 @@ void VocalsPage::setupTabbedComponent()
     dynEqPanel = new DynamicEQPanel(audioEngine);
     tabbedComponent->addTab("Sidechain", tabBg, dynEqPanel, true);
     addAndMakeVisible(tabbedComponent.get());
+    
+    // ========================================================================
+    // COLOR-CODE TAB BUTTONS
+    // ========================================================================
+    auto& tabBar = tabbedComponent->getTabbedButtonBar();
+    
+    // Define colors
+    juce::Colour greenActive(0xFF00CC66);      // Green for Mic 1
+    juce::Colour blueActive(0xFF66B3FF);       // Light blue for Mic 2
+    juce::Colour goldenActive(0xFFD4AF37);     // Golden for Global
+    juce::Colour darkInactive(0xFF2A2A2A);     // Dark gray for all inactive
+    
+    // Tabs 0-3: Mic 1 (Green)
+    for (int i = 0; i < 4; ++i)
+    {
+        auto* button = tabBar.getTabButton(i);
+        if (button)
+        {
+            button->setColour(TabbedButtonBar::frontOutlineColourId, greenActive);
+            button->setColour(TabbedButtonBar::frontTextColourId, juce::Colours::black);
+            button->setColour(TabbedButtonBar::tabOutlineColourId, darkInactive);
+            button->setColour(TabbedButtonBar::tabTextColourId, juce::Colours::white);
+        }
+    }
+    
+    // Tabs 4-7: Mic 2 (Blue)
+    for (int i = 4; i < 8; ++i)
+    {
+        auto* button = tabBar.getTabButton(i);
+        if (button)
+        {
+            button->setColour(TabbedButtonBar::frontOutlineColourId, blueActive);
+            button->setColour(TabbedButtonBar::frontTextColourId, juce::Colours::black);
+            button->setColour(TabbedButtonBar::tabOutlineColourId, darkInactive);
+            button->setColour(TabbedButtonBar::tabTextColourId, juce::Colours::white);
+        }
+    }
+    
+    // Tabs 8-11: Global (Golden)
+    for (int i = 8; i < 12; ++i)
+    {
+        auto* button = tabBar.getTabButton(i);
+        if (button)
+        {
+            button->setColour(TabbedButtonBar::frontOutlineColourId, goldenActive);
+            button->setColour(TabbedButtonBar::frontTextColourId, juce::Colours::black);
+            button->setColour(TabbedButtonBar::tabOutlineColourId, darkInactive);
+            button->setColour(TabbedButtonBar::tabTextColourId, juce::Colours::white);
+        }
+    }
 }
 
 void VocalsPage::timerCallback()
 {
-    bool isPro = RegistrationManager::getInstance().isProMode();
-    if (mic2GainSlider) mic2GainSlider->setEnabled(isPro);
+    // No longer needed - preamp sliders removed
 }
 
 void VocalsPage::updateAllControlsFromEngine()
 {
-    mic1GainSlider->setValue(audioEngine.getMicPreampGain(0), dontSendNotification);
-    mic2GainSlider->setValue(audioEngine.getMicPreampGain(1), dontSendNotification);
     if (eqPanel1) eqPanel1->updateFromPreset();
     if (eqPanel2) eqPanel2->updateFromPreset();
     if (compPanel1) compPanel1->updateFromPreset();
     if (compPanel2) compPanel2->updateFromPreset();
     if (excPanel1) excPanel1->updateFromPreset();
     if (excPanel2) excPanel2->updateFromPreset();
+    if (sculptPanel1) sculptPanel1->updateFromPreset();
+    if (sculptPanel2) sculptPanel2->updateFromPreset();
     if (harmonizerPanel) harmonizerPanel->updateFromPreset();
     if (reverbPanel) reverbPanel->updateFromPreset();
     if (delayPanel) delayPanel->updateFromPreset();

@@ -9,8 +9,8 @@ public:
         // Define Pages
         pageTitles = { 
             "1. What is OnStage?", "2. I/O Tab", "3. Vocals Tab", 
-            "4. Media Tab", "5. MIDI Support", "6. Tooltips", 
-            "7. Recording", "8. Registration" 
+            "4. Media Tab", "5. Visual Meters", "6. MIDI Support", 
+            "7. Tooltips", "8. Recording", "9. Registration" 
         };
 
         pageContents = {
@@ -45,15 +45,20 @@ public:
             // 3. Vocals Tab
             "THE VOCALS TAB\n\n"
             "This is the heart of your sound. Each microphone has its own dedicated chain:\n\n"
+            "Per-Mic Effects:\n"
             "- Preamp: Controls the initial input gain.\n"
             "- Exciter (Air): Adds high-end sparkle and clarity to dull vocals.\n"
-            "- EQ: A 3-band equalizer to shape your tone.\n"
+            "- Sculpt: Tube-style saturation processor with intelligent tone shaping. Clean Mud removes boxiness at 300Hz, "
+            "Tame Harsh smooths harshness at 3.5kHz, and Air adds brilliance at 12kHz.\n"
+            "- EQ: A 3-band equalizer (Low Shelf, Mid Bell, High Shelf) to shape your tone precisely.\n"
             "- Compressor: Evens out your volume, making quiet parts audible and loud parts controlled.\n\n"
             "Global Effects (Applied to both mics):\n"
-            "- Harmonizer: Adds synthesized backing vocals (pitch-shifted copies of your voice).\n"
-            "- Reverb: Simulates room acoustics to give your voice space.\n"
-            "- Delay: Adds echoes for dramatic effect.\n"
-            "- Sidechain (Dynamic EQ): Automatically lowers specific frequencies in the music when you sing, making your voice 'pop' out of the mix.",
+            "- Harmonizer: Adds synthesized backing vocals (pitch-shifted copies of your voice). Supports 2 independent voices.\n"
+            "- Dynamic EQ (Sidechain): Automatically ducks specific frequencies in the music when you sing, making your voice cut through the mix.\n"
+            "- Reverb: Simulates room acoustics using convolution. Load custom impulse responses for any space.\n"
+            "- Delay: Adds echoes with ping-pong stereo, feedback control, and filtering.\n\n"
+            "Visual Meters:\n"
+            "Each effect panel displays real-time animated graphs showing exactly what that processor is doing to your sound.",
 
             // 4. Media Tab
             "THE MEDIA TAB\n\n"
@@ -67,7 +72,25 @@ public:
             "- Progress Slider: Scrub through the track.\n"
             "- Video Screen: Displays video content for karaoke files.",
 
-            // 5. MIDI Support
+            // 5. Visual Meters
+            "VISUAL METERS\n\n"
+            "Every effect in OnStage includes a real-time animated graph showing exactly what's happening to your audio.\n\n"
+            "EQ Panel:\n"
+            "- Displays the combined frequency response curve showing how all 3 bands shape your sound together.\n\n"
+            "Compressor Panel:\n"
+            "- Shows the compression curve with a moving golden circle that tracks your current input/output levels in real-time.\n\n"
+            "Sculpt Panel:\n"
+            "- Visualizes the frequency response showing mud reduction, harsh taming, and air boost curves.\n\n"
+            "Dynamic EQ Panel:\n"
+            "- Displays an animated 'bowl' that pumps up and down at the sidechain frequency, showing how much the music is being ducked.\n\n"
+            "Harmonizer Panel:\n"
+            "- Shows a pitch ladder with glowing lines representing your original voice and the two harmony voices.\n\n"
+            "Delay Panel:\n"
+            "- Animated echoes travel across the screen, fading with each repeat, with ping-pong between left/right channels.\n\n"
+            "Reverb Panel:\n"
+            "- Particle cloud animation: particles explode from center, swirl, and fade based on frequency (high frequencies die faster).",
+
+            // 6. MIDI Support
             "MIDI SUPPORT\n\n"
             "OnStage allows you to control almost every knob and button using an external MIDI controller.\n\n"
             "How it works:\n"
@@ -76,14 +99,14 @@ public:
             "3. Click 'Refresh' if you connected the device after opening the app.\n\n"
             "Mappings are fixed to standard CC numbers to ensure stability. You can see exactly which CC number controls which knob by right-clicking any control (see 'Tooltips').",
 
-            // 6. Tooltips
+            // 7. Tooltips
             "TOOLTIPS & HELP\n\n"
             "Don't remember the MIDI map? No problem!\n\n"
             "Simply RIGHT-CLICK on any knob, slider, or toggle button in the application.\n"
             "A popup bubble will appear telling you exactly what that control does and which MIDI CC number or Note is assigned to it.\n\n"
             "This feature is available everywhere—even on the playlist tracks!",
 
-            // 7. Recording
+            // 8. Recording
             "RECORDING\n\n"
             "Capture your performance instantly.\n\n"
             "1. Click the red 'RECORD' button at the top right.\n"
@@ -94,7 +117,7 @@ public:
             "Recordings are saved as high-quality WAV files. If you find your vocals are slightly delayed in the recording compared to the music (due to system processing time), "
             "go to the I/O Tab and increase the 'Latency Correction' slider until they line up perfectly.",
 
-            // 8. Registration
+            // 9. Registration
             "REGISTRATION\n\n"
             "Unlock the full power of OnStage (Pro Mode).\n\n"
             "1. Click the 'REGISTER' button in the top header.\n"
@@ -103,7 +126,8 @@ public:
             "4. Complete the purchase. You will receive a Serial Number on-screen and via email.\n"
             "5. Paste that Serial Number back into the OnStage registration window.\n"
             "6. Click 'Save License File'.\n\n"
-            "That's it! You are now a Pro user."
+            "That's it! You are now a Pro user.\n\n"
+            "Developed by Subcore - Professional Audio Software."
         };
 
         // Create Navigation Buttons

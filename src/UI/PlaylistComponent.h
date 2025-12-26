@@ -44,6 +44,10 @@ public:
     void removeTrack(int index);
     void selectTrack(int index);
     void clearPlaylist();
+    
+    // NEW: Called by main PLAY button
+    void playSelectedTrack();
+    int getCurrentTrackIndex() const;
 
 private:
     void timerCallback() override;
