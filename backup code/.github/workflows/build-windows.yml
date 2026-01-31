@@ -1,0 +1,104 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build-windows.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  JUCE_VERSION: "8.0.0"
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Cache JUCE
+      id: cache-juce
+      uses: actions/cache@v4
+      with:
+        path: C:/JUCE
+        key: juce-${{ env.JUCE_VERSION }}-windows-x64
+
+    - name: Download JUCE
+      if: steps.cache-juce.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        Write-Host "Downloading JUCE ${{ env.JUCE_VERSION }}..."
+        Invoke-WebRequest -Uri "https://github.com/juce-framework/JUCE/releases/download/${{ env.JUCE_VERSION }}/juce-${{ env.JUCE_VERSION }}-windows.zip" -OutFile "juce.zip"
+        Expand-Archive -Path "juce.zip" -DestinationPath "C:/"
+        Rename-Item "C:/JUCE-${{ env.JUCE_VERSION }}" "C:/JUCE"
+        Write-Host "JUCE installed to C:/JUCE"
+
+    - name: Setup ASIO SDK
+      shell: pwsh
+      run: |
+        # Create ASIO SDK directory structure
+        # Note: Real ASIO SDK must be provided separately due to licensing
+        New-Item -ItemType Directory -Force -Path "C:/ASIOSDK/common"
+        
+        # For CI without ASIO, we'll build with WASAPI only
+        # To enable ASIO: download SDK from Steinberg and extract to C:/ASIOSDK
+        Write-Host "ASIO SDK placeholder created. Build will use WASAPI."
+
+    - name: Configure CMake
+      shell: pwsh
+      run: |
+        cmake -B build -G "Visual Studio 17 2022" -A x64 `
+          -DJUCE_PATH="C:/JUCE" `
+          -DASIO_SDK_PATH="C:/ASIOSDK" `
+          -DAUTO_DOWNLOAD_VST2_SDK=ON `
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+    - name: Build
+      shell: pwsh
+      run: |
+        cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+        
+    - name: List build outputs
+      shell: pwsh
+      run: |
+        Write-Host "=== Build directory structure ==="
+        Get-ChildItem -Recurse build -Include *.exe | ForEach-Object { $_.FullName }
+
+    - name: Prepare artifacts
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "artifacts/Subterraneum"
+        
+        # Find the executable
+        $exe = Get-ChildItem -Recurse build -Include "SubterraneumApp.exe" | Select-Object -First 1
+        if ($exe) {
+          Copy-Item $exe.FullName -Destination "artifacts/Subterraneum/"
+          Write-Host "Copied: $($exe.FullName)"
+        }
+        
+        # Copy any DLLs if present
+        Get-ChildItem -Recurse build -Include "*.dll" | Copy-Item -Destination "artifacts/Subterraneum/" -ErrorAction SilentlyContinue
+
+    - name: Create ZIP archive
+      shell: pwsh
+      run: |
+        Compress-Archive -Path "artifacts/Subterraneum" -DestinationPath "artifacts/Subterraneum-Windows-x64.zip"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-Windows-x64
+        path: artifacts/Subterraneum-Windows-x64.zip
+        if-no-files-found: error

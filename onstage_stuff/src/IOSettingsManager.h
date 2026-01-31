@@ -1,0 +1,80 @@
+#pragma once
+#include <juce_core/juce_core.h>
+#include <juce_data_structures/juce_data_structures.h>
+#include <map>
+
+class IOSettingsManager
+{
+public:
+    IOSettingsManager();
+    ~IOSettingsManager() = default;
+
+    void saveDriverType(const juce::String& driverType);
+    void saveSpecificDriver(const juce::String& driverName);
+    
+    // Mic Mute/Bypass state (Logic state only, physical routing is now in InputMatrix)
+    void saveMicMute(int micIndex, bool shouldMute);
+    void saveMicBypass(int micIndex, bool shouldBypass);
+
+    // Routing Maps
+    void saveOutputRouting(const std::map<juce::String, int>& routingMap);
+    
+    // NEW: Input Matrix Routing
+    // Key: Input Name
+    // Value: Pair(Mask, Gain)
+    void saveInputRouting(const std::map<juce::String, std::pair<int, float>>& routingMap);
+    std::map<juce::String, std::pair<int, float>> getInputRouting() const;
+
+    void saveMediaFolder(const juce::String& path);
+    juce::String getMediaFolder() const { return lastMediaFolder; }
+
+    void savePlaylistFolder(const juce::String& path);
+    juce::String getPlaylistFolder() const { return lastPlaylistFolder; }
+
+    // Vocal Recording Settings
+    void saveVocalSettings(float latencyMs, float boostDb);
+    float getLastLatencyMs() const { return lastLatencyMs; }
+    float getLastVocalBoostDb() const { return lastVocalBoostDb; }
+
+    // MIDI Settings
+    void saveMidiDevice(const juce::String& deviceName);
+    juce::String getLastMidiDevice() const { return lastMidiDevice; }
+
+    bool loadSettings();
+
+    juce::String getLastDriverType() const { return lastDriverType; }
+    juce::String getLastSpecificDriver() const { return lastSpecificDriver; }
+    
+    struct MicSettings {
+        bool isMuted = false;
+        bool isBypassed = false;
+    };
+    MicSettings getMicSettings(int index) const;
+
+    // Output Routing getter
+    std::map<juce::String, int> getOutputRouting() const { return outputRoutingMap; }
+
+    bool hasExistingSettings() const;
+
+private:
+    juce::File getSettingsFile() const;
+    bool saveToFile();
+
+    juce::String lastDriverType;
+    juce::String lastSpecificDriver;
+    
+    MicSettings micSettings[2];
+    
+    std::map<juce::String, int> outputRoutingMap;
+    // NEW: Input Routing State
+    std::map<juce::String, std::pair<int, float>> inputRoutingMap;
+
+    juce::String lastMediaFolder = ""; 
+    juce::String lastPlaylistFolder = "";
+    
+    float lastLatencyMs = 0.0f;
+    float lastVocalBoostDb = 0.0f;
+    juce::String lastMidiDevice = "";
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(IOSettingsManager)
+};

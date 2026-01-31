@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Workspace\Subterraneum_plugins_daw\build\JUCE\tools\CMakeFiles\84aaec80e6692bc0ba5213c78e2ea630\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{349E5D81-9C09-35D6-B00A-7D87D855E180}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

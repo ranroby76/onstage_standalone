@@ -1,0 +1,206 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build-linux.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+env:
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  JUCE_VERSION: "8.0.0"
+
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          pkg-config \
+          libasound2-dev \
+          libjack-jackd2-dev \
+          libfreetype6-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxcomposite-dev \
+          libgl1-mesa-dev \
+          libcurl4-openssl-dev \
+          libwebkit2gtk-4.0-dev \
+          ladspa-sdk \
+          freeglut3-dev
+
+    - name: Show environment
+      run: |
+        echo "=== System Info ==="
+        uname -a
+        cat /etc/os-release
+        echo "=== Compiler ==="
+        gcc --version
+        cmake --version
+        echo "=== Audio Libraries ==="
+        pkg-config --modversion alsa || echo "ALSA not found"
+        pkg-config --modversion jack || echo "JACK not found"
+
+    - name: Cache JUCE
+      id: cache-juce
+      uses: actions/cache@v4
+      with:
+        path: ~/JUCE
+        key: juce-${{ env.JUCE_VERSION }}-linux-x64-v2
+
+    - name: Download JUCE
+      if: steps.cache-juce.outputs.cache-hit != 'true'
+      run: |
+        echo "Downloading JUCE ${{ env.JUCE_VERSION }}..."
+        curl -L "https://github.com/juce-framework/JUCE/releases/download/${{ env.JUCE_VERSION }}/juce-${{ env.JUCE_VERSION }}-linux.zip" -o juce.zip
+        unzip -q juce.zip -d ~/
+        mv ~/JUCE-${{ env.JUCE_VERSION }} ~/JUCE
+        echo "JUCE installed to ~/JUCE"
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DJUCE_PATH="$HOME/JUCE" \
+          -DAUTO_DOWNLOAD_VST2_SDK=ON \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_CXX_FLAGS="-march=x86-64"
+
+    - name: Build
+      run: |
+        cmake --build build --config ${{ env.BUILD_TYPE }} --parallel $(nproc)
+
+    - name: List build outputs
+      run: |
+        echo "=== Build directory structure ==="
+        find build -type f -executable -name "Subterraneum*"
+        find build -type f -name "*.so"
+
+    - name: Prepare artifacts
+      run: |
+        mkdir -p artifacts/Subterraneum
+        
+        # Find the executable
+        BINARY=$(find build -type f -executable -name "SubterraneumApp" | head -1)
+        
+        if [ -n "$BINARY" ]; then
+          echo "Found binary: $BINARY"
+          cp "$BINARY" artifacts/Subterraneum/
+          chmod +x artifacts/Subterraneum/SubterraneumApp
+          
+          # Check dependencies
+          echo "=== Binary dependencies ==="
+          ldd artifacts/Subterraneum/SubterraneumApp || true
+        else
+          echo "ERROR: No executable found!"
+          find build -type f -executable
+          exit 1
+        fi
+
+    - name: Create desktop entry
+      run: |
+        cat > artifacts/Subterraneum/subterraneum.desktop << 'EOF'
+        [Desktop Entry]
+        Type=Application
+        Name=Subterraneum
+        Comment=Mini DAW / Plugin Host
+        Exec=SubterraneumApp
+        Icon=subterraneum
+        Categories=AudioVideo;Audio;Music;
+        Terminal=false
+        EOF
+
+    - name: Create tarball
+      run: |
+        cd artifacts
+        tar -czvf Subterraneum-Linux-x64.tar.gz Subterraneum/
+        ls -la *.tar.gz
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-Linux-x64
+        path: artifacts/Subterraneum-Linux-x64.tar.gz
+        if-no-files-found: error
+
+  # ===========================================================================
+  # APPIMAGE BUILD (Optional - more portable)
+  # ===========================================================================
+  build-appimage:
+    runs-on: ubuntu-22.04
+    needs: build-linux-x64
+    if: false  # Set to true to enable AppImage builds
+    
+    steps:
+    - name: Download Linux build
+      uses: actions/download-artifact@v4
+      with:
+        name: Subterraneum-Linux-x64
+        path: ./
+
+    - name: Extract tarball
+      run: |
+        tar -xzvf Subterraneum-Linux-x64.tar.gz
+
+    - name: Install AppImage tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fuse libfuse2
+        wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
+
+    - name: Create AppDir structure
+      run: |
+        mkdir -p Subterraneum.AppDir/usr/bin
+        mkdir -p Subterraneum.AppDir/usr/share/applications
+        mkdir -p Subterraneum.AppDir/usr/share/icons/hicolor/256x256/apps
+        
+        cp Subterraneum/SubterraneumApp Subterraneum.AppDir/usr/bin/
+        cp Subterraneum/subterraneum.desktop Subterraneum.AppDir/
+        cp Subterraneum/subterraneum.desktop Subterraneum.AppDir/usr/share/applications/
+        
+        # Create AppRun
+        cat > Subterraneum.AppDir/AppRun << 'EOF'
+        #!/bin/bash
+        SELF=$(readlink -f "$0")
+        HERE=${SELF%/*}
+        export PATH="${HERE}/usr/bin:${PATH}"
+        export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+        exec "${HERE}/usr/bin/SubterraneumApp" "$@"
+        EOF
+        chmod +x Subterraneum.AppDir/AppRun
+
+    - name: Build AppImage
+      run: |
+        ./appimagetool-x86_64.AppImage Subterraneum.AppDir Subterraneum-x86_64.AppImage
+
+    - name: Upload AppImage
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-Linux-AppImage
+        path: Subterraneum-x86_64.AppImage

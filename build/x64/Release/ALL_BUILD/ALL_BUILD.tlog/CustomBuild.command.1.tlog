@@ -1,0 +1,10 @@
+^D:\WORKSPACE\SUBTERRANEUM_PLUGINS_DAW\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Workspace/Subterraneum_plugins_daw -BD:/Workspace/Subterraneum_plugins_daw/build --check-stamp-file D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,10 @@
+D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/SubterraneumApp.dir
+D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/SubterraneumApp_rc_lib.dir
+D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/INSTALL.dir
+D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/ALL_BUILD.dir
+D:/Workspace/Subterraneum_plugins_daw/build/CMakeFiles/ZERO_CHECK.dir
+D:/Workspace/Subterraneum_plugins_daw/build/JUCE/CMakeFiles/INSTALL.dir
+D:/Workspace/Subterraneum_plugins_daw/build/JUCE/CMakeFiles/ALL_BUILD.dir
+D:/Workspace/Subterraneum_plugins_daw/build/JUCE/modules/CMakeFiles/INSTALL.dir
+D:/Workspace/Subterraneum_plugins_daw/build/JUCE/extras/Build/CMakeFiles/INSTALL.dir
+D:/Workspace/Subterraneum_plugins_daw/build/JUCE/extras/Build/juceaide/CMakeFiles/INSTALL.dir

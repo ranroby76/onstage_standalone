@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Workspace\Subterraneum_plugins_daw\build\JUCE\tools\CMakeFiles\b8b9cd5281aea8f998d192a323da375c\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\JUCECheckAtomic.cmake">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\JUCEConfig.cmake.in">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\JUCEHelperTargets.cmake">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\JUCEModuleSupport.cmake">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\JUCEUtils.cmake">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMake\juce_runtime_arch_detection.cpp">
+      <Filter>Buildsystem Input Files\extras\Build\CMake</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\extras\Build</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\extras\Build\juceaide\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\extras\Build\juceaide</Filter>
+    </None>
+    <None Include="D:\Workspace\JUCE\modules\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\modules</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{349E5D81-9C09-35D6-B00A-7D87D855E180}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{07CB2282-69B5-3F44-B2AB-1E7986603392}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4139005C-1B24-3A58-A492-FC545A0E4CDF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\extras\Build">
+      <UniqueIdentifier>{B6505B60-3716-3667-B3EF-B2261A446563}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\extras\Build\CMake">
+      <UniqueIdentifier>{A4CFB865-23E9-3935-93E5-8DD776050567}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\extras\Build\juceaide">
+      <UniqueIdentifier>{797D001B-90DC-368B-AE7D-35537C448AD0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\modules">
+      <UniqueIdentifier>{E2B94A94-7810-379A-9DC5-F5A35AFF3D0D}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

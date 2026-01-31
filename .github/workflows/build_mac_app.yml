@@ -1,0 +1,159 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build_mac_app:
+    name: Build macOS Standalone
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clone JUCE
+        run: |
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git JUCE
+          echo "JUCE cloned to $(pwd)/JUCE"
+
+      - name: Install Dependencies
+        run: brew install ninja cmake
+
+      - name: Import Signing Certificate
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 != '' }}
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: "admin"
+        run: |
+          echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJUCE_PATH="${{ github.workspace }}/JUCE" \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Build App
+        run: cmake --build build --config Release --parallel 4
+
+      - name: List Build Output
+        run: |
+          echo "=== Build directory structure ==="
+          find build -name "*.app" -type d 2>/dev/null || echo "No .app found"
+          find build -name "Colosseum*" -type d 2>/dev/null || echo "No Colosseum dir found"
+          ls -la build/ || true
+          ls -la build/SubterraneumApp_artefacts/Release/ 2>/dev/null || true
+
+      - name: Sign & Notarize
+        if: ${{ secrets.MACOS_CERTIFICATE != '' }}
+        env:
+          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+          KEYCHAIN_PASSWORD: "admin"
+        run: |
+          # Unlock keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+          
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | sed 's/"//g')
+          
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+          
+          echo "Signing with identity: $IDENTITY"
+          
+          # Locate App (JUCE output structure)
+          if [ -d "build/SubterraneumApp_artefacts/Release/Colosseum.app" ]; then
+            APP_PATH="build/SubterraneumApp_artefacts/Release/Colosseum.app"
+          elif [ -d "build/Colosseum.app" ]; then
+            APP_PATH="build/Colosseum.app"
+          elif [ -d "build/Release/Colosseum.app" ]; then
+            APP_PATH="build/Release/Colosseum.app"
+          else
+            echo "::error::Colosseum.app not found!"
+            find build -name "*.app" -type d
+            exit 1
+          fi
+          
+          echo "Processing $APP_PATH..."
+          
+          # Sign all frameworks and dylibs first
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.framework" \) -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
+          
+          # Sign the app bundle
+          codesign --force --deep --options runtime --sign "$IDENTITY" --timestamp "$APP_PATH"
+          
+          # Verify signature
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          
+          # Create zip for notarization
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Submission.zip"
+          
+          # Submit for notarization
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "Colosseum_Mac_Submission.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+          
+          # Staple the notarization ticket
+          xcrun stapler staple "$APP_PATH" || echo "::warning::Stapling failed but continuing"
+          
+          # Create final signed zip
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Signed.zip"
+
+      - name: Package Unsigned App
+        if: ${{ secrets.MACOS_CERTIFICATE == '' }}
+        run: |
+          # Locate App
+          if [ -d "build/SubterraneumApp_artefacts/Release/Colosseum.app" ]; then
+            APP_PATH="build/SubterraneumApp_artefacts/Release/Colosseum.app"
+          elif [ -d "build/Colosseum.app" ]; then
+            APP_PATH="build/Colosseum.app"
+          elif [ -d "build/Release/Colosseum.app" ]; then
+            APP_PATH="build/Release/Colosseum.app"
+          else
+            echo "::error::Colosseum.app not found!"
+            find build -name "*.app" -type d
+            exit 1
+          fi
+          
+          echo "Packaging unsigned app from $APP_PATH"
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Unsigned.zip"
+
+      - name: Upload Signed App
+        if: ${{ secrets.MACOS_CERTIFICATE != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Colosseum-Mac-App-Signed
+          path: Colosseum_Mac_Signed.zip
+
+      - name: Upload Unsigned App
+        if: ${{ secrets.MACOS_CERTIFICATE == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Colosseum-Mac-App-Unsigned
+          path: Colosseum_Mac_Unsigned.zip

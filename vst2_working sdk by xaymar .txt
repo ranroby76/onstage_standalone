@@ -1,0 +1,3 @@
+https://github.com/Xaymar/vst2sdk
+
+https://github.com/Xaymar/vst2sdk.git

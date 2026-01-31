@@ -1,0 +1,27 @@
+continuing the colosseum - mini host\daw project. 
+
+root folder is located at D:\Workspace\Subterraneum_plugins_daw
+
+juce 8 is located at D:\Workspace\JUCE
+
+asio sdk is located at D:\Workspace\ASIOSDK
+
+icon.ico located at D:\Workspace\Subterraneum_plugins_daw
+
+ASIO sample rate and buffer is externally controlled by the user's audio interface
+
+-----------------------------------------------------
+
+always print full code fixes!!!
+ 
+always add full file paths as titles for file fixes with "#" prefix
+
+never create summaris, guides or extra txt documents unless i tell you to
+
+never create new files that already exist! always ask the reference and i'll provide!
+
+never post fixed files with odd sufixes like "_EDITED". USE ORIGINAL names or the project will be ruined.
+
+at the end of every fix, write how many codes has been fixed and their names
+
+read the project files, learn them and verify you understand them

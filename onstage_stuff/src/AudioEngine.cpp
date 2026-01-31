@@ -1,0 +1,408 @@
+/*
+  ==============================================================================
+
+    AudioEngine.cpp
+    OnStage
+
+  ==============================================================================
+*/
+
+#include "AudioEngine.h"
+#include "AppLogger.h"
+
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
+using namespace juce;
+
+// ==============================================================================
+// AudioEngine Implementation
+// ==============================================================================
+
+AudioEngine::AudioEngine()
+{
+    formatManager.registerBasicFormats();
+    
+    // Start with 0/0 to let UI drive the config, allow auto-open of default if available
+    deviceManager.initialise(0, 0, nullptr, true); 
+    deviceManager.addAudioCallback(this);
+
+    // Initialize Internal Player
+    mediaPlayer = std::make_unique<VLCMediaPlayer>();
+    
+    startTimer(200); 
+    
+    // Default Routing
+    outputRoutingMasks.resize(32, 0); 
+    inputRoutingMasks.resize(32, 0);
+    inputGains.resize(32, 1.0f);
+    
+    // Clear meters
+    for (int i=0; i<32; ++i) inputLevelMeters[i].store(0.0f);
+    for (int i=0; i<9; ++i) backingLevels[i].store(0.0f);
+}
+
+AudioEngine::~AudioEngine()
+{
+    stopTimer();
+    stopAllPlayback();
+    deviceManager.removeAudioCallback(this);
+    
+    if (backgroundWriter) {
+        backgroundWriter = nullptr;
+        writerThread.stopThread(1000);
+    }
+}
+
+void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* device)
+{
+    double sampleRate = device->getCurrentSampleRate();
+    int samplesPerBlock = device->getCurrentBufferSizeSamples();
+
+    dsp::ProcessSpec spec { sampleRate, static_cast<uint32>(samplesPerBlock), 2 };
+
+    // Prep DSP
+    for (int i=0; i<2; ++i) {
+        micChains[i].eq.prepare(spec);
+        micChains[i].comp.prepare(spec);
+        micChains[i].exciter.prepare(spec);
+    }
+    harmonizer.prepare(spec);
+    reverb.prepare(spec);
+    delay.prepare(sampleRate, samplesPerBlock, 2);
+    dynamicEQ.prepare(spec);
+    
+    pitchShifterL.prepare(sampleRate, samplesPerBlock);
+    pitchShifterR.prepare(sampleRate, samplesPerBlock);
+    
+    if (mediaPlayer) mediaPlayer->prepareToPlay(samplesPerBlock, sampleRate);
+    
+    // Resize Routing vectors to match hardware
+    int numIns = device->getActiveInputChannels().countNumberOfSetBits();
+    int numOuts = device->getActiveOutputChannels().countNumberOfSetBits();
+    
+    if (inputRoutingMasks.size() < numIns) {
+        inputRoutingMasks.resize(numIns, 0);
+        inputGains.resize(numIns, 1.0f);
+    }
+    if (outputRoutingMasks.size() < numOuts) outputRoutingMasks.resize(numOuts, 0);
+}
+
+void AudioEngine::audioDeviceStopped() {}
+
+void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
+                                                   int numInputChannels,
+                                                   float* const* outputChannelData,
+                                                   int numOutputChannels,
+                                                   int numSamples,
+                                                   const juce::AudioIODeviceCallbackContext& context)
+{
+    juce::ignoreUnused(context);
+    processAudio(inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
+}
+
+// -------------------------------------------------------------------------
+// Processing Logic
+// -------------------------------------------------------------------------
+void AudioEngine::processAudio(const float* const* inputChannelData, int numInputChannels,
+                               float* const* outputChannelData, int numOutputChannels,
+                               int numSamples)
+{
+    // Clear outputs
+    for (int i=0; i<numOutputChannels; ++i)
+        if (outputChannelData[i]) FloatVectorOperations::clear(outputChannelData[i], numSamples);
+
+    AudioBuffer<float> mic1Sum(1, numSamples); mic1Sum.clear();
+    AudioBuffer<float> mic2Sum(1, numSamples); mic2Sum.clear();
+    AudioBuffer<float> musicBus(2, numSamples); musicBus.clear();
+
+    // 1. INPUT MATRIX SUMMING
+    for (int i = 0; i < numInputChannels; ++i)
+    {
+        if (inputChannelData[i] == nullptr) continue;
+        
+        // Input Metering
+        float level = AudioBuffer<float>(const_cast<float**>(inputChannelData) + i, 1, numSamples)
+                      .getMagnitude(0, numSamples);
+        if (i < 32) inputLevelMeters[i].store(level);
+
+        int mask = (i < (int)inputRoutingMasks.size()) ? inputRoutingMasks[i] : 0;
+        float gain = (i < (int)inputGains.size()) ? inputGains[i] : 1.0f;
+
+        if (mask == 0) continue; 
+
+        if (mask & 1) mic1Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);
+        if (mask & 2) mic2Sum.addFrom(0, 0, inputChannelData[i], numSamples, gain);
+        if (mask & 4) musicBus.addFrom(0, 0, inputChannelData[i], numSamples, gain);
+        if (mask & 8) musicBus.addFrom(1, 0, inputChannelData[i], numSamples, gain);
+    }
+
+    // 2. VOCAL PROCESSING
+    AudioBuffer<float> vocalBus(2, numSamples);
+    vocalBus.clear();
+
+    // -- MIC 1 --
+    if (!micChains[0].muted) {
+        float chainGain = Decibels::decibelsToGain(micChains[0].preampGainDb);
+        mic1Sum.applyGain(chainGain);
+
+        if (!micChains[0].fxBypassed) {
+            dsp::AudioBlock<float> block(mic1Sum);
+            dsp::ProcessContextReplacing<float> ctx(block);
+            micChains[0].exciter.process(ctx); // Air first
+            micChains[0].eq.process(ctx);      // EQ
+            micChains[0].comp.process(ctx);    // Comp
+        }
+        vocalBus.addFrom(0, 0, mic1Sum, 0, 0, numSamples);
+        vocalBus.addFrom(1, 0, mic1Sum, 0, 0, numSamples);
+    }
+
+    // -- MIC 2 --
+    if (!micChains[1].muted) {
+        float chainGain = Decibels::decibelsToGain(micChains[1].preampGainDb);
+        mic2Sum.applyGain(chainGain);
+
+        if (!micChains[1].fxBypassed) {
+            dsp::AudioBlock<float> block(mic2Sum);
+            dsp::ProcessContextReplacing<float> ctx(block);
+            micChains[1].exciter.process(ctx);
+            micChains[1].eq.process(ctx);
+            micChains[1].comp.process(ctx);
+        }
+        vocalBus.addFrom(0, 0, mic2Sum, 0, 0, numSamples);
+        vocalBus.addFrom(1, 0, mic2Sum, 0, 0, numSamples);
+    }
+
+    // 3. GLOBAL VOCAL FX (Vocals Only)
+    {
+        dsp::AudioBlock<float> block(vocalBus);
+        dsp::ProcessContextReplacing<float> harmCtx(block);
+        harmonizer.process(harmCtx); 
+    }
+    if (!reverb.isBypassed()) reverb.process(vocalBus);
+    if (!delay.isBypassed()) delay.process(vocalBus);
+
+    // 4. MUSIC BUS PROCESSING
+    
+    // Internal Player
+    AudioBuffer<float> internalAudio(2, numSamples);
+    AudioSourceChannelInfo info(&internalAudio, 0, numSamples);
+    internalAudio.clear();
+    
+    if (mediaPlayer) {
+        mediaPlayer->getNextAudioBlock(info);
+    }
+    
+    // Apply Pitch Shift to Internal Audio
+    pitchShifterL.processBlock(internalAudio.getWritePointer(0), numSamples);
+    pitchShifterR.processBlock(internalAudio.getWritePointer(1), numSamples);
+    
+    musicBus.addFrom(0, 0, internalAudio, 0, 0, numSamples);
+    musicBus.addFrom(1, 0, internalAudio, 1, 0, numSamples);
+    internalPlayerLevel.store(internalAudio.getMagnitude(0, numSamples));
+
+    // Sidechain (Duck Music by Vocals)
+    dynamicEQ.process(musicBus, vocalBus); 
+
+    // 5. MASTER SUMMING & OUTPUT
+    AudioBuffer<float> master(2, numSamples);
+    master.clear();
+    
+    master.addFrom(0, 0, vocalBus, 0, 0, numSamples);
+    master.addFrom(1, 0, vocalBus, 1, 0, numSamples);
+    master.addFrom(0, 0, musicBus, 0, 0, numSamples);
+    master.addFrom(1, 0, musicBus, 1, 0, numSamples);
+
+    master.applyGain(masterGain);
+
+    outputLevels[0].store(master.getMagnitude(0, numSamples));
+    outputLevels[1].store(master.getMagnitude(1, numSamples));
+
+    // Route to Physical Outputs
+    for (int i=0; i<numOutputChannels; ++i) {
+        if (i >= (int)outputRoutingMasks.size()) break;
+        int mask = outputRoutingMasks[i];
+        
+        if (mask & 1) FloatVectorOperations::add(outputChannelData[i], master.getReadPointer(0), numSamples);
+        if (mask & 2) FloatVectorOperations::add(outputChannelData[i], master.getReadPointer(1), numSamples);
+    }
+    
+    if (isRecording && backgroundWriter) {
+        backgroundWriter->write(master.getArrayOfReadPointers(), numSamples);
+    }
+}
+
+// -------------------------------------------------------------------------
+// Control & Logic
+// -------------------------------------------------------------------------
+void AudioEngine::launchEngine() {} // Internal only
+void AudioEngine::terminateEngine() {}
+
+void AudioEngine::timerCallback() {
+    // No IPC sync needed
+}
+
+// FIX: stopAllPlayback implementation
+void AudioEngine::stopAllPlayback() {
+    if (mediaPlayer) mediaPlayer->stop();
+    pitchShifterL.reset();
+    pitchShifterR.reset();
+}
+
+// FIX: setBackingTrackPitch implementation
+void AudioEngine::setBackingTrackPitch(float semitones) {
+    pitchShifterL.setPitchSemitones(semitones);
+    pitchShifterR.setPitchSemitones(semitones);
+}
+
+// Meters
+float AudioEngine::getInputLevel(int channel) const {
+    if (channel >= 0 && channel < 32) return inputLevelMeters[channel].load();
+    return 0.0f;
+}
+float AudioEngine::getOutputLevel(int channel) const { return outputLevels[channel]; }
+float AudioEngine::getBackingTrackLevel(int channel) const { 
+    if (channel == 0) return internalPlayerLevel.load();
+    return 0.0f; 
+}
+
+// Routing
+juce::StringArray AudioEngine::getSpecificDrivers(const juce::String& type) {
+    juce::StringArray drivers;
+    if (type.equalsIgnoreCase("ASIO")) {
+        for (auto* deviceType : deviceManager.getAvailableDeviceTypes()) {
+            if (deviceType->getTypeName() == "ASIO") {
+                deviceType->scanForDevices();
+                drivers = deviceType->getDeviceNames();
+                break;
+            }
+        }
+    }
+    return drivers;
+}
+
+void AudioEngine::setSpecificDriver(const juce::String& type, const juce::String& name) {
+    if (name == "OFF") { deviceManager.closeAudioDevice(); return; }
+    
+    deviceManager.setCurrentAudioDeviceType("ASIO", true);
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    deviceManager.getAudioDeviceSetup(setup);
+    
+    setup.inputDeviceName = name; 
+    setup.outputDeviceName = name;
+    setup.useDefaultInputChannels = true; 
+    setup.useDefaultOutputChannels = true;
+    
+    if (deviceManager.setAudioDeviceSetup(setup, true).isNotEmpty()) {
+        LOG_ERROR("ASIO Load Error"); return; 
+    }
+
+    if (auto* device = deviceManager.getCurrentAudioDevice()) {
+        int ins = device->getInputChannelNames().size();
+        int outs = device->getOutputChannelNames().size();
+        
+        inputRoutingMasks.resize(ins, 0);
+        inputGains.resize(ins, 1.0f);
+        outputRoutingMasks.resize(outs, 0);
+
+        juce::BigInteger inputBits; inputBits.setRange(0, ins, true);
+        juce::BigInteger outputBits; outputBits.setRange(0, outs, true);
+        
+        if (setup.inputChannels != inputBits || setup.outputChannels != outputBits) {
+            setup.useDefaultInputChannels = false; setup.useDefaultOutputChannels = false;
+            setup.inputChannels = inputBits; setup.outputChannels = outputBits;
+            deviceManager.setAudioDeviceSetup(setup, true);
+        }
+    }
+}
+
+juce::StringArray AudioEngine::getAvailableInputDevices() {
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (device) return device->getInputChannelNames();
+    return {};
+}
+juce::StringArray AudioEngine::getAvailableOutputDevices() {
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (device) return device->getOutputChannelNames();
+    return {};
+}
+juce::StringArray AudioEngine::getAvailableMidiInputs() {
+    juce::StringArray devices;
+    for (auto& device : juce::MidiInput::getAvailableDevices()) devices.add(device.name);
+    return devices;
+}
+void AudioEngine::openDriverControlPanel() {
+    if (auto* device = deviceManager.getCurrentAudioDevice()) 
+        if (device->getTypeName() == "ASIO") {} 
+}
+void AudioEngine::setMidiInput(const juce::String& deviceName) { deviceManager.setMidiInputEnabled(deviceName, true); }
+
+void AudioEngine::setMicMute(int i, bool m) { if(i<2) micChains[i].muted=m; }
+bool AudioEngine::isMicMuted(int i) const { return (i<2) ? micChains[i].muted : false; }
+void AudioEngine::setFxBypass(int i, bool b) { if(i<2) micChains[i].fxBypassed=b; }
+bool AudioEngine::isFxBypassed(int i) const { return (i<2) ? micChains[i].fxBypassed : false; }
+void AudioEngine::setMicPreampGain(int i, float g) { if(i<2) micChains[i].preampGainDb=g; }
+float AudioEngine::getMicPreampGain(int i) const { return (i<2) ? micChains[i].preampGainDb : 0.0f; }
+
+void AudioEngine::setMasterVolume(float g) { masterGain = Decibels::decibelsToGain(g); }
+void AudioEngine::setOutputRoute(int i, int m) {
+    if (i>=0 && i<32) {
+        if(i >= (int)outputRoutingMasks.size()) outputRoutingMasks.resize(i+1, 0);
+        outputRoutingMasks[i] = m;
+    }
+}
+int AudioEngine::getOutputRoute(int i) const {
+    if (i>=0 && i<(int)outputRoutingMasks.size()) return outputRoutingMasks[i];
+    return 0;
+}
+
+void AudioEngine::setInputRoute(int i, int m) {
+    if (i >= 0 && i < (int)inputRoutingMasks.size()) inputRoutingMasks[i] = m;
+}
+int AudioEngine::getInputRoute(int i) const {
+    if (i >= 0 && i < (int)inputRoutingMasks.size()) return inputRoutingMasks[i];
+    return 0;
+}
+void AudioEngine::setInputGain(int i, float g) {
+    if (i >= 0 && i < (int)inputGains.size()) inputGains[i] = g;
+}
+float AudioEngine::getInputGain(int i) const {
+    if (i >= 0 && i < (int)inputGains.size()) return inputGains[i];
+    return 1.0f;
+}
+
+void AudioEngine::setLatencyCorrectionMs(float ms) { latencySamples = (int)(44100.0 * ms * 0.001); }
+void AudioEngine::setVocalBoostDb(float db) { vocalBoostLinear = Decibels::decibelsToGain(db); }
+
+// Legacy stubs
+void AudioEngine::setBackingTrackInputMapping(int, int) {}
+void AudioEngine::setBackingTrackInputEnabled(int, bool) {}
+void AudioEngine::setBackingTrackPairGain(int, float) {}
+float AudioEngine::getBackingTrackPairGain(int) const { return 1.0f; }
+int AudioEngine::getBackingTrackInputChannel(int) const { return -1; }
+
+void AudioEngine::triggerCrossfade(const juce::String& nextPath, double duration, float nextVol, float nextSpeed) {
+    // Crossfade Logic for internal player not implemented in this phase
+}
+void AudioEngine::updateCrossfadeState() {}
+void AudioEngine::showVideoWindow() {}
+
+bool AudioEngine::startRecording() {
+    stopRecording();
+    lastRecordingFile = File::getSpecialLocation(File::userMusicDirectory).getNonexistentChildFile("OnStage_Recording", ".wav");
+    auto* wavFormat = new WavAudioFormat();
+    auto* outputStream = new FileOutputStream(lastRecordingFile);
+    if (outputStream->failedToOpen()) { delete outputStream; delete wavFormat; return false; }
+    auto* writer = wavFormat->createWriterFor(outputStream, 44100.0, 2, 24, {}, 0);
+    if (writer != nullptr) {
+        backgroundWriter.reset(new AudioFormatWriter::ThreadedWriter(writer, writerThread, 32768));
+        isRecording = true; delete wavFormat; return true;
+    }
+    delete writer; delete wavFormat; return false;
+}
+void AudioEngine::stopRecording() { isRecording = false; backgroundWriter = nullptr; }
+
+EQProcessor& AudioEngine::getEQProcessor(int i) { return micChains[i].eq; }
+CompressorProcessor& AudioEngine::getCompressorProcessor(int i) { return micChains[i].comp; }
+ExciterProcessor& AudioEngine::getExciterProcessor(int i) { return micChains[i].exciter; }

@@ -1,0 +1,5 @@
+// Subterraneum Windows Resource File
+// Place this file in src/ folder along with icon.ico
+
+// Application Icon
+IDI_ICON1 ICON "icon.ico"

@@ -1,0 +1,223 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'Info.plist'
+      - '.github/workflows/build-macos.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+      architecture:
+        description: 'Target architecture'
+        required: true
+        default: 'universal'
+        type: choice
+        options:
+          - universal
+          - arm64
+          - x86_64
+
+env:
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  JUCE_VERSION: "8.0.0"
+  MACOS_DEPLOYMENT_TARGET: "10.13"
+
+jobs:
+  build-macos:
+    runs-on: macos-14  # Apple Silicon runner (faster)
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Show environment
+      run: |
+        echo "=== System Info ==="
+        uname -a
+        sw_vers
+        xcodebuild -version
+        echo "=== Architecture ==="
+        arch
+        echo "=== Build Config ==="
+        echo "Build Type: ${{ env.BUILD_TYPE }}"
+        echo "Target Arch: ${{ github.event.inputs.architecture || 'universal' }}"
+
+    - name: Cache JUCE
+      id: cache-juce
+      uses: actions/cache@v4
+      with:
+        path: ~/JUCE
+        key: juce-${{ env.JUCE_VERSION }}-macos-v2
+
+    - name: Download JUCE
+      if: steps.cache-juce.outputs.cache-hit != 'true'
+      run: |
+        echo "Downloading JUCE ${{ env.JUCE_VERSION }}..."
+        curl -L "https://github.com/juce-framework/JUCE/releases/download/${{ env.JUCE_VERSION }}/juce-${{ env.JUCE_VERSION }}-osx.zip" -o juce.zip
+        unzip -q juce.zip -d ~/
+        mv ~/JUCE-${{ env.JUCE_VERSION }} ~/JUCE
+        echo "JUCE installed to ~/JUCE"
+        ls -la ~/JUCE
+
+    - name: Determine architecture flags
+      id: arch
+      run: |
+        ARCH_INPUT="${{ github.event.inputs.architecture || 'universal' }}"
+        if [ "$ARCH_INPUT" == "universal" ]; then
+          echo "CMAKE_ARCH=arm64;x86_64" >> $GITHUB_OUTPUT
+          echo "ARTIFACT_SUFFIX=Universal" >> $GITHUB_OUTPUT
+        elif [ "$ARCH_INPUT" == "arm64" ]; then
+          echo "CMAKE_ARCH=arm64" >> $GITHUB_OUTPUT
+          echo "ARTIFACT_SUFFIX=AppleSilicon" >> $GITHUB_OUTPUT
+        else
+          echo "CMAKE_ARCH=x86_64" >> $GITHUB_OUTPUT
+          echo "ARTIFACT_SUFFIX=Intel" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Configure CMake
+      run: |
+        cmake -B build -G Xcode \
+          -DJUCE_PATH="$HOME/JUCE" \
+          -DAUTO_DOWNLOAD_VST2_SDK=ON \
+          -DCMAKE_OSX_ARCHITECTURES="${{ steps.arch.outputs.CMAKE_ARCH }}" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="${{ env.MACOS_DEPLOYMENT_TARGET }}" \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+    - name: Build
+      run: |
+        cmake --build build --config ${{ env.BUILD_TYPE }} --parallel $(sysctl -n hw.ncpu)
+
+    - name: List build outputs
+      run: |
+        echo "=== Build directory structure ==="
+        find build -name "*.app" -type d
+        find build -name "Subterraneum*" -type f
+
+    - name: Prepare app bundle
+      run: |
+        mkdir -p artifacts
+        
+        # Find the .app bundle
+        APP_PATH=$(find build -name "*.app" -type d | head -1)
+        
+        if [ -n "$APP_PATH" ]; then
+          echo "Found app: $APP_PATH"
+          cp -R "$APP_PATH" artifacts/
+          
+          # Show bundle info
+          APP_NAME=$(basename "$APP_PATH")
+          echo "=== App Bundle Info ==="
+          ls -la "artifacts/$APP_NAME/Contents/"
+          
+          # Verify architectures in universal binary
+          if [ -f "artifacts/$APP_NAME/Contents/MacOS/"* ]; then
+            BINARY=$(ls "artifacts/$APP_NAME/Contents/MacOS/" | head -1)
+            echo "=== Binary architectures ==="
+            lipo -info "artifacts/$APP_NAME/Contents/MacOS/$BINARY" || true
+          fi
+        else
+          echo "ERROR: No .app bundle found!"
+          exit 1
+        fi
+
+    - name: Code sign (ad-hoc for testing)
+      run: |
+        APP_PATH=$(ls -d artifacts/*.app | head -1)
+        if [ -n "$APP_PATH" ]; then
+          echo "Ad-hoc signing: $APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+          echo "Verifying signature..."
+          codesign --verify --verbose "$APP_PATH" || true
+        fi
+
+    - name: Create DMG
+      run: |
+        APP_PATH=$(ls -d artifacts/*.app | head -1)
+        if [ -n "$APP_PATH" ]; then
+          APP_NAME=$(basename "$APP_PATH" .app)
+          DMG_NAME="Subterraneum-macOS-${{ steps.arch.outputs.ARTIFACT_SUFFIX }}.dmg"
+          
+          echo "Creating DMG: $DMG_NAME"
+          hdiutil create \
+            -volname "Subterraneum" \
+            -srcfolder "$APP_PATH" \
+            -ov \
+            -format UDZO \
+            "artifacts/$DMG_NAME"
+          
+          echo "=== DMG created ==="
+          ls -la artifacts/*.dmg
+        fi
+
+    - name: Upload app bundle
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-macOS-${{ steps.arch.outputs.ARTIFACT_SUFFIX }}-App
+        path: artifacts/*.app
+        if-no-files-found: warn
+
+    - name: Upload DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-macOS-${{ steps.arch.outputs.ARTIFACT_SUFFIX }}-DMG
+        path: artifacts/*.dmg
+        if-no-files-found: warn
+
+  # ===========================================================================
+  # NOTARIZATION JOB (Optional - requires Apple Developer account)
+  # ===========================================================================
+  notarize-macos:
+    needs: build-macos
+    runs-on: macos-14
+    if: false  # Set to true when you have Apple Developer credentials
+    
+    steps:
+    - name: Download DMG
+      uses: actions/download-artifact@v4
+      with:
+        name: Subterraneum-macOS-Universal-DMG
+        path: ./
+
+    - name: Notarize
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        DMG_FILE=$(ls *.dmg | head -1)
+        
+        echo "Submitting for notarization: $DMG_FILE"
+        xcrun notarytool submit "$DMG_FILE" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_PASSWORD" \
+          --team-id "$TEAM_ID" \
+          --wait
+        
+        echo "Stapling notarization ticket..."
+        xcrun stapler staple "$DMG_FILE"
+
+    - name: Upload notarized DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: Subterraneum-macOS-Notarized
+        path: "*.dmg"

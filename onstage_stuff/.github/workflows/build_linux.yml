@@ -1,0 +1,73 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build_linux:
+    name: Build OnStage (Ubuntu)
+    runs-on: ubuntu-22.04
+
+    steps:
+    # 1. Checkout Code
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    # 2. Install Linux Dependencies (System Packages)
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake pkg-config \
+          libasound2-dev \
+          libjack-jackd2-dev \
+          libfreetype6-dev \
+          libx11-dev libxinerama-dev libxrandr-dev libxcursor-dev libxcomposite-dev libxext-dev \
+          libgl1-mesa-dev \
+          libvlc-dev vlc
+
+    # 3. Download JUCE
+    - name: Download JUCE
+      run: |
+        rm -rf JUCE
+        git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git
+
+    # 4. Configure
+    - name: Configure
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+    # 5. Build
+    - name: Build
+      run: cmake --build build --config Release
+
+    # 6. Package
+    - name: Zip Application
+      run: |
+        # Linux binaries usually don't have extensions, just "OnStage"
+        if [ -f "build/OnStage" ]; then
+          cd build
+        elif [ -f "build/Release/OnStage" ]; then
+          cd build/Release
+        else
+          echo "CRITICAL ERROR: OnStage binary not found!"
+          find build -maxdepth 3
+          exit 1
+        fi
+        
+        # Create Zip
+        zip -r OnStage_Linux.zip OnStage
+        
+        # Move to workspace root
+        mv OnStage_Linux.zip $GITHUB_WORKSPACE/OnStage_Linux.zip
+
+    # 7. Upload
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OnStage_Linux_App
+        path: OnStage_Linux.zip

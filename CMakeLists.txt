@@ -1,0 +1,238 @@
+# D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
+cmake_minimum_required(VERSION 3.22)
+project(Colosseum VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# =============================================================================
+# Platform Detection
+# =============================================================================
+if(WIN32)
+    set(PLATFORM_WINDOWS TRUE)
+    message(STATUS "Building for Windows")
+elseif(APPLE)
+    set(PLATFORM_MAC TRUE)
+    message(STATUS "Building for macOS")
+elseif(UNIX)
+    set(PLATFORM_LINUX TRUE)
+    message(STATUS "Building for Linux")
+endif()
+
+# =============================================================================
+# Parallel Compilation
+# =============================================================================
+if(MSVC)
+    add_compile_options(/MP)
+    message(STATUS "Multi-processor compilation enabled (/MP)")
+endif()
+
+# =============================================================================
+# Paths - Customize these for your system
+# =============================================================================
+set(JUCE_PATH "D:/Workspace/JUCE" CACHE PATH "Path to JUCE")
+set(CLAP_WRAPPER_PATH "" CACHE PATH "Path to clap-wrapper (optional)")
+
+# =============================================================================
+# Add JUCE
+# =============================================================================
+add_subdirectory(${JUCE_PATH} ${CMAKE_BINARY_DIR}/JUCE)
+
+# Optional CLAP wrapper
+if(EXISTS "${CLAP_WRAPPER_PATH}/CMakeLists.txt")
+    add_subdirectory(${CLAP_WRAPPER_PATH} ${CMAKE_BINARY_DIR}/clap-wrapper)
+endif()
+
+# =============================================================================
+# Standalone Application Target
+# =============================================================================
+juce_add_gui_app(SubterraneumApp
+    PRODUCT_NAME "Colosseum"
+    COMPANY_NAME "Subcore"
+    BUNDLE_ID "com.subcore.colosseum"
+)
+
+juce_generate_juce_header(SubterraneumApp)
+
+# =============================================================================
+# Source Files
+# =============================================================================
+target_sources(SubterraneumApp PRIVATE
+    # -------------------------------------------------------------------------
+    # PluginProcessor (split into 6 files)
+    # -------------------------------------------------------------------------
+    src/PluginProcessor_01_Formats.cpp
+    src/PluginProcessor_02_CtorDtor.cpp
+    src/PluginProcessor_03_SettingsAndListener.cpp
+    src/PluginProcessor_04_IOChannels.cpp
+    src/PluginProcessor_05_Graph.cpp
+    src/PluginProcessor_06_AudioAndPresets.cpp
+
+    # -------------------------------------------------------------------------
+    # PluginManagerTab (simplified - VST3 only, crash-free scanning)
+    # -------------------------------------------------------------------------
+    src/PluginManagerTab_Main.cpp
+    src/PluginManagerTab_Scanner.cpp
+    src/PluginManagerTab_FoldersPanel.cpp
+
+    # -------------------------------------------------------------------------
+    # VST3 Module Scanner (reads moduleinfo.json - no binary loading)
+    # -------------------------------------------------------------------------
+    src/VST3ModuleScanner.cpp
+
+    # -------------------------------------------------------------------------
+    # GraphCanvas (split into 9 files)
+    # -------------------------------------------------------------------------
+    src/GraphCanvas_Core.cpp
+    src/GraphCanvas_Paint.cpp
+    src/GraphCanvas_Layout.cpp
+    src/GraphCanvas_Connections.cpp
+    src/GraphCanvas_Mouse.cpp
+    src/GraphCanvas_Tooltips.cpp
+    src/GraphCanvas_PluginMenu.cpp
+    src/GraphCanvas_PluginWindow.cpp
+    src/GraphCanvas_DragDrop.cpp
+
+    # -------------------------------------------------------------------------
+    # UI / Editor
+    # -------------------------------------------------------------------------
+    src/PluginEditor.cpp
+    src/UIComponents.cpp
+    src/MidiSelectors.cpp
+    src/MixerStrip.cpp
+    src/MixerView.cpp
+    src/InstrumentSelector.cpp
+
+    # -------------------------------------------------------------------------
+    # Plugin Browser Panel
+    # -------------------------------------------------------------------------
+    src/PluginBrowserPanel.cpp
+
+    # -------------------------------------------------------------------------
+    # Tabs
+    # -------------------------------------------------------------------------
+    src/AudioSettingsTab.cpp
+    src/StudioTab.cpp
+    src/ManualTab.cpp
+    src/RegistrationTab.cpp
+
+    # -------------------------------------------------------------------------
+    # Utility Processors (System Tools)
+    # -------------------------------------------------------------------------
+    src/MeteringProcessor.cpp
+    src/SimpleConnectorProcessor.cpp
+    src/StereoMeterProcessor.cpp
+    src/MidiMonitorProcessor.cpp
+    src/RecorderProcessor.cpp
+
+    # -------------------------------------------------------------------------
+    # Core / Standalone
+    # -------------------------------------------------------------------------
+    src/StandaloneMain.cpp
+    src/RegistrationManager.cpp
+)
+
+# =============================================================================
+# Windows Icon via Resource File
+# =============================================================================
+if(PLATFORM_WINDOWS)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/src/resources.rc")
+        target_sources(SubterraneumApp PRIVATE "${CMAKE_SOURCE_DIR}/src/resources.rc")
+        message(STATUS "Using resource file: src/resources.rc")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/resources.rc")
+        target_sources(SubterraneumApp PRIVATE "${CMAKE_SOURCE_DIR}/resources.rc")
+        message(STATUS "Using resource file: resources.rc")
+    else()
+        message(STATUS "No resource file found - building without custom icon")
+    endif()
+endif()
+
+# =============================================================================
+# Compile Definitions
+# =============================================================================
+set(COMMON_DEFINITIONS
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_REPORT_APP_USAGE=0
+    JUCE_STRICT_REFCOUNTEDPOINTER=1
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_VST=0
+)
+
+if(PLATFORM_WINDOWS)
+    list(APPEND COMMON_DEFINITIONS
+        JUCE_WIN_PER_MONITOR_DPI_AWARE=1
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif()
+
+if(PLATFORM_MAC)
+    list(APPEND COMMON_DEFINITIONS
+        JUCE_PLUGINHOST_AU=1
+    )
+endif()
+
+if(PLATFORM_LINUX)
+    list(APPEND COMMON_DEFINITIONS
+        JUCE_PLUGINHOST_LADSPA=1
+    )
+endif()
+
+# =============================================================================
+# VST2 Support - DISABLED for stability
+# =============================================================================
+message(STATUS "VST2 support disabled for stability (VST3 only)")
+
+target_compile_definitions(SubterraneumApp PRIVATE ${COMMON_DEFINITIONS})
+
+# =============================================================================
+# JUCE Module Setup
+# =============================================================================
+target_link_libraries(SubterraneumApp PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
+    juce::juce_audio_processors
+    juce::juce_audio_utils
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_events
+    juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_gui_extra
+    juce::juce_dsp
+    juce::juce_opengl
+)
+
+# =============================================================================
+# Include Paths
+# =============================================================================
+target_include_directories(SubterraneumApp PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+# =============================================================================
+# ASIO Support (Windows)
+# =============================================================================
+set(ASIO_SDK_PATH "D:/Workspace/ASIOSDK" CACHE PATH "Path to ASIO SDK")
+
+if(PLATFORM_WINDOWS AND EXISTS "${ASIO_SDK_PATH}/common/asio.h")
+    message(STATUS "ASIO SDK found - enabling ASIO support")
+    target_compile_definitions(SubterraneumApp PRIVATE JUCE_ASIO=1)
+    target_include_directories(SubterraneumApp PRIVATE
+        ${ASIO_SDK_PATH}/common
+        ${ASIO_SDK_PATH}/host
+    )
+else()
+    message(STATUS "ASIO SDK not found - building without ASIO support")
+endif()
+
+# =============================================================================
+# CLAP Support
+# =============================================================================
+if(TARGET clap-wrapper)
+    target_link_libraries(SubterraneumApp PRIVATE clap-wrapper)
+    message(STATUS "CLAP wrapper enabled")
+endif()
