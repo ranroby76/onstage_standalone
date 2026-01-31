@@ -1,7 +1,0 @@
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/CMakeFiles/INSTALL.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/CMakeFiles/ALL_BUILD.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/CMakeFiles/ZERO_CHECK.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/modules/CMakeFiles/INSTALL.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/extras/Build/CMakeFiles/INSTALL.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/extras/Build/juceaide/CMakeFiles/juceaide.dir
-D:/Workspace/Subterraneum_plugins_daw/build/JUCE/tools/extras/Build/juceaide/CMakeFiles/INSTALL.dir
