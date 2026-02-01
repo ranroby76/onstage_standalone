@@ -44,12 +44,36 @@ if(EXISTS "${CLAP_WRAPPER_PATH}/CMakeLists.txt")
 endif()
 
 # =============================================================================
+# macOS Icon - Check if .icns exists
+# =============================================================================
+set(MACOS_ICON_FILE "")
+if(PLATFORM_MAC)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
+        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
+        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
+        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
+        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
+    else()
+        message(STATUS "No macOS .icns icon found - the GitHub Actions workflow will convert icon.ico automatically")
+    endif()
+endif()
+
+# =============================================================================
 # Standalone Application Target
 # =============================================================================
 juce_add_gui_app(SubterraneumApp
     PRODUCT_NAME "Colosseum"
     COMPANY_NAME "Subcore"
     BUNDLE_ID "com.subcore.colosseum"
+    # macOS specific settings
+    ICON_BIG "${MACOS_ICON_FILE}"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Colosseum needs access to your microphone for audio input recording."
+    HARDENED_RUNTIME_ENABLED TRUE
+    HARDENED_RUNTIME_OPTIONS "com.apple.security.cs.allow-jit;com.apple.security.cs.allow-unsigned-executable-memory;com.apple.security.cs.disable-library-validation;com.apple.security.device.audio-input"
+    PLIST_TO_MERGE "${CMAKE_SOURCE_DIR}/src/Info.plist"
+    APP_SANDBOX_ENABLED FALSE
 )
 
 juce_generate_juce_header(SubterraneumApp)
@@ -69,16 +93,11 @@ target_sources(SubterraneumApp PRIVATE
     src/PluginProcessor_06_AudioAndPresets.cpp
 
     # -------------------------------------------------------------------------
-    # PluginManagerTab (simplified - VST3 only, crash-free scanning)
+    # PluginManagerTab (VST3 + AU scanning)
     # -------------------------------------------------------------------------
     src/PluginManagerTab_Main.cpp
     src/PluginManagerTab_Scanner.cpp
-    src/PluginManagerTab_FoldersPanel.cpp
-
-    # -------------------------------------------------------------------------
-    # VST3 Module Scanner (reads moduleinfo.json - no binary loading)
-    # -------------------------------------------------------------------------
-    src/VST3ModuleScanner.cpp
+    src/PluginManagerTab_Folders.cpp
 
     # -------------------------------------------------------------------------
     # GraphCanvas (split into 9 files)
@@ -235,4 +254,16 @@ endif()
 if(TARGET clap-wrapper)
     target_link_libraries(SubterraneumApp PRIVATE clap-wrapper)
     message(STATUS "CLAP wrapper enabled")
+endif()
+
+# =============================================================================
+# macOS Post-Build: Copy icon to bundle
+# =============================================================================
+if(PLATFORM_MAC AND MACOS_ICON_FILE)
+    add_custom_command(TARGET SubterraneumApp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MACOS_ICON_FILE}"
+            "$<TARGET_BUNDLE_DIR:SubterraneumApp>/Contents/Resources/Icon.icns"
+        COMMENT "Copying macOS icon to bundle"
+    )
 endif()

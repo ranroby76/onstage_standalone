@@ -1,21 +1,30 @@
-// Plugin Manager Tab Header - FIXED: Uses JUCE PluginDirectoryScanner with async support
+// #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab.h
+// Plugin Manager Tab with scanning, tree view, and plugin info
+// FIX: Added "Rescan Existing" button for plugin version updates
+// FIX: PluginFoldersDialog with proper close button handling
+// FIX: Rescan status label for visual feedback
 
 #pragma once
 
 #include <JuceHeader.h>
-#include "Style.h"
 #include "PluginProcessor.h"
-#include <functional>
+#include "Style.h"
+#include <map>
+
+// Forward declarations
+class SubterraneumAudioProcessor;
+class AutoPluginScanner;
 
 // =============================================================================
-// Plugin Folder Row Component
+// Plugin Folder Row - Single folder path with remove button
 // =============================================================================
 class PluginFolderRow : public juce::Component {
 public:
-    PluginFolderRow(const juce::String& path, std::function<void()> onRemove)
-        : folderPath(path), removeCallback(onRemove)
+    PluginFolderRow(const juce::String& path, std::function<void()> removeCallback) 
+        : folderPath(path), removeCallback(removeCallback)
     {
         pathLabel.setText(path, juce::dontSendNotification);
+        pathLabel.setFont(juce::Font(12.0f));
         pathLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         pathLabel.setTooltip(path);
         addAndMakeVisible(pathLabel);
@@ -46,6 +55,50 @@ private:
     juce::Label pathLabel;
     juce::TextButton removeBtn;
     std::function<void()> removeCallback;
+};
+
+// =============================================================================
+// Plugin Folder Section - Collapsible section for a format (VST3, AU, etc.)
+// =============================================================================
+class PluginFolderSection : public juce::Component {
+public:
+    PluginFolderSection(const juce::String& formatName,
+                        const juce::String& settingsKey,
+                        juce::PropertiesFile* settings,
+                        std::function<void()> onChanged);
+    ~PluginFolderSection() override;
+    
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    
+    void setExpanded(bool exp);
+    bool isExpanded() const { return expanded; }
+    int getPreferredHeight() const;
+    
+    void addFolder(const juce::String& path);
+    void removeFolder(const juce::String& path);
+    juce::StringArray getFolders() const;
+    void setFolders(const juce::StringArray& folders);
+    
+private:
+    juce::String formatName;
+    juce::String settingsKey;
+    juce::PropertiesFile* settings;
+    std::function<void()> onChangedCallback;
+    
+    juce::Label headerLabel;
+    juce::TextButton expandBtn { "-" };
+    juce::TextButton addBtn { "Add..." };
+    
+    juce::OwnedArray<PluginFolderRow> folderRows;
+    bool expanded = true;
+    
+    void rebuildRows();
+    void saveFolders();
+    void loadFolders();
+    void browseForFolder();
+    
+    std::unique_ptr<juce::FileChooser> fileChooser;
 };
 
 // =============================================================================
@@ -82,7 +135,7 @@ private:
 };
 
 // =============================================================================
-// Plugin Folders Dialog Panel
+// Plugin Folders Dialog Panel - FIX: Added Close button
 // =============================================================================
 class PluginFoldersPanel : public juce::Component {
 public:
@@ -94,9 +147,46 @@ public:
     
     juce::StringArray getAllFolders() const;
     
+    // FIX: Callback for close button
+    std::function<void()> onCloseRequest;
+    
 private:
     SubterraneumAudioProcessor& processor;
-    std::unique_ptr<VST3FolderSection> vst3Section;
+    
+    juce::Label titleLabel { "title", "Plugin Folders" };
+    juce::TextButton collapseAllBtn { "Collapse All" };
+    juce::TextButton addDefaultsBtn { "Add Defaults" };
+    juce::TextButton closeBtn { "Close" };
+    
+    juce::Viewport viewport;
+    juce::Component contentComponent;
+    
+    std::unique_ptr<PluginFolderSection> vst2Section;
+    std::unique_ptr<PluginFolderSection> vst3Section;
+    std::unique_ptr<PluginFolderSection> auSection;
+    std::unique_ptr<PluginFolderSection> clapSection;
+    std::unique_ptr<PluginFolderSection> ladspaSection;
+    
+    void updateLayout();
+    void applyToFormatManager();
+    void addDefaultPaths();
+    int getPreferredHeight() const;
+};
+
+// =============================================================================
+// Closeable Dialog Window - FIX: Properly handles close button
+// =============================================================================
+class CloseableDialogWindow : public juce::DialogWindow {
+public:
+    CloseableDialogWindow(const juce::String& title, juce::Colour bg, bool escapeCloses)
+        : DialogWindow(title, bg, escapeCloses, true)
+    {
+        setUsingNativeTitleBar(true);
+    }
+    
+    void closeButtonPressed() override {
+        setVisible(false);
+    }
 };
 
 // =============================================================================
@@ -124,11 +214,46 @@ private:
     double progress = 0.0;
     bool scanning = false;
     
-    // FIXED: Use JUCE's proper scanner instead of VST3ModuleScanner
     std::unique_ptr<juce::PluginDirectoryScanner> scanner;
     juce::File deadMansPedal;
     
     void timerCallback() override;
+    void finishScan();
+};
+
+// =============================================================================
+// Auto Plugin Scanner - Scans all formats with progress
+// =============================================================================
+class AutoPluginScanner : public juce::Component, private juce::Timer {
+public:
+    AutoPluginScanner(SubterraneumAudioProcessor& processor, std::function<void()> onComplete);
+    ~AutoPluginScanner() override;
+    
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    
+    void startScan();
+    
+private:
+    SubterraneumAudioProcessor& processor;
+    std::function<void()> onCompleteCallback;
+    
+    juce::Label titleLabel { "title", "Scanning Plugins..." };
+    juce::Label formatLabel { "format", "" };
+    juce::Label statusLabel { "status", "Preparing..." };
+    juce::Label pluginLabel { "plugin", "" };
+    juce::ProgressBar progressBar { progress };
+    
+    double progress = 0.0;
+    int currentFormatIndex = 0;
+    int totalPluginsFound = 0;
+    
+    juce::StringArray formatNames;
+    std::unique_ptr<juce::PluginDirectoryScanner> scanner;
+    juce::File deadMansPedal;
+    
+    void timerCallback() override;
+    void startNextFormat();
     void finishScan();
 };
 
@@ -170,16 +295,19 @@ private:
     juce::TextEditor infoPanel;
     
     juce::TextButton scanBtn { "Scan Plugins" };
+    juce::TextButton rescanExistingBtn { "Rescan Existing" };
+    juce::Label rescanStatusLabel;  // Visual feedback during rescan
     juce::TextButton foldersBtn { "Plugin Folders..." };
     juce::TextButton clearBtn { "Clear All" };
     juce::TextButton resetBlacklistBtn { "Reset Blacklist" };
     
-    std::unique_ptr<juce::DialogWindow> foldersDialog;
+    std::unique_ptr<CloseableDialogWindow> foldersDialog;
     std::unique_ptr<juce::DialogWindow> scanDialog;
     
     void buildTree();
     void showScanDialog();
     void showFoldersDialog();
+    void rescanExistingPlugins();
     void expandAllItems();
     void collapseAllItems();
     

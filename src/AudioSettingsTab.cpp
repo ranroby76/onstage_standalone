@@ -4,6 +4,7 @@
 // FIX: Redesigned layout - Time Sig narrow on left, Tempo/Metronome controls on single rows
 // FIX: Added timeSigValueLabel to display current time signature prominently
 // FIX: Added recording folder selection button (right-aligned in Driver Settings)
+// FIX: Added ASIO latency info (In/Out/Total) to status label
 
 #include "AudioSettingsTab.h"
 #include "RecorderProcessor.h"
@@ -504,6 +505,9 @@ void AudioSettingsTab::updateDeviceList() {
     } 
 }
 
+// =============================================================================
+// FIX: Added ASIO latency info (In/Out/Total) to status label
+// =============================================================================
 void AudioSettingsTab::updateStatusLabel() {
     if (!deviceManager) return;
     
@@ -515,6 +519,19 @@ void AudioSettingsTab::updateStatusLabel() {
         status += " | SR: " + juce::String((int)device->getCurrentSampleRate()) + " Hz";
         status += " | Buf: " + juce::String(device->getCurrentBufferSizeSamples());
         status += " | I/O: " + juce::String(inputNames.size()) + "/" + juce::String(outputNames.size());
+        
+        // FIX: Add latency info
+        double sr = device->getCurrentSampleRate();
+        int inLat = device->getInputLatencyInSamples();
+        int outLat = device->getOutputLatencyInSamples();
+        int bufSize = device->getCurrentBufferSizeSamples();
+        if (sr > 0) {
+            double inMs  = (inLat + bufSize) * 1000.0 / sr;
+            double outMs = (outLat + bufSize) * 1000.0 / sr;
+            double totalMs = inMs + outMs;
+            status += " | Latency In: " + juce::String(inMs, 1) + "ms Out: " + juce::String(outMs, 1) + "ms (Total: " + juce::String(totalMs, 1) + "ms)";
+        }
+        
         statusLabel.setText(status, juce::dontSendNotification);
         statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
     } else {

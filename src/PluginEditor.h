@@ -1,5 +1,6 @@
 // FIX: Plugin Browser Panel is now a fixed panel (288px) to the left of yellow menu
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
+// FIX: Added MIDI Panic button under Keys button
 
 #pragma once
 
@@ -19,6 +20,7 @@
 // =============================================================================
 // Main Editor - Plugin Browser Panel as fixed side panel
 // FIX: Removed StudioTab - tempo/metronome now in AudioSettingsTab
+// FIX: Added MIDI Panic button
 // =============================================================================
 class SubterraneumAudioProcessorEditor : public juce::AudioProcessorEditor, 
                                           public juce::Button::Listener,
@@ -52,7 +54,8 @@ private:
     juce::TextButton loadButton { "Load Patch" };
     juce::TextButton saveButton { "Save Patch" }; 
     juce::TextButton resetButton { "Reset" };
-    juce::TextButton keysButton { "Keys" }; 
+    juce::TextButton keysButton { "Keys" };
+    juce::TextButton panicButton { "PANIC" };  // NEW: MIDI Panic button
     
     // Left green menu tab buttons - FIX: Only 6 buttons (removed studioButton)
     juce::TextButton rackButton { "Rack" };
@@ -92,6 +95,9 @@ private:
     
     // Helper to show/hide browser panel based on current tab
     void updatePluginBrowserVisibility();
+    
+    // NEW: Send MIDI panic to all instruments
+    void sendMidiPanic();
     
     class VirtualKeyboardWindow : public juce::DocumentWindow { 
     public: 

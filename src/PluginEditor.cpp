@@ -2,6 +2,7 @@
 // No toggle button - always visible on Rack tab, hidden on other tabs
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
 // FIX: Added Recorder to onToolDropped handler
+// FIX: Added MIDI Panic button under Keys button
 
 #include "PluginEditor.h"
 #include "SimpleConnectorProcessor.h"
@@ -73,6 +74,13 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     addAndMakeVisible(saveButton); saveButton.addListener(this);
     addAndMakeVisible(resetButton); resetButton.addListener(this);
     addAndMakeVisible(keysButton); keysButton.addListener(this);
+    
+    // NEW: MIDI Panic button - red color to stand out
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    panicButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    panicButton.setTooltip("Send All Notes Off to all instruments (stops stuck notes)");
+    addAndMakeVisible(panicButton);
+    panicButton.addListener(this);
     
     // ASIO LED and label
     addAndMakeVisible(asioLed);
@@ -245,6 +253,30 @@ void SubterraneumAudioProcessorEditor::updatePluginBrowserVisibility() {
     }
 }
 
+// =============================================================================
+// NEW: MIDI Panic - Send All Notes Off to all instruments
+// =============================================================================
+void SubterraneumAudioProcessorEditor::sendMidiPanic() {
+    if (!audioProcessor.mainGraph) return;
+    
+    // Iterate through all nodes in the graph
+    for (auto* node : audioProcessor.mainGraph->getNodes()) {
+        if (auto* meteringProc = dynamic_cast<MeteringProcessor*>(node->getProcessor())) {
+            // Send panic to the inner plugin
+            meteringProc->sendAllNotesOffToPlugin();
+        }
+    }
+    
+    // Also clear the keyboard state
+    audioProcessor.keyboardState.allNotesOff(0);
+    
+    // Flash the button to provide visual feedback
+    panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::red);
+    juce::Timer::callAfterDelay(200, [this]() {
+        panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    });
+}
+
 void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) { 
     // FIX: Handle left menu tab buttons - now only 6 buttons (removed Studio)
     if (b == &rackButton) {
@@ -312,7 +344,10 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
         if (keyboardWindow == nullptr) 
             keyboardWindow = std::make_unique<VirtualKeyboardWindow>(audioProcessor);
         keyboardWindow->setVisible(!keyboardWindow->isVisible());
-    } 
+    } else if (b == &panicButton) {
+        // NEW: Handle panic button
+        sendMidiPanic();
+    }
 }
 
 void SubterraneumAudioProcessorEditor::paint(juce::Graphics& g) { 
@@ -387,6 +422,8 @@ void SubterraneumAudioProcessorEditor::resized() {
     resetButton.setBounds(rightMenu.removeFromTop(btnH).reduced(10, 5)); 
     rightMenu.removeFromTop(gap); 
     keysButton.setBounds(rightMenu.removeFromTop(btnH).reduced(10, 5));
+    rightMenu.removeFromTop(gap);
+    panicButton.setBounds(rightMenu.removeFromTop(btnH).reduced(10, 5));  // NEW: Panic button under Keys
     
     // Left menu buttons - FIX: Only 6 buttons now (removed Studio)
     leftMenu.removeFromTop(Style::mainHeaderHeight);
