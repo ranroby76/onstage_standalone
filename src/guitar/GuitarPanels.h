@@ -666,7 +666,7 @@ private:
 };
 
 // ==============================================================================
-//  Guitar Phaser Panel (2 rows: 6+5 sliders — SST-upgraded)
+//  Guitar Phaser Panel (textbook model — 9 sliders)
 // ==============================================================================
 class GuitarPhaserPanel : public juce::Component, private juce::Timer
 {
@@ -702,20 +702,15 @@ public:
             addAndMakeVisible(s.get());
         };
 
-        // Row 1: Center, Rate, Depth, Feedback, Stages, Mix
-        makeSlider(centerSlider,   "Center",  -1.0,  1.0,  p0.center,            "");
-        makeSlider(rateSlider,     "Rate",     0.05, 10.0, p0.rate,              " Hz");
-        makeSlider(depthSlider,    "Depth",    0.0,  1.0,  p0.depth,             "");
-        makeSlider(feedbackSlider, "Feedbk",  -0.95, 0.95, p0.feedback,          "");
-        makeSlider(stagesSlider,   "Stages",   1.0,  16.0, (double)p0.stages,    "", 1.0);
-        makeSlider(mixSlider,      "Mix",      0.0,  1.0,  p0.mix,              "");
-
-        // Row 2: Spread, Sharp, Stereo, Wave, Tone
-        makeSlider(spreadSlider,    "Spread",  0.0, 1.0, p0.spread,             "");
-        makeSlider(sharpnessSlider, "Sharp",  -1.0, 1.0, p0.sharpness,          "");
-        makeSlider(stereoSlider,    "Stereo",  0.0, 1.0, p0.stereo,             "");
-        makeSlider(waveformSlider,  "Wave",    0.0, 6.0, (double)p0.waveform,   "", 1.0);
-        makeSlider(toneSlider,      "Tone",   -1.0, 1.0, p0.tone,              "");
+        makeSlider(baseFreqSlider,    "Base",     50.0,   1000.0, p0.baseFreq,            " Hz");
+        makeSlider(sweepWidthSlider,  "Sweep",    50.0,   5000.0, p0.sweepWidth,           " Hz");
+        makeSlider(rateSlider,        "Rate",      0.05,     2.0, p0.rate,                 " Hz");
+        makeSlider(depthSlider,       "Depth",     0.0,      1.0, p0.depth,                "");
+        makeSlider(feedbackSlider,    "Feedbk",    0.0,      0.99, p0.feedback,             "");
+        makeSlider(stereoSlider,      "Stereo",    0.0,      1.0, p0.stereo,               "", 1.0);
+        makeSlider(waveformSlider,    "Wave",      0.0,      3.0, (double)p0.waveform,     "", 1.0);
+        makeSlider(stagesSlider,      "Stages",    2.0,     10.0, (double)p0.stages,        "", 2.0);
+        makeSlider(mixSlider,         "Mix",       0.0,      1.0, p0.mix,                  "");
 
         startTimerHz(15);
     }
@@ -745,20 +740,17 @@ public:
 
         area.removeFromTop(10);
 
-        // Single row with all 11 sliders — panel is 1200px wide so this fits
-        int sw = 60, sp = 8, n = 11;
+        int sw = 70, sp = 10, n = 9;
         int tw = n * sw + (n - 1) * sp;
         auto sa = area.withX(area.getX() + (area.getWidth() - tw) / 2).withWidth(tw);
-        centerSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        rateSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        depthSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        feedbackSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        stagesSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        spreadSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        sharpnessSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        stereoSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        waveformSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
-        toneSlider->setBounds(sa.removeFromLeft(sw)); sa.removeFromLeft(sp);
+        baseFreqSlider->setBounds(sa.removeFromLeft(sw));    sa.removeFromLeft(sp);
+        sweepWidthSlider->setBounds(sa.removeFromLeft(sw));  sa.removeFromLeft(sp);
+        rateSlider->setBounds(sa.removeFromLeft(sw));        sa.removeFromLeft(sp);
+        depthSlider->setBounds(sa.removeFromLeft(sw));       sa.removeFromLeft(sp);
+        feedbackSlider->setBounds(sa.removeFromLeft(sw));    sa.removeFromLeft(sp);
+        stereoSlider->setBounds(sa.removeFromLeft(sw));      sa.removeFromLeft(sp);
+        waveformSlider->setBounds(sa.removeFromLeft(sw));    sa.removeFromLeft(sp);
+        stagesSlider->setBounds(sa.removeFromLeft(sw));      sa.removeFromLeft(sp);
         mixSlider->setBounds(sa.removeFromLeft(sw));
     }
 
@@ -766,26 +758,23 @@ public:
     {
         auto p = proc.getParams();
         toggleButton->setToggleState(!proc.isBypassed(), juce::dontSendNotification);
-        centerSlider->setValue(p.center, juce::dontSendNotification);
+        baseFreqSlider->setValue(p.baseFreq, juce::dontSendNotification);
+        sweepWidthSlider->setValue(p.sweepWidth, juce::dontSendNotification);
         rateSlider->setValue(p.rate, juce::dontSendNotification);
         depthSlider->setValue(p.depth, juce::dontSendNotification);
         feedbackSlider->setValue(p.feedback, juce::dontSendNotification);
-        stagesSlider->setValue((double)p.stages, juce::dontSendNotification);
-        mixSlider->setValue(p.mix, juce::dontSendNotification);
-        spreadSlider->setValue(p.spread, juce::dontSendNotification);
-        sharpnessSlider->setValue(p.sharpness, juce::dontSendNotification);
         stereoSlider->setValue(p.stereo, juce::dontSendNotification);
         waveformSlider->setValue((double)p.waveform, juce::dontSendNotification);
-        toneSlider->setValue(p.tone, juce::dontSendNotification);
+        stagesSlider->setValue((double)p.stages, juce::dontSendNotification);
+        mixSlider->setValue(p.mix, juce::dontSendNotification);
     }
 
 private:
     std::vector<VerticalSlider*> getAllSliders()
     {
-        return { centerSlider.get(), rateSlider.get(), depthSlider.get(),
-                 feedbackSlider.get(), stagesSlider.get(), mixSlider.get(),
-                 spreadSlider.get(), sharpnessSlider.get(), stereoSlider.get(),
-                 waveformSlider.get(), toneSlider.get() };
+        return { baseFreqSlider.get(), sweepWidthSlider.get(), rateSlider.get(),
+                 depthSlider.get(), feedbackSlider.get(), stereoSlider.get(),
+                 waveformSlider.get(), stagesSlider.get(), mixSlider.get() };
     }
 
     void timerCallback() override
@@ -795,17 +784,15 @@ private:
             if (!s->getSlider().isMouseOverOrDragging())
                 s->setValue(v, juce::dontSendNotification);
         };
-        sync(centerSlider.get(), p.center);
+        sync(baseFreqSlider.get(), p.baseFreq);
+        sync(sweepWidthSlider.get(), p.sweepWidth);
         sync(rateSlider.get(), p.rate);
         sync(depthSlider.get(), p.depth);
         sync(feedbackSlider.get(), p.feedback);
-        sync(stagesSlider.get(), (double)p.stages);
-        sync(mixSlider.get(), p.mix);
-        sync(spreadSlider.get(), p.spread);
-        sync(sharpnessSlider.get(), p.sharpness);
         sync(stereoSlider.get(), p.stereo);
         sync(waveformSlider.get(), (double)p.waveform);
-        sync(toneSlider.get(), p.tone);
+        sync(stagesSlider.get(), (double)p.stages);
+        sync(mixSlider.get(), p.mix);
 
         bool shouldBeOn = !proc.isBypassed();
         if (toggleButton->getToggleState() != shouldBeOn)
@@ -815,17 +802,15 @@ private:
     void updateProcessor()
     {
         GuitarPhaserProcessor::Params p;
-        p.center    = (float)centerSlider->getValue();
-        p.rate      = (float)rateSlider->getValue();
-        p.depth     = (float)depthSlider->getValue();
-        p.feedback  = (float)feedbackSlider->getValue();
-        p.stages    = (int)stagesSlider->getValue();
-        p.mix       = (float)mixSlider->getValue();
-        p.spread    = (float)spreadSlider->getValue();
-        p.sharpness = (float)sharpnessSlider->getValue();
-        p.stereo    = (float)stereoSlider->getValue();
-        p.waveform  = (int)waveformSlider->getValue();
-        p.tone      = (float)toneSlider->getValue();
+        p.baseFreq   = (float)baseFreqSlider->getValue();
+        p.sweepWidth = (float)sweepWidthSlider->getValue();
+        p.rate       = (float)rateSlider->getValue();
+        p.depth      = (float)depthSlider->getValue();
+        p.feedback   = (float)feedbackSlider->getValue();
+        p.stereo     = (float)stereoSlider->getValue();
+        p.waveform   = (int)waveformSlider->getValue();
+        p.stages     = (int)stagesSlider->getValue();
+        p.mix        = (float)mixSlider->getValue();
         proc.setParams(p);
     }
 
@@ -833,12 +818,9 @@ private:
     std::unique_ptr<GoldenSliderLookAndFeel> goldenLookAndFeel;
     std::unique_ptr<EffectToggleButton> toggleButton;
     juce::Label titleLabel;
-    // Row 1
-    std::unique_ptr<VerticalSlider> centerSlider, rateSlider, depthSlider,
-                                    feedbackSlider, stagesSlider, mixSlider;
-    // Row 2
-    std::unique_ptr<VerticalSlider> spreadSlider, sharpnessSlider, stereoSlider,
-                                    waveformSlider, toneSlider;
+    std::unique_ptr<VerticalSlider> baseFreqSlider, sweepWidthSlider, rateSlider,
+                                    depthSlider, feedbackSlider, stereoSlider,
+                                    waveformSlider, stagesSlider, mixSlider;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GuitarPhaserPanel)
 };
