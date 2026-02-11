@@ -18,6 +18,7 @@ jobs:
 
       - name: Clone JUCE Framework
         run: |
+          rm -rf JUCE
           git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
 
       - name: Import Signing Certificate
@@ -26,7 +27,6 @@ jobs:
           P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: "admin"
         run: |
-          # Skip signing if secrets aren't configured yet
           if [ -z "$BUILD_CERTIFICATE_BASE64" ]; then
             echo "::warning::No signing certificate configured — skipping code signing"
             echo "SKIP_SIGNING=true" >> $GITHUB_ENV
@@ -45,7 +45,6 @@ jobs:
           security find-identity -v -p codesigning build.keychain
           echo "SKIP_SIGNING=false" >> $GITHUB_ENV
 
-      # Xcode generator — proven for macOS universal builds
       - name: Configure CMake
         run: |
           cmake -B build -G Xcode \
@@ -102,14 +101,12 @@ jobs:
 
           echo "Processing $APP_PATH..."
 
-          # Sign inner dylibs/frameworks first (inside-out)
           find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) \
             -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
 
           find "$APP_PATH" -type d -name "*.framework" \
             -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
 
-          # Sign the app bundle
           codesign --force --deep --strict \
             --options runtime \
             --sign "$IDENTITY" \

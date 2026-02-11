@@ -11,23 +11,21 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # 1. Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
           lfs: true
 
-      # 2. Setup Compiler
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 3. Clone JUCE (into workspace root, passed via -DJUCE_DIR)
       - name: Clone JUCE Framework
+        shell: pwsh
         run: |
+          if (Test-Path JUCE) { Remove-Item -Recurse -Force JUCE }
           git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
 
-      # 4. Setup VLC SDK (Required for Windows Build)
       - name: Setup VLC SDK
         shell: pwsh
         run: |
@@ -40,7 +38,6 @@ jobs:
           Write-Host "Extracting VLC..."
           7z x $outputFile -y
 
-          # Rename folder to match expected name
           if (Test-Path "vlc-3.0.21-win64") {
             Rename-Item "vlc-3.0.21-win64" "vlc-3.0.21"
           }
@@ -52,18 +49,15 @@ jobs:
             exit 1
           }
 
-      # 5. Configure CMake — pass JUCE and VLC paths explicitly
       - name: Configure CMake
         run: |
           cmake -B build -G "Visual Studio 17 2022" -A x64 `
             -DJUCE_DIR="${{ github.workspace }}/JUCE" `
             -DVLC_ROOT="${{ github.workspace }}/vlc-3.0.21"
 
-      # 6. Build
       - name: Build App
         run: cmake --build build --config Release --parallel 4
 
-      # 7. Collect & Zip Artifacts
       - name: Package App
         shell: pwsh
         run: |
@@ -72,7 +66,6 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path $distDir
 
-          # JUCE puts artefacts under OnStage_artefacts/
           $exePath = Get-ChildItem -Path build -Recurse -Filter "OnStage.exe" | Select-Object -First 1
 
           if ($null -eq $exePath) {
@@ -84,15 +77,12 @@ jobs:
           Write-Host "Found: $($exePath.FullName)"
           Copy-Item $exePath.FullName -Destination $distDir
 
-          # Copy VLC runtime DLLs (must sit next to the .exe)
           Copy-Item "vlc-3.0.21/libvlc.dll" -Destination $distDir
           Copy-Item "vlc-3.0.21/libvlccore.dll" -Destination $distDir
           Copy-Item -Recurse "vlc-3.0.21/plugins" -Destination "$distDir/plugins"
 
-          # Create Zip
           Compress-Archive -Path "$distDir/*" -DestinationPath $zipName
 
-      # 8. Upload
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:

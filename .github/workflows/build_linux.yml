@@ -13,14 +13,12 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    # 1. Checkout Code
     - name: Checkout Code
       uses: actions/checkout@v4
       with:
         submodules: recursive
         fetch-depth: 0
 
-    # 2. Install Linux Dependencies (JUCE requirements + ALSA/JACK)
     - name: Install Dependencies
       run: |
         sudo apt-get update
@@ -35,23 +33,20 @@ jobs:
           libwebkit2gtk-4.1-dev \
           libcurl4-openssl-dev
 
-    # 3. Download JUCE
     - name: Download JUCE
       run: |
+        rm -rf JUCE
         git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git
 
-    # 4. Configure (Ninja for faster builds)
     - name: Configure
       run: |
         cmake -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
           -DJUCE_DIR="${{ github.workspace }}/JUCE"
 
-    # 5. Build
     - name: Build
       run: cmake --build build --config Release --parallel $(nproc)
 
-    # 6. Package
     - name: Package
       run: |
         APP_PATH=$(find build -name "OnStage" -type f -executable | head -1)
@@ -65,7 +60,6 @@ jobs:
         echo "Found binary at: $APP_PATH"
         zip -j OnStage_Linux.zip "$APP_PATH"
 
-    # 7. Upload
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
