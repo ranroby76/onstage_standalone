@@ -1,55 +1,52 @@
 // ==============================================================================
 //  GuitarPhaserProcessor.h
-//  OnStage - Guitar Phaser (upgraded with SST-derived features)
+//  OnStage - Guitar Phaser
 //
-//  Cascade of all-pass filters with multi-shape LFO, stereo offset,
-//  stage spread, sharpness (Q), center frequency, and post tone filter.
+//  Based on the textbook phaser from:
+//  "Digital Audio Effects: Theory, Implementation and Application"
+//  by Joshua D. Reiss and Andrew P. McPherson
+//  Code reference: getdunne/audio-effects (GPL-3)
 //
-//  Core DSP math extracted from SST Phaser (GPL-3, surge-synthesizer).
-//  Original OnStage structure preserved (Params struct, prepare/process API).
+//  Classic phaser using cascaded first-order allpass filters with LFO
+//  modulation, feedback, stereo offset, and dry/wet mix.
 //
 //  Parameters:
-//  - Center:    Sweep center frequency offset (-1..+1, bipolar)
-//  - Rate:      LFO speed (0.05..10 Hz)
-//  - Depth:     Mod depth (0..1)
-//  - Feedback:  Resonance (-1..+1, bipolar, clamped to ±0.95 internally)
-//  - Stages:    Number of all-pass stages (1..16, 1 = legacy 4-stage mode)
-//  - Spread:    Frequency spacing between stages (0..1)
-//  - Sharpness: All-pass Q (-1..+1, bipolar)
-//  - Stereo:    LFO phase offset between L/R (0..1, 0.5 = quadrature)
-//  - Waveform:  LFO shape (0=Sine,1=Tri,2=Ramp,3=Saw,4=Square,5=Noise,6=S&H)
-//  - Tone:      Post-filter tilt (-1..+1, neg=darken, pos=brighten)
-//  - Mix:       Dry/Wet (0..1)
+//  - BaseFreq:   Sweep base frequency (50..1000 Hz)
+//  - SweepWidth: How wide the LFO sweeps (50..5000 Hz)
+//  - Rate:       LFO speed (0.05..2.0 Hz)
+//  - Depth:      Effect intensity (0..1)
+//  - Feedback:   Resonance (0..0.99)
+//  - Stereo:     LFO phase offset between L/R (0=off, 1=on, 90 deg)
+//  - Waveform:   LFO shape (0=Sine, 1=Tri, 2=Square, 3=Saw)
+//  - Stages:     Number of allpass filters (2..10, even)
+//  - Mix:        Dry/Wet (0..1)
 // ==============================================================================
 
 #pragma once
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
-#include <cstdlib>
 
 class GuitarPhaserProcessor
 {
 public:
     struct Params
     {
-        float center    = 0.0f;    // -1..+1 (sweep center offset)
-        float rate      = 0.5f;    // Hz (0.05..10)
-        float depth     = 0.7f;    // 0..1
-        float feedback  = 0.3f;    // -1..+1 (clamped ±0.95 internally)
-        int   stages    = 4;       // 1..16 (1 = legacy 4-stage)
-        float spread    = 0.5f;    // 0..1
-        float sharpness = 0.0f;    // -1..+1 (bipolar, like SST)
-        float stereo    = 0.0f;    // 0..1 (LFO phase offset)
-        int   waveform  = 0;       // 0..6
-        float tone      = 0.0f;    // -1..+1
-        float mix       = 0.5f;    // 0..1
+        float baseFreq   = 200.0f;  // Hz  (50..1000)
+        float sweepWidth = 2000.0f; // Hz  (50..5000)
+        float rate       = 0.5f;    // Hz  (0.05..2.0)
+        float depth      = 1.0f;    // 0..1
+        float feedback   = 0.0f;    // 0..0.99
+        float stereo     = 0.0f;    // 0 or 1
+        int   waveform   = 0;       // 0..3
+        int   stages     = 4;       // 2..10 (even)
+        float mix        = 0.5f;    // 0..1
 
         bool operator==(const Params& o) const
         {
-            return center == o.center && rate == o.rate && depth == o.depth
-                && feedback == o.feedback && stages == o.stages && spread == o.spread
-                && sharpness == o.sharpness && stereo == o.stereo && waveform == o.waveform
-                && tone == o.tone && mix == o.mix;
+            return baseFreq == o.baseFreq && sweepWidth == o.sweepWidth
+                && rate == o.rate && depth == o.depth && feedback == o.feedback
+                && stereo == o.stereo && waveform == o.waveform
+                && stages == o.stages && mix == o.mix;
         }
         bool operator!=(const Params& o) const { return !(*this == o); }
     };
@@ -59,24 +56,23 @@ public:
     void prepare(const juce::dsp::ProcessSpec& spec)
     {
         sampleRate = spec.sampleRate;
+        inverseSampleRate = 1.0 / sampleRate;
         reset();
         isPrepared = true;
     }
 
     void reset()
     {
-        lfoPhaseL = 0.0f;
+        lfoPhase = 0.0f;
         for (int ch = 0; ch < 2; ++ch)
         {
             for (int s = 0; s < maxStages; ++s)
-                allpassState[ch][s] = 0.0f;
-            feedbackState[ch] = 0.0f;
-            toneLpState[ch] = 0.0f;
-            toneHpState[ch] = 0.0f;
+            {
+                apX1[ch][s] = 0.0f;
+                apY1[ch][s] = 0.0f;
+            }
+            lastFilterOutput[ch] = 0.0f;
         }
-        noiseVal[0] = noiseVal[1] = 0.0f;
-        shVal[0] = shVal[1] = 0.0f;
-        prevLfoSign = false;
     }
 
     void process(juce::AudioBuffer<float>& buffer)
@@ -86,126 +82,107 @@ public:
         const int numSamples  = buffer.getNumSamples();
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
 
-        // Clamp params to SST ranges
-        const float center    = juce::jlimit(-1.0f, 1.0f, params.center);
-        const float depth     = juce::jlimit(0.0f, 1.0f, params.depth);  // SST clamps to 2.0 but we use 1.0 for guitar
-        const float fb        = juce::jlimit(-0.95f, 0.95f, params.feedback);
-        const float sharp     = juce::jlimit(-1.0f, 1.0f, params.sharpness);
-        const float spreadAmt = juce::jlimit(0.0f, 1.0f, params.spread);
-        const float stereoOff = juce::jlimit(0.0f, 1.0f, params.stereo);
-        const float toneVal   = juce::jlimit(-1.0f, 1.0f, params.tone);
-        const float mixWet    = juce::jlimit(0.0f, 1.0f, params.mix);
-        const float mixDry    = 1.0f - mixWet;
-        const float lfoInc    = (float)(juce::jlimit(0.05, 10.0, (double)params.rate) / sampleRate);
+        const float baseFreq   = juce::jlimit(50.0f, 1000.0f, params.baseFreq);
+        const float sweepWidth = juce::jlimit(50.0f, 5000.0f, params.sweepWidth);
+        const float rate       = juce::jlimit(0.05f, 2.0f, params.rate);
+        const float depth      = juce::jlimit(0.0f, 1.0f, params.depth);
+        const float feedback   = juce::jlimit(0.0f, 0.99f, params.feedback);
+        const bool  stereoMode = (params.stereo >= 0.5f);
+        const int   waveform   = juce::jlimit(0, 3, params.waveform);
+        const int   stages     = juce::jlimit(2, maxStages, params.stages & ~1); // force even
+        const float mixWet     = juce::jlimit(0.0f, 1.0f, params.mix);
+        const float mixDry     = 1.0f - mixWet;
 
-        // Determine stage count: stages=1 means legacy 4-stage mode (like SST)
-        const int n_stages = juce::jlimit(1, maxStages, params.stages);
-        const bool legacyMode = (n_stages < 2);
-        const int actualStages = legacyMode ? 4 : n_stages;
+        const float lfoInc = (float)(rate * inverseSampleRate);
 
-        // SST legacy mode frequencies and spans (fixed 4-stage)
-        static const float legacy_freq[4] = { 1.5f / 12.0f, 19.5f / 12.0f, 35.0f / 12.0f, 50.0f / 12.0f };
-        static const float legacy_span[4] = { 2.0f, 1.5f, 1.0f, 0.5f };
+        // Update interval for filter coefficients (every 8 samples — cheaper)
+        constexpr int updateInterval = 8;
 
-        // Tone filter coefficients
-        float lpCoeff = 1.0f, hpCoeff = 0.0f;
-        if (toneVal < 0.0f)
+        float ph = lfoPhase;
+        float channel0EndPhase = ph;
+        unsigned int sc = sampleCount;
+
+        for (int channel = 0; channel < numChannels; ++channel)
         {
-            float freq = 20000.0f * std::pow(0.02f, -toneVal);
-            lpCoeff = 1.0f - std::exp(-twoPi * freq / (float)sampleRate);
-        }
-        else if (toneVal > 0.0f)
-        {
-            float freq = 20.0f * std::pow(100.0f, toneVal);
-            hpCoeff = 1.0f - std::exp(-twoPi * freq / (float)sampleRate);
-        }
+            float* channelData = buffer.getWritePointer(channel);
+            ph = lfoPhase;
+            sc = sampleCount;
 
-        for (int i = 0; i < numSamples; ++i)
-        {
-            // Generate LFO values for L and R
-            float lfoPhaseR = lfoPhaseL + stereoOff;
-            if (lfoPhaseR >= 1.0f) lfoPhaseR -= 1.0f;
+            // Stereo: offset right channel LFO by 90 degrees
+            if (stereoMode && channel != 0)
+                ph = std::fmod(ph + 0.25f, 1.0f);
 
-            float lfoL = generateLFO(lfoPhaseL, params.waveform, 0) * depth;
-            float lfoR = generateLFO(lfoPhaseR, params.waveform, 1) * depth;
-
-            for (int ch = 0; ch < numChannels; ++ch)
+            for (int i = 0; i < numSamples; ++i)
             {
-                float* data = buffer.getWritePointer(ch);
-                float dry = data[i];
-                float lfo = (ch == 0) ? lfoL : lfoR;
+                float dry = channelData[i];
+                float out = dry;
 
-                float in = dry + feedbackState[ch] * fb;
-                in = juce::jlimit(-32.0f, 32.0f, in);
+                // Add feedback from last sample
+                if (feedback > 0.0f)
+                    out += feedback * lastFilterOutput[channel];
 
-                // Process all-pass cascade
-                float x = in;
-
-                if (legacyMode)
+                // Update allpass filter coefficients periodically
+                if (sc % updateInterval == 0)
                 {
-                    // SST legacy: 4 fixed stages with preset frequencies
-                    // Base offset of 5 octaves (~262 Hz at center=0) puts sweep
-                    // in the audible phaser range of ~200-5000 Hz
-                    for (int s = 0; s < 4; ++s)
-                    {
-                        float noteVal = 5.0f + 2.0f * center + legacy_freq[s] + legacy_span[s] * lfo;
-                        float freq = 8.175798f * std::pow(2.0f, noteVal);
-                        freq = juce::jlimit(20.0f, (float)(sampleRate * 0.45), freq);
+                    float lfoVal = getLfoSample(ph, waveform); // output [0..1]
+                    double centreFreq = (double)baseFreq + (double)sweepWidth * (double)lfoVal;
+                    centreFreq = juce::jlimit(20.0, sampleRate * 0.45, centreFreq);
 
-                        float wc = twoPi * freq / (float)sampleRate;
-                        float apQ = 1.0f + 0.8f * sharp;
-                        float t = std::tan(wc * 0.5f);
-                        float apCoeff = (1.0f - t / apQ) / (1.0f + t / apQ);
+                    // Compute allpass coefficient using bilinear transform
+                    // a = (1 - tan(w0/2)) / (1 + tan(w0/2))
+                    double w0 = juce::jmin(centreFreq * inverseSampleRate, 0.99 * pi);
+                    double tanHalf = std::tan(0.5 * w0);
+                    float coeff = (float)((1.0 - tanHalf) / (1.0 + tanHalf));
 
-                        float y = apCoeff * x + allpassState[ch][s];
-                        allpassState[ch][s] = x - apCoeff * y;
-                        x = y;
-                    }
-                }
-                else
-                {
-                    // SST modern: N stages with spread
-                    for (int s = 0; s < actualStages; ++s)
-                    {
-                        float stageCenter = std::pow(2.0f, (float)(s + 1) * 2.0f / (float)actualStages);
-                        float modForStage = 2.0f / (float)(s + 1) * lfo;
-
-                        float noteVal = 5.0f + 2.0f * center + spreadAmt * stageCenter + modForStage;
-                        float freq = 8.175798f * std::pow(2.0f, noteVal);
-                        freq = juce::jlimit(20.0f, (float)(sampleRate * 0.45), freq);
-
-                        float wc = twoPi * freq / (float)sampleRate;
-                        float apQ = 1.0f + 0.8f * sharp;
-                        float t = std::tan(wc * 0.5f);
-                        float apCoeff = (1.0f - t / apQ) / (1.0f + t / apQ);
-
-                        float y = apCoeff * x + allpassState[ch][s];
-                        allpassState[ch][s] = x - apCoeff * y;
-                        x = y;
-                    }
+                    // Store coefficient for all stages on this channel
+                    for (int s = 0; s < stages; ++s)
+                        apCoeff[channel][s] = coeff;
                 }
 
-                feedbackState[ch] = x;
-
-                // Tone filter
-                if (toneVal < 0.0f)
+                // Process cascade of first-order allpass filters
+                // Each allpass: y[n] = a*x[n] + (-1)*x[n-1] + a*y[n-1]
+                //   equivalent: y[n] = a * (x[n] - y[n-1]) + x[n-1]
+                //   where a = (1 - tan(w0/2)) / (1 + tan(w0/2))
+                for (int s = 0; s < stages; ++s)
                 {
-                    toneLpState[ch] += lpCoeff * (x - toneLpState[ch]);
-                    x = toneLpState[ch];
-                }
-                else if (toneVal > 0.0f)
-                {
-                    toneHpState[ch] += hpCoeff * (x - toneHpState[ch]);
-                    x = x - toneHpState[ch];
+                    float a  = apCoeff[channel][s];
+                    float x  = out;
+                    float y  = a * x + apX1[channel][s] * (-1.0f) + a * apY1[channel][s];
+                    // Simplified form matching textbook:
+                    // y = a * (x - y1) + x1
+                    // But using the expanded direct form for clarity:
+                    // y = a*x - x1 + a*y1  ... wait, let's use the textbook form exactly:
+                    // b0 = a, b1 = -1, a1 = a  (from OnePoleAllpassFilter.cpp)
+                    // y[n] = b0*x[n] + b1*x[n-1] + a1*y[n-1]
+                    //      = a*x[n] + (-1)*x[n-1] + a*y[n-1]
+                    apY1[channel][s] = y;
+                    apX1[channel][s] = x;
+                    out = y;
                 }
 
-                data[i] = dry * mixDry + x * mixWet;
+                // Store for feedback
+                lastFilterOutput[channel] = out;
+
+                // Mix: depth controls how much of filtered signal mixes with dry
+                // depth=0 => input only, depth=1 => evenly balanced
+                float dfrac = 0.5f * depth;
+                float mixed = (1.0f - dfrac) * dry + dfrac * out;
+
+                // Final dry/wet mix
+                channelData[i] = dry * mixDry + mixed * mixWet;
+
+                // Advance LFO
+                ph += lfoInc;
+                while (ph >= 1.0f) ph -= 1.0f;
+
+                sc++;
             }
 
-            // Advance LFO
-            lfoPhaseL += lfoInc;
-            if (lfoPhaseL >= 1.0f) lfoPhaseL -= 1.0f;
+            if (channel == 0) channel0EndPhase = ph;
         }
+
+        lfoPhase = channel0EndPhase;
+        sampleCount = sc;
     }
 
     void setParams(const Params& p) { params = p; }
@@ -214,68 +191,50 @@ public:
     bool isBypassed() const { return bypassed; }
 
 private:
-    static constexpr int maxStages = 16;
-    static constexpr float twoPi = 6.283185307179586f;
+    static constexpr int maxStages = 10;
+    static constexpr double pi = 3.14159265358979323846;
 
-    // LFO generator - 7 waveforms matching SST
-    float generateLFO(float phase, int wave, int ch)
+    // LFO generator — biased output [0..1], matching textbook
+    float getLfoSample(float phase, int waveform) const
     {
-        switch (wave)
+        constexpr float twoPi = 6.283185307179586f;
+        switch (waveform)
         {
             default:
             case 0: // Sine
-                return std::sin(phase * twoPi);
+                return 0.5f + 0.5f * std::sin(twoPi * phase);
             case 1: // Triangle
             {
-                float t = phase * 4.0f;
-                if (phase < 0.25f) return t;
-                if (phase < 0.75f) return 2.0f - t;
-                return t - 4.0f;
+                if (phase < 0.25f)       return 0.5f + 2.0f * phase;
+                else if (phase < 0.75f)  return 1.0f - 2.0f * (phase - 0.25f);
+                else                     return 2.0f * (phase - 0.75f);
             }
-            case 2: // Ramp (up)
-                return 2.0f * phase - 1.0f;
-            case 3: // Saw (down)
-                return 1.0f - 2.0f * phase;
-            case 4: // Square
-                return (phase < 0.5f) ? 1.0f : -1.0f;
-            case 5: // Noise (smoothed random)
+            case 2: // Square
+                return (phase < 0.5f) ? 1.0f : 0.0f;
+            case 3: // Sawtooth
             {
-                float r = ((float)(rand()) / (float)RAND_MAX) * 2.0f - 1.0f;
-                noiseVal[ch] += 0.1f * (r - noiseVal[ch]);
-                return noiseVal[ch];
-            }
-            case 6: // Sample & Hold
-            {
-                bool positive = (phase < 0.5f);
-                if (ch == 0)
-                {
-                    if (positive && !prevLfoSign)
-                        shVal[0] = ((float)(rand()) / (float)RAND_MAX) * 2.0f - 1.0f;
-                    prevLfoSign = positive;
-                }
-                else
-                {
-                    if (positive && !prevLfoSign)
-                        shVal[1] = ((float)(rand()) / (float)RAND_MAX) * 2.0f - 1.0f;
-                }
-                return shVal[ch];
+                if (phase < 0.5f) return 0.5f + phase;
+                else              return phase - 0.5f;
             }
         }
     }
 
     Params params;
     double sampleRate = 44100.0;
+    double inverseSampleRate = 1.0 / 44100.0;
     bool bypassed = false;
     bool isPrepared = false;
 
-    float lfoPhaseL = 0.0f;
-    float allpassState[2][maxStages] = {};
-    float feedbackState[2] = {};
-    float toneLpState[2] = {};
-    float toneHpState[2] = {};
-    float noiseVal[2] = {};
-    float shVal[2] = {};
-    bool prevLfoSign = false;
+    float lfoPhase = 0.0f;
+    unsigned int sampleCount = 0;
+
+    // Allpass filter state: [channel][stage]
+    float apX1[2][maxStages] = {};    // previous input
+    float apY1[2][maxStages] = {};    // previous output
+    float apCoeff[2][maxStages] = {}; // current coefficient
+
+    // Feedback storage per channel
+    float lastFilterOutput[2] = {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GuitarPhaserProcessor)
 };

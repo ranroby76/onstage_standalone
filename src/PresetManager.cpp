@@ -577,11 +577,10 @@ GuitarFlangerProcessor::Params PresetManager::varToGuitarFlangerParams(const juc
 juce::var PresetManager::guitarPhaserParamsToVar(const GuitarPhaserProcessor::Params& p)
 {
     juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-    obj->setProperty("center", p.center); obj->setProperty("rate", p.rate);
-    obj->setProperty("depth", p.depth); obj->setProperty("feedback", p.feedback);
-    obj->setProperty("stages", p.stages); obj->setProperty("spread", p.spread);
-    obj->setProperty("sharpness", p.sharpness); obj->setProperty("stereo", p.stereo);
-    obj->setProperty("waveform", p.waveform); obj->setProperty("tone", p.tone);
+    obj->setProperty("baseFreq", p.baseFreq); obj->setProperty("sweepWidth", p.sweepWidth);
+    obj->setProperty("rate", p.rate); obj->setProperty("depth", p.depth);
+    obj->setProperty("feedback", p.feedback); obj->setProperty("stereo", p.stereo);
+    obj->setProperty("waveform", p.waveform); obj->setProperty("stages", p.stages);
     obj->setProperty("mix", p.mix);
     return obj.get();
 }
@@ -589,17 +588,15 @@ GuitarPhaserProcessor::Params PresetManager::varToGuitarPhaserParams(const juce:
 {
     GuitarPhaserProcessor::Params p;
     if (auto* obj = v.getDynamicObject()) {
-        if (obj->hasProperty("center"))    p.center    = (float)obj->getProperty("center");
-        if (obj->hasProperty("rate"))      p.rate      = (float)obj->getProperty("rate");
-        if (obj->hasProperty("depth"))     p.depth     = (float)obj->getProperty("depth");
-        if (obj->hasProperty("feedback"))  p.feedback  = (float)obj->getProperty("feedback");
-        if (obj->hasProperty("stages"))    p.stages    = (int)obj->getProperty("stages");
-        if (obj->hasProperty("spread"))    p.spread    = (float)obj->getProperty("spread");
-        if (obj->hasProperty("sharpness")) p.sharpness = (float)obj->getProperty("sharpness");
-        if (obj->hasProperty("stereo"))    p.stereo    = (float)obj->getProperty("stereo");
-        if (obj->hasProperty("waveform"))  p.waveform  = (int)obj->getProperty("waveform");
-        if (obj->hasProperty("tone"))      p.tone      = (float)obj->getProperty("tone");
-        if (obj->hasProperty("mix"))       p.mix       = (float)obj->getProperty("mix");
+        if (obj->hasProperty("baseFreq"))   p.baseFreq   = (float)obj->getProperty("baseFreq");
+        if (obj->hasProperty("sweepWidth")) p.sweepWidth = (float)obj->getProperty("sweepWidth");
+        if (obj->hasProperty("rate"))       p.rate       = (float)obj->getProperty("rate");
+        if (obj->hasProperty("depth"))      p.depth      = (float)obj->getProperty("depth");
+        if (obj->hasProperty("feedback"))   p.feedback   = (float)obj->getProperty("feedback");
+        if (obj->hasProperty("stereo"))     p.stereo     = (float)obj->getProperty("stereo");
+        if (obj->hasProperty("waveform"))   p.waveform   = (int)obj->getProperty("waveform");
+        if (obj->hasProperty("stages"))     p.stages     = (int)obj->getProperty("stages");
+        if (obj->hasProperty("mix"))        p.mix        = (float)obj->getProperty("mix");
     }
     return p;
 }
