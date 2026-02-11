@@ -10,7 +10,7 @@ on:
 jobs:
   build_mac_app:
     name: Build macOS Standalone
-    runs-on: macos-latest
+    runs-on: macos-14
     
     env:
       SIGNING_ENABLED: ${{ secrets.MACOS_CERTIFICATE }}
@@ -27,6 +27,9 @@ jobs:
       - name: Install Dependencies
         run: brew install ninja cmake
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - name: Create macOS Icon
         run: |
           mkdir -p assets
@@ -41,10 +44,8 @@ jobs:
           SOURCE_IMG=""
           if [ -f "icon.ico" ]; then
             echo "Found icon.ico - converting to PNG first..."
-            # Use sips to convert .ico to .png (sips handles .ico on macOS)
             sips -s format png icon.ico --out /tmp/icon_source.png 2>/dev/null
             if [ $? -ne 0 ]; then
-              # If sips fails with .ico, try magick/convert
               if command -v magick &> /dev/null; then
                 magick icon.ico[0] /tmp/icon_source.png
               elif command -v convert &> /dev/null; then
@@ -68,7 +69,6 @@ jobs:
           echo "Converting $SOURCE_IMG to ICNS..."
           mkdir -p Icon.iconset
           
-          # Create all required icon sizes
           sips -z 16 16     "$SOURCE_IMG" --out Icon.iconset/icon_16x16.png
           sips -z 32 32     "$SOURCE_IMG" --out Icon.iconset/icon_16x16@2x.png
           sips -z 32 32     "$SOURCE_IMG" --out Icon.iconset/icon_32x32.png
@@ -80,7 +80,6 @@ jobs:
           sips -z 512 512   "$SOURCE_IMG" --out Icon.iconset/icon_512x512.png
           sips -z 1024 1024 "$SOURCE_IMG" --out Icon.iconset/icon_512x512@2x.png
           
-          # Convert iconset to icns
           iconutil -c icns Icon.iconset -o assets/Colosseum.icns
           rm -rf Icon.iconset
           
@@ -95,17 +94,14 @@ jobs:
         run: |
           echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
           
-          # Create new keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
           
-          # Import certificate
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           
-          # Verify
           echo "Available signing identities:"
           security find-identity -v -p codesigning build.keychain
           
@@ -117,7 +113,9 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DJUCE_PATH="${{ github.workspace }}/JUCE" \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build App
         run: cmake --build build --config Release --parallel 4
@@ -125,7 +123,6 @@ jobs:
       - name: Find App Bundle
         id: find_app
         run: |
-          # Find the .app bundle
           APP_PATH=$(find build -name "*.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "::error::No .app bundle found!"
@@ -135,7 +132,6 @@ jobs:
           echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
           echo "Found app: $APP_PATH"
           
-          # Show bundle contents
           echo "=== Bundle Contents ==="
           ls -la "$APP_PATH/Contents/"
           ls -la "$APP_PATH/Contents/MacOS/" || true
@@ -170,11 +166,9 @@ jobs:
           TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
           KEYCHAIN_PASSWORD: "actions-keychain-pw"
         run: |
-          # Unlock keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
           
-          # Find the signing identity
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | sed 's/"//g')
           
           if [ -z "$IDENTITY" ]; then
@@ -186,30 +180,24 @@ jobs:
           echo "Signing with identity: $IDENTITY"
           echo "App path: $APP_PATH"
           
-          # Sign all nested binaries first (frameworks, dylibs)
-          find "$APP_PATH" -type f \( -name "*.dylib" -o -perm +111 \) -exec \
-            codesign --force --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \; 2>/dev/null || true
+          # Sign inner binaries first (inside-out signing)
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
+
+          find "$APP_PATH" -type d -name "*.framework" \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
           
-          # Sign frameworks
-          find "$APP_PATH" -type d -name "*.framework" -exec \
-            codesign --force --deep --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \; 2>/dev/null || true
+          # Sign the main app bundle (no --deep)
+          codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist "$APP_PATH"
           
-          # Sign the main app bundle
-          codesign --force --deep --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist "$APP_PATH"
-          
-          # Verify signature
           echo "=== Verifying signature ==="
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign --verify --strict --verbose=2 "$APP_PATH"
           
-          # Check entitlements
           echo "=== Entitlements ==="
           codesign -d --entitlements :- "$APP_PATH"
           
-          # Create zip for notarization
-          APP_NAME=$(basename "$APP_PATH")
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Notarization.zip"
           
-          # Submit for notarization
           echo "=== Submitting for notarization ==="
           xcrun notarytool submit "Colosseum_Notarization.zip" \
             --apple-id "$APPLE_ID" \
@@ -217,11 +205,9 @@ jobs:
             --team-id "$TEAM_ID" \
             --wait
           
-          # Staple the notarization ticket
           echo "=== Stapling ticket ==="
           xcrun stapler staple "$APP_PATH" || echo "::warning::Stapling failed but continuing"
           
-          # Create final signed zip
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Signed.zip"
           
           echo "=== Final verification ==="
