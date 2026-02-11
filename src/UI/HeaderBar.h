@@ -1,5 +1,3 @@
-// **Changes:** Added `manualButton`.
-
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_graphics/juce_graphics.h>
@@ -29,7 +27,7 @@ private:
     juce::Image fananLogo;
     juce::Image onStageLogo;
     
-    // NEW: Manual Button
+    // Manual Button
     juce::TextButton manualButton;
 
     juce::TextButton savePresetButton;

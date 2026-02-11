@@ -1,190 +1,134 @@
-/*
-  ==============================================================================
-
-    AudioEngine.h
-    OnStage
-
-  ==============================================================================
-*/
+// ==============================================================================
+//  AudioEngine.h
+//  OnStage — Core audio engine with graph-based routing
+//
+//  Owns the AudioDeviceManager, media player, and OnStageGraph.
+//  The audioDeviceIOCallback feeds hardware audio through the graph.
+//
+//  INTEGRATION CHANGE:  The old hardcoded mic-chain arrays are gone.
+//  All routing is now handled by OnStageGraph (juce::AudioProcessorGraph).
+//  The WiringCanvas provides the visual interface for the graph.
+// ==============================================================================
 
 #pragma once
 
-#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
-#include <juce_audio_devices/juce_audio_devices.h>
-#include <juce_graphics/juce_graphics.h>
-#include "UI/PlaylistDataStructures.h"
+#include <juce_dsp/juce_dsp.h>
+#include <juce_core/juce_core.h>
 
-// Platform-specific media player includes
-#if JUCE_WINDOWS || JUCE_LINUX
-    #include "engine/VLCMediaPlayer_Desktop.h"
-    using MediaPlayerType = VLCMediaPlayer_Desktop;
-#elif JUCE_MAC || JUCE_IOS
-    #include "engine/AVFMediaPlayer_Mac.h"
-    using MediaPlayerType = AVFMediaPlayer_Mac;
+#include "AppLogger.h"
+#include "IOSettingsManager.h"
+
+// --- Platform media player typedef -------------------------------------------
+#if JUCE_WINDOWS
+  #include "engine/VLCMediaPlayer_Desktop.h"
+  using MediaPlayerType = VLCMediaPlayer_Desktop;
+#elif JUCE_MAC
+  #include "engine/AVFMediaPlayer_Mac.h"
+  using MediaPlayerType = AVFMediaPlayer_Mac;
+#else
+  #include "engine/NullMediaPlayer.h"
+  using MediaPlayerType = NullMediaPlayer;
 #endif
 
-// DSP Headers
-#include "dsp/EQProcessor.h"
-#include "dsp/CompressorProcessor.h"
-#include "dsp/ExciterProcessor.h"
-#include "dsp/SculptProcessor.h"
-#include "dsp/ReverbProcessor.h"
-#include "dsp/DelayProcessor.h"
-#include "dsp/HarmonizerProcessor.h"
-#include "dsp/DynamicEQProcessor.h"
+// Forward declarations
+class OnStageGraph;
+class PresetManager;
 
-class AudioEngine : public juce::AudioIODeviceCallback, private juce::Timer
+// ==============================================================================
+class AudioEngine : public juce::AudioIODeviceCallback,
+                    public juce::ChangeListener
 {
 public:
     AudioEngine();
     ~AudioEngine() override;
 
-    // AudioIODeviceCallback
-    void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
-                                          int numInputChannels,
-                                          float* const* outputChannelData,
-                                          int numOutputChannels,
-                                          int numSamples,
-                                          const juce::AudioIODeviceCallbackContext& context) override;
+    // --- Lifecycle -----------------------------------------------------------
+    void initialise();
+    void shutdown();
 
-    void audioDeviceAboutToStart(juce::AudioIODevice* device) override;
+    // --- AudioIODeviceCallback -----------------------------------------------
+    void audioDeviceIOCallbackWithContext (
+        const float* const* inputChannelData,
+        int numInputChannels,
+        float* const* outputChannelData,
+        int numOutputChannels,
+        int numSamples,
+        const juce::AudioIODeviceCallbackContext& context) override;
+
+    void audioDeviceAboutToStart (juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
 
-    // Device & Format Managers
-    juce::AudioDeviceManager& getDeviceManager() { return deviceManager; }
-    juce::AudioFormatManager& getFormatManager() { return formatManager; }
-    
-    // Playback Control
-    void stopAllPlayback();
-    MediaPlayerType& getMediaPlayer() { return *mediaPlayer; }
-    std::vector<PlaylistItem>& getPlaylist() { return playlist; }
-    
-    // Recording
-    bool startRecording();
+    // --- ChangeListener (device changes) -------------------------------------
+    void changeListenerCallback (juce::ChangeBroadcaster* source) override;
+
+    // --- Accessors -----------------------------------------------------------
+    juce::AudioDeviceManager&  getDeviceManager()   { return deviceManager; }
+    juce::AudioFormatManager&  getFormatManager()   { return formatManager; }
+    MediaPlayerType&           getMediaPlayer()     { return mediaPlayer; }
+    IOSettingsManager&         getIOSettings()      { return ioSettings; }
+
+    OnStageGraph&              getGraph()            { return *graph; }
+    const OnStageGraph&        getGraph() const      { return *graph; }
+
+    // --- Master volume -------------------------------------------------------
+    void  setMasterVolume (float linearGain);
+    float getMasterVolume() const { return masterVolume.load (std::memory_order_relaxed); }
+
+    // --- Metering (thread-safe reads from UI) --------------------------------
+    float getInputLevel  (int channel) const;
+    float getOutputLevel (int channel) const;
+
+    // --- Playback control ----------------------------------------------------
+    void stopAllPlayback() { mediaPlayer.stop(); }
+
+    // --- Recording -----------------------------------------------------------
+    void startRecording (const juce::File& outputFile);
     void stopRecording();
-    juce::File getLastRecordingFile() const { return lastRecordingFile; }
+    bool isRecording() const { return recording.load (std::memory_order_relaxed); }
 
-    // Logic & Settings
-    void updateCrossfadeState();
-    void showVideoWindow();
-    
-    // Pitch Control
-    void setBackingTrackPitch(float semitones);
-    
-    // Metering Getters
-    float getInputLevel(int channel) const; 
-    float getOutputLevel(int channel) const;
-    float getBackingTrackLevel(int channel) const; 
-
-    // --- IO Routing & Settings ---
-    juce::StringArray getSpecificDrivers(const juce::String& type);
-    juce::StringArray getAvailableInputDevices();
-    juce::StringArray getAvailableOutputDevices();
-    juce::StringArray getAvailableMidiInputs();
-    
-    void setSpecificDriver(const juce::String& type, const juce::String& name);
-    void openDriverControlPanel();
-    void setMidiInput(const juce::String& deviceName);
-    
-    // Mic Chain Controls
-    void setMicMute(int micIndex, bool muted);
-    bool isMicMuted(int micIndex) const;
-    
-    void setFxBypass(int micIndex, bool bypassed);
-    bool isFxBypassed(int micIndex) const;
-    
-    void setMicPreampGain(int micIndex, float gainDb);
-    float getMicPreampGain(int micIndex) const;
-
-    // Master / Routing
-    void setMasterVolume(float gainDb);
-    void setOutputRoute(int outputIndex, int mask); 
-    int getOutputRoute(int outputIndex) const;
-
-    // Input Routing (Matrix)
-    void setInputRoute(int inputChannelIndex, int mask);
-    int getInputRoute(int inputChannelIndex) const;
-    
-    void setInputGain(int inputChannelIndex, float gain);
-    float getInputGain(int inputChannelIndex) const;
-
-    // Settings
-    void setLatencyCorrectionMs(float ms);
-    void setVocalBoostDb(float db);
-
-    // Crossfade
-    void triggerCrossfade(const juce::String& nextPath, double duration, float nextVol, float nextSpeed);
-
-    // --- DSP Accessors ---
-    EQProcessor& getEQProcessor(int micIndex);
-    CompressorProcessor& getCompressorProcessor(int micIndex);
-    ExciterProcessor& getExciterProcessor(int micIndex);
-    SculptProcessor& getSculptProcessor(int micIndex);
-    
-    HarmonizerProcessor& getHarmonizerProcessor() { return harmonizer; }
-    ReverbProcessor& getReverbProcessor() { return reverb; }
-    DelayProcessor& getDelayProcessor() { return delay; }
-    DynamicEQProcessor& getDynamicEQProcessor() { return dynamicEQ; }
-
-    // Deprecated helpers (mapped to matrix)
-    void setBackingTrackInputMapping(int virtualInputIndex, int realInputChannel);
-    void setBackingTrackInputEnabled(int virtualInputIndex, bool enabled);
-    void setBackingTrackPairGain(int pairIndex, float gain);
-    float getBackingTrackPairGain(int pairIndex) const;
-    int getBackingTrackInputChannel(int virtualInputIndex) const;
+    // --- Graph state persistence ---------------------------------------------
+    void saveGraphState (const juce::File& file);
+    void loadGraphState (const juce::File& file, PresetManager& presetMgr);
 
 private:
-    void launchEngine();
-    void terminateEngine();
-    void timerCallback() override;
-    
-    void processAudio(const float* const* inputChannelData, int numInputChannels,
-                      float* const* outputChannelData, int numOutputChannels,
-                      int numSamples);
+    // Audio system
+    juce::AudioDeviceManager  deviceManager;
+    juce::AudioFormatManager  formatManager;
+    IOSettingsManager         ioSettings;
 
-    juce::AudioDeviceManager deviceManager;
-    juce::AudioFormatManager formatManager;
-    
-    // Platform-specific media player
-    std::unique_ptr<MediaPlayerType> mediaPlayer;
-    
-    std::vector<PlaylistItem> playlist;
-    
-    struct MicChain {
-        float preampGainDb = 0.0f;
-        bool muted = false;
-        bool fxBypassed = false;
-        ExciterProcessor exciter;    // 1. AIR (first)
-        SculptProcessor sculpt;      // 2. SCULPT (new)
-        EQProcessor eq;              // 3. EQ
-        CompressorProcessor comp;    // 4. COMPRESSOR (last)
-    };
-    MicChain micChains[2]; 
+    // Media player (platform-specific)
+    MediaPlayerType           mediaPlayer;
 
-    HarmonizerProcessor harmonizer;
-    ReverbProcessor reverb;
-    DelayProcessor delay;
-    DynamicEQProcessor dynamicEQ;
+    // The node graph (replaces old mic chain)
+    std::unique_ptr<OnStageGraph> graph;
 
-    std::vector<int> outputRoutingMasks; 
-    std::vector<int> inputRoutingMasks; 
-    std::vector<float> inputGains;      
+    // Master output volume
+    std::atomic<float> masterVolume { 1.0f };
 
-    std::atomic<float> inputLevelMeters[32]; 
-    std::atomic<float> outputLevels[32];  
-    std::atomic<float> internalPlayerLevel { 0.0f };
-    std::atomic<float> backingLevels[9];
+    // Metering arrays (read by UI, written in audio callback)
+    static constexpr int kMaxChannels = 32;
+    std::atomic<float> inputLevels  [kMaxChannels] {};
+    std::atomic<float> outputLevels [kMaxChannels] {};
 
-    float masterGain = 1.0f;
-    
-    std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> backgroundWriter;
-    juce::TimeSliceThread writerThread { "Audio Recorder Thread" };
-    juce::File lastRecordingFile;
-    bool isRecording = false;
-    float vocalBoostLinear = 1.0f;
-    int latencySamples = 0;
+    // Recording
+    std::atomic<bool>                       recording { false };
+    std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> threadedWriter;
+    juce::TimeSliceThread                   writerThread { "RecordingThread" };
+    juce::CriticalSection                   writerLock;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioEngine)
+    // Current device config (cached for re-prepare)
+    double currentSampleRate = 44100.0;
+    int    currentBlockSize  = 512;
+    int    currentNumInputs  = 0;
+    int    currentNumOutputs = 0;
+
+    // Helper: route audio through graph
+    void processAudio (const float* const* inputs,  int numIns,
+                       float* const* outputs, int numOuts,
+                       int numSamples);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioEngine)
 };

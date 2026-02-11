@@ -164,6 +164,7 @@ public:
     }
     ~StyledSlider() override { setLookAndFeel(nullptr); }
     void setMidiInfo(const juce::String& info) { midiInfo = info; }
+    void setLabel(const juce::String& text) { setName(text); setTextBoxStyle(getTextBoxPosition(), false, getTextBoxWidth(), getTextBoxHeight()); }
     
     // ADDED: Double-click support for banner sliders
     std::function<void()> onDoubleClick;

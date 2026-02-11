@@ -17,10 +17,19 @@ private:
     AudioEngine& audioEngine;
     float leftLevel = 0.0f;
     float rightLevel = 0.0f;
-    float smoothedLeftLevel = 0.0f;   // Smoothed left channel
-    float smoothedRightLevel = 0.0f;  // Smoothed right channel
-    
-    juce::Colour getLevelColour(float level) const;
+    float smoothedLeftLevel = 0.0f;
+    float smoothedRightLevel = 0.0f;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MasterMeter)
+    // Peak hold
+    float peakLeft = 0.0f;
+    float peakRight = 0.0f;
+    int   peakHoldCounterL = 0;
+    int   peakHoldCounterR = 0;
+    static constexpr int peakHoldFrames = 30;   // ~0.5 s at 60 Hz
+    static constexpr float peakDecayRate = 0.97f;
+
+    void drawMeterBar (juce::Graphics& g, juce::Rectangle<float> area,
+                       float level, float peak, const juce::String& label);
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterMeter)
 };

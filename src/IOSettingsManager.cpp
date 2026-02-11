@@ -1,3 +1,5 @@
+// D:\Workspace\ONSTAGE_WIRED\src\IOSettingsManager.cpp
+
 #include "IOSettingsManager.h"
 #include "AppLogger.h"
 #include <juce_core/juce_core.h>
@@ -8,6 +10,7 @@ IOSettingsManager::IOSettingsManager()
     lastSpecificDriver = "";
     lastMediaFolder = juce::File::getSpecialLocation(juce::File::userMusicDirectory).getFullPathName();
     lastPlaylistFolder = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getFullPathName();
+    lastRecordingFolder = "";  // Empty means use default (My Documents\OnStage\recordings)
     lastLatencyMs = 0.0f;
     lastVocalBoostDb = 0.0f;
     lastMidiDevice = "";
@@ -42,8 +45,15 @@ std::map<juce::String, std::pair<int, float>> IOSettingsManager::getInputRouting
 
 void IOSettingsManager::saveMediaFolder(const juce::String& path) { lastMediaFolder = path; saveToFile(); }
 void IOSettingsManager::savePlaylistFolder(const juce::String& path) { lastPlaylistFolder = path; saveToFile(); }
+void IOSettingsManager::saveRecordingFolder(const juce::String& path) { lastRecordingFolder = path; saveToFile(); }  // NEW
 void IOSettingsManager::saveVocalSettings(float latencyMs, float boostDb) { lastLatencyMs = latencyMs; lastVocalBoostDb = boostDb; saveToFile(); }
+
 void IOSettingsManager::saveMidiDevice(const juce::String& deviceName) { lastMidiDevice = deviceName; saveToFile(); }
+
+void IOSettingsManager::saveMidiDevices(const juce::StringArray& deviceIdentifiers) {
+    lastMidiDevices = deviceIdentifiers;
+    saveToFile();
+}
 
 bool IOSettingsManager::loadSettings()
 {
@@ -58,9 +68,18 @@ bool IOSettingsManager::loadSettings()
             lastSpecificDriver = obj->getProperty("specificDriver").toString();
             if (obj->hasProperty("mediaFolder")) lastMediaFolder = obj->getProperty("mediaFolder").toString();
             if (obj->hasProperty("playlistFolder")) lastPlaylistFolder = obj->getProperty("playlistFolder").toString();
+            if (obj->hasProperty("recordingFolder")) lastRecordingFolder = obj->getProperty("recordingFolder").toString();  // NEW
             if (obj->hasProperty("latencyMs")) lastLatencyMs = (float)obj->getProperty("latencyMs");
             if (obj->hasProperty("vocalBoostDb")) lastVocalBoostDb = (float)obj->getProperty("vocalBoostDb");
             if (obj->hasProperty("midiDevice")) lastMidiDevice = obj->getProperty("midiDevice").toString();
+            
+            // Load multiple MIDI devices
+            lastMidiDevices.clear();
+            if (auto* midiArr = obj->getProperty("midiDevices").getArray()) {
+                for (auto& item : *midiArr) {
+                    lastMidiDevices.add(item.toString());
+                }
+            }
 
             if (auto* mics = obj->getProperty("micSettings").getArray()) {
                 for (int i = 0; i < juce::jmin(2, mics->size()); ++i) {
@@ -118,9 +137,17 @@ bool IOSettingsManager::saveToFile()
     obj->setProperty("specificDriver", lastSpecificDriver);
     obj->setProperty("mediaFolder", lastMediaFolder);
     obj->setProperty("playlistFolder", lastPlaylistFolder);
+    obj->setProperty("recordingFolder", lastRecordingFolder);  // NEW
     obj->setProperty("latencyMs", lastLatencyMs);
     obj->setProperty("vocalBoostDb", lastVocalBoostDb);
     obj->setProperty("midiDevice", lastMidiDevice);
+    
+    // Save multiple MIDI devices
+    juce::Array<juce::var> midiArr;
+    for (const auto& deviceId : lastMidiDevices) {
+        midiArr.add(deviceId);
+    }
+    obj->setProperty("midiDevices", midiArr);
 
     juce::Array<juce::var> mics;
     for (int i = 0; i < 2; ++i) {

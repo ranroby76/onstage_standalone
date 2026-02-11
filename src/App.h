@@ -7,6 +7,8 @@
 #include <juce_events/juce_events.h>
 #include <juce_core/juce_core.h>
 #include "AppLogger.h"
+#include "AudioEngine.h"
+#include "PresetManager.h"
 #include "UI/MainComponent.h"
 
 // ======================================================================
@@ -46,10 +48,12 @@ private:
     {
     public:
         MainWindow(juce::String name);
+        ~MainWindow() override;  // Explicit destructor for proper cleanup order
         void closeButtonPressed() override;
 
     private:
-        MainComponent* mainComponentPtr = nullptr;
+        AudioEngine audioEngine;
+        std::unique_ptr<PresetManager> presetMgr;
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
     };
 

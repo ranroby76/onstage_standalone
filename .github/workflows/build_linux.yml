@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build_linux:
@@ -19,51 +20,50 @@ jobs:
         submodules: recursive
         fetch-depth: 0
 
-    # 2. Install Linux Dependencies (System Packages)
+    # 2. Install Linux Dependencies (JUCE requirements + ALSA/JACK)
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake pkg-config \
+        sudo apt-get install -y build-essential cmake ninja-build pkg-config \
           libasound2-dev \
           libjack-jackd2-dev \
           libfreetype6-dev \
-          libx11-dev libxinerama-dev libxrandr-dev libxcursor-dev libxcomposite-dev libxext-dev \
+          libfontconfig1-dev \
+          libx11-dev libxinerama-dev libxrandr-dev libxcursor-dev \
+          libxcomposite-dev libxext-dev libxrender-dev \
           libgl1-mesa-dev \
-          libvlc-dev vlc
+          libwebkit2gtk-4.1-dev \
+          libcurl4-openssl-dev
 
     # 3. Download JUCE
     - name: Download JUCE
       run: |
-        rm -rf JUCE
         git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git
 
-    # 4. Configure
+    # 4. Configure (Ninja for faster builds)
     - name: Configure
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      run: |
+        cmake -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DJUCE_DIR="${{ github.workspace }}/JUCE"
 
     # 5. Build
     - name: Build
-      run: cmake --build build --config Release
+      run: cmake --build build --config Release --parallel $(nproc)
 
     # 6. Package
-    - name: Zip Application
+    - name: Package
       run: |
-        # Linux binaries usually don't have extensions, just "OnStage"
-        if [ -f "build/OnStage" ]; then
-          cd build
-        elif [ -f "build/Release/OnStage" ]; then
-          cd build/Release
-        else
-          echo "CRITICAL ERROR: OnStage binary not found!"
-          find build -maxdepth 3
+        APP_PATH=$(find build -name "OnStage" -type f -executable | head -1)
+
+        if [ -z "$APP_PATH" ]; then
+          echo "::error::OnStage binary not found!"
+          find build -maxdepth 5 -type f -executable
           exit 1
         fi
-        
-        # Create Zip
-        zip -r OnStage_Linux.zip OnStage
-        
-        # Move to workspace root
-        mv OnStage_Linux.zip $GITHUB_WORKSPACE/OnStage_Linux.zip
+
+        echo "Found binary at: $APP_PATH"
+        zip -j OnStage_Linux.zip "$APP_PATH"
 
     # 7. Upload
     - name: Upload Artifact

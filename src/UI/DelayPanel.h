@@ -1,3 +1,11 @@
+// ==============================================================================
+//  DelayPanel.h
+//  OnStage - Delay UI with type selector and floating dots animation
+//
+//  Models: Oxide (Tape), Warp (Pitch), Crystal (Pure Echo), Drift (Doubler)
+//  Based on Airwindows open source code (MIT license) by Chris Johnson
+// ==============================================================================
+
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
@@ -5,299 +13,578 @@
 #include "EffectToggleButton.h"
 #include "../dsp/DelayProcessor.h"
 
-// Delay Traveling Echoes Animation
-class DelayGraphComponent : public juce::Component, private juce::Timer {
+class PresetManager;
+
+// ==============================================================================
+// Delay Type Button (matches Compressor style)
+// ==============================================================================
+class DelayTypeButton : public juce::Component
+{
 public:
-    struct Pulse {
-        float position;    // 0.0 to 1.0 across timeline
-        float amplitude;   // Brightness/size
-        int channel;       // 0=Left, 1=Right
-        int age;          // Frames alive
+    DelayTypeButton(const juce::String& label) : buttonLabel(label)
+    {
+        setRepaintsOnMouseActivity(true);
+    }
+    
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+        
+        juce::Colour bgColor;
+        if (isSelected)
+            bgColor = juce::Colour(0xFFD4AF37);
+        else if (isMouseOver())
+            bgColor = juce::Colour(0xFF3A3A3A);
+        else
+            bgColor = juce::Colour(0xFF2A2A2A);
+        
+        g.setColour(bgColor);
+        g.fillRoundedRectangle(bounds, 4.0f);
+        
+        g.setColour(juce::Colours::black);
+        g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
+        
+        g.setColour(isSelected ? juce::Colours::black : juce::Colours::white);
+        g.setFont(juce::Font(12.0f, juce::Font::bold));
+        g.drawText(buttonLabel, bounds, juce::Justification::centred);
+    }
+    
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (e.mouseWasClicked() && onClick)
+            onClick();
+    }
+    
+    void setSelected(bool shouldBeSelected)
+    {
+        if (isSelected != shouldBeSelected)
+        {
+            isSelected = shouldBeSelected;
+            repaint();
+        }
+    }
+    
+    bool getSelected() const { return isSelected; }
+    
+    std::function<void()> onClick;
+    
+private:
+    juce::String buttonLabel;
+    bool isSelected = false;
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DelayTypeButton)
+};
+
+// ==============================================================================
+// Delay Floating Dots Animation
+// ==============================================================================
+class DelayGraphComponent : public juce::Component, private juce::Timer
+{
+public:
+    struct Dot
+    {
+        float x, y;
+        float vx, vy;
+        float age;
+        float brightness;
+        int generation;
+        float angle;
     };
     
     DelayGraphComponent(DelayProcessor& processor) 
         : delayProcessor(processor) 
     {
-        startTimerHz(60); // Smooth animation
+        startTimerHz(60);
         frameCount = 0;
+        lastFireTime = 0;
     }
     
     ~DelayGraphComponent() override { stopTimer(); }
     
-    void paint(juce::Graphics& g) override {
+    void paint(juce::Graphics& g) override
+    {
         auto bounds = getLocalBounds().toFloat();
         auto params = delayProcessor.getParams();
         
-        // Background
         g.setColour(juce::Colour(0xFF0A0A0A));
         g.fillRect(bounds);
         
-        // Draw channels
-        float channelHeight = getHeight() / 2.0f;
-        float topChannelY = channelHeight / 2.0f;
-        float bottomChannelY = channelHeight + (channelHeight / 2.0f);
+        float centerX = getWidth() / 2.0f;
+        float centerY = getHeight() / 2.0f;
         
-        // Channel labels
-        g.setColour(juce::Colour(0xFF606060));
-        g.setFont(10.0f);
-        g.drawText("L", 5, topChannelY - 8, 20, 16, juce::Justification::left);
-        g.drawText("R", 5, bottomChannelY - 8, 20, 16, juce::Justification::left);
+        g.setColour(juce::Colour(0xFF505050));
+        g.fillEllipse(centerX - 4, centerY - 4, 8, 8);
         
-        // Center lines
-        g.setColour(juce::Colour(0xFF2A2A2A));
-        g.drawHorizontalLine((int)topChannelY, 0.0f, (float)getWidth());
-        g.drawHorizontalLine((int)bottomChannelY, 0.0f, (float)getWidth());
-        
-        // Draw pulses
-        for (const auto& pulse : pulses) {
-            float x = pulse.position * getWidth();
-            float y = (pulse.channel == 0) ? topChannelY : bottomChannelY;
-            
-            // Size based on amplitude
-            float size = 8.0f * pulse.amplitude;
-            
-            // Color with trail effect
-            float alpha = pulse.amplitude * 0.8f;
-            g.setColour(juce::Colour(0xFFD4AF37).withAlpha(alpha));
-            
-            // Glow
-            g.fillEllipse(x - size, y - size, size * 2, size * 2);
-            
-            // Core
-            g.setColour(juce::Colour(0xFFD4AF37).withAlpha(alpha * 1.5f));
-            g.fillEllipse(x - size/2, y - size/2, size, size);
-            
-            // Trail
-            if (pulse.position > 0.05f) {
-                float trailLength = 30.0f * pulse.amplitude;
-                juce::ColourGradient trail(
-                    juce::Colour(0xFFD4AF37).withAlpha(alpha * 0.6f), x, y,
-                    juce::Colour(0xFFD4AF37).withAlpha(0.0f), x - trailLength, y,
-                    false
-                );
-                g.setGradientFill(trail);
-                g.fillRect(x - trailLength, y - 2, trailLength, 4.0f);
+        switch (params.type)
+        {
+            case DelayProcessor::Type::Warp:
+            {
+                for (int i = 1; i <= 4; ++i)
+                {
+                    float radius = bounds.getWidth() * 0.1f * i;
+                    float rotation = (float)frameCount * 0.01f * (5 - i);
+                    g.setColour(juce::Colour(0xFFD4AF37).withAlpha(0.1f + 0.05f * i));
+                    
+                    juce::Path arc;
+                    arc.addCentredArc(centerX, centerY, radius, radius, rotation,
+                                      0, juce::MathConstants<float>::pi * 1.5f, true);
+                    g.strokePath(arc, juce::PathStrokeType(2.0f));
+                }
+                break;
+            }
+            case DelayProcessor::Type::Oxide:
+            {
+                float reelRadius = bounds.getHeight() * 0.25f;
+                float rotation = (float)frameCount * 0.02f;
+                
+                g.setColour(juce::Colour(0xFF404040));
+                g.fillEllipse(centerX - bounds.getWidth() * 0.25f - reelRadius,
+                              centerY - reelRadius, reelRadius * 2, reelRadius * 2);
+                g.setColour(juce::Colour(0xFFD4AF37).withAlpha(0.3f));
+                for (int spoke = 0; spoke < 3; ++spoke)
+                {
+                    float angle = rotation + spoke * juce::MathConstants<float>::twoPi / 3.0f;
+                    float x1 = centerX - bounds.getWidth() * 0.25f;
+                    float y1 = centerY;
+                    float x2 = x1 + std::cos(angle) * reelRadius * 0.8f;
+                    float y2 = y1 + std::sin(angle) * reelRadius * 0.8f;
+                    g.drawLine(x1, y1, x2, y2, 2.0f);
+                }
+                
+                g.setColour(juce::Colour(0xFF404040));
+                g.fillEllipse(centerX + bounds.getWidth() * 0.25f - reelRadius,
+                              centerY - reelRadius, reelRadius * 2, reelRadius * 2);
+                g.setColour(juce::Colour(0xFFD4AF37).withAlpha(0.3f));
+                for (int spoke = 0; spoke < 3; ++spoke)
+                {
+                    float angle = -rotation + spoke * juce::MathConstants<float>::twoPi / 3.0f;
+                    float x1 = centerX + bounds.getWidth() * 0.25f;
+                    float y1 = centerY;
+                    float x2 = x1 + std::cos(angle) * reelRadius * 0.8f;
+                    float y2 = y1 + std::sin(angle) * reelRadius * 0.8f;
+                    g.drawLine(x1, y1, x2, y2, 2.0f);
+                }
+                
+                g.setColour(juce::Colour(0xFFD4AF37).withAlpha(0.5f));
+                g.drawLine(centerX - bounds.getWidth() * 0.25f + reelRadius, centerY,
+                           centerX + bounds.getWidth() * 0.25f - reelRadius, centerY, 3.0f);
+                break;
+            }
+            case DelayProcessor::Type::Drift:
+            {
+                float barWidth = bounds.getWidth() * 0.15f;
+                float barHeight = bounds.getHeight() * 0.6f;
+                float spacing = bounds.getWidth() * 0.2f;
+                
+                float lHeight = barHeight * params.p[1];
+                g.setColour(juce::Colour(0xFF404040));
+                g.fillRect(centerX - spacing - barWidth / 2, centerY - barHeight / 2,
+                           barWidth, barHeight);
+                g.setColour(juce::Colour(0xFFD4AF37));
+                g.fillRect(centerX - spacing - barWidth / 2, centerY + barHeight / 2 - lHeight,
+                           barWidth, lHeight);
+                g.setColour(juce::Colours::white);
+                g.setFont(11.0f);
+                g.drawText("L", centerX - spacing - barWidth / 2, centerY + barHeight / 2 + 5,
+                           barWidth, 15, juce::Justification::centred);
+                
+                float rHeight = barHeight * params.p[2];
+                g.setColour(juce::Colour(0xFF404040));
+                g.fillRect(centerX + spacing - barWidth / 2, centerY - barHeight / 2,
+                           barWidth, barHeight);
+                g.setColour(juce::Colour(0xFFD4AF37));
+                g.fillRect(centerX + spacing - barWidth / 2, centerY + barHeight / 2 - rHeight,
+                           barWidth, rHeight);
+                g.setColour(juce::Colours::white);
+                g.drawText("R", centerX + spacing - barWidth / 2, centerY + barHeight / 2 + 5,
+                           barWidth, 15, juce::Justification::centred);
+                break;
+            }
+            default: // Crystal
+            {
+                int numRings = 4;
+                float maxRadius = juce::jmin(getWidth(), getHeight()) * 0.45f;
+                
+                for (int i = 1; i <= numRings; ++i)
+                {
+                    float radius = maxRadius * ((float)i / (float)numRings);
+                    float alpha = 0.15f * (1.0f - (float)i / (float)(numRings + 1));
+                    g.setColour(juce::Colour(0xFFD4AF37).withAlpha(alpha));
+                    g.drawEllipse(centerX - radius, centerY - radius, radius * 2, radius * 2, 1.0f);
+                }
+                break;
             }
         }
         
-        // Border
+        // Draw dots
+        for (const auto& dot : dots)
+        {
+            float size = 3.0f + (dot.brightness * 4.0f);
+            float alpha = dot.brightness * (1.0f - dot.age * 0.7f);
+            
+            float genFade = 1.0f - (dot.generation * 0.15f);
+            juce::Colour dotColor = juce::Colour(0xFFD4AF37).interpolatedWith(
+                juce::Colour(0xFF3A3000), 1.0f - genFade);
+            
+            g.setColour(dotColor.withAlpha(alpha * 0.3f));
+            g.fillEllipse(dot.x - size * 1.5f, dot.y - size * 1.5f, size * 3.0f, size * 3.0f);
+            
+            g.setColour(dotColor.withAlpha(alpha * 0.8f));
+            g.fillEllipse(dot.x - size, dot.y - size, size * 2.0f, size * 2.0f);
+            
+            g.setColour(juce::Colours::white.withAlpha(alpha * 0.5f));
+            g.fillEllipse(dot.x - size * 0.3f, dot.y - size * 0.3f, size * 0.6f, size * 0.6f);
+        }
+        
         g.setColour(juce::Colour(0xFF404040));
         g.drawRect(bounds, 1.0f);
     }
     
-    void timerCallback() override {
+    void timerCallback() override
+    {
         auto params = delayProcessor.getParams();
         frameCount++;
         
-        // Spawn new pulses periodically (simulated audio activity)
-        if (frameCount % 20 == 0) { // Every 20 frames
-            Pulse newPulse;
-            newPulse.position = 0.0f;
-            newPulse.amplitude = 0.8f + (juce::Random::getSystemRandom().nextFloat() * 0.2f);
-            newPulse.channel = (params.stereoWidth > 1.0f && juce::Random::getSystemRandom().nextBool()) ? 1 : 0;
-            newPulse.age = 0;
-            pulses.push_back(newPulse);
-        }
+        float centerX = getWidth() / 2.0f;
+        float centerY = getHeight() / 2.0f;
         
-        // Update existing pulses
-        float speed = 1.0f / (params.delayMs * 0.001f * 60.0f); // Convert delay to frames
-        speed = juce::jlimit(0.005f, 0.05f, speed); // Limit speed for visibility
+        // Use first param as a proxy for animation speed
+        float animParam = juce::jlimit(0.05f, 1.0f, params.p[0]);
+        float fireIntervalFrames = juce::jmap(animParam, 0.05f, 1.0f, 10.0f, 120.0f);
+        fireIntervalFrames = juce::jlimit(10.0f, 120.0f, fireIntervalFrames);
         
-        float feedback = 1.0f - params.stage; // Stage controls decay
-        
-        for (int i = pulses.size() - 1; i >= 0; --i) {
-            auto& pulse = pulses[i];
+        if (frameCount - lastFireTime >= (int)fireIntervalFrames)
+        {
+            lastFireTime = frameCount;
             
-            // Move pulse
-            pulse.position += speed;
-            pulse.age++;
+            int numDots = 3 + juce::Random::getSystemRandom().nextInt(3);
             
-            // Spawn echo when pulse reaches delay point
-            if (pulse.position >= 1.0f && pulse.amplitude > 0.15f) {
-                Pulse echo;
-                echo.position = 0.0f;
-                echo.amplitude = pulse.amplitude * feedback * params.ratio;
+            for (int i = 0; i < numDots; ++i)
+            {
+                Dot newDot;
+                newDot.angle = juce::Random::getSystemRandom().nextFloat() * juce::MathConstants<float>::twoPi;
                 
-                // Ping-pong effect
-                if (params.stereoWidth > 1.0f) {
-                    echo.channel = 1 - pulse.channel; // Switch channel
-                } else {
-                    echo.channel = pulse.channel;
-                }
+                float baseSpeed = juce::jmap(animParam, 0.05f, 1.0f, 3.0f, 1.0f);
+                float speed = baseSpeed * (0.8f + juce::Random::getSystemRandom().nextFloat() * 0.4f);
                 
-                echo.age = 0;
+                newDot.vx = std::cos(newDot.angle) * speed;
+                newDot.vy = std::sin(newDot.angle) * speed;
+                newDot.x = centerX;
+                newDot.y = centerY;
+                newDot.age = 0.0f;
+                newDot.brightness = 0.7f + juce::Random::getSystemRandom().nextFloat() * 0.3f;
+                newDot.generation = 0;
                 
-                if (echo.amplitude > 0.1f) {
-                    pulses.push_back(echo);
-                }
-            }
-            
-            // Remove dead pulses
-            if (pulse.position > 1.2f || pulse.amplitude < 0.05f) {
-                pulses.erase(pulses.begin() + i);
+                dots.push_back(newDot);
             }
         }
         
-        // Limit pulse count
-        if (pulses.size() > 100) {
-            pulses.erase(pulses.begin(), pulses.begin() + 20);
+        // Update dots
+        float maxRadius = juce::jmin(getWidth(), getHeight()) * 0.45f;
+        int numStages = 4;
+        float agingRate = 0.015f;
+        float echoRatio = juce::jlimit(0.1f, 1.0f, params.p[1]);
+        
+        for (int i = (int)dots.size() - 1; i >= 0; --i)
+        {
+            auto& dot = dots[(size_t)i];
+            
+            dot.x += dot.vx;
+            dot.y += dot.vy;
+            dot.vx *= 0.995f;
+            dot.vy *= 0.995f;
+            dot.age += agingRate;
+            
+            float dx = dot.x - centerX;
+            float dy = dot.y - centerY;
+            float dist = std::sqrt(dx * dx + dy * dy);
+            
+            float echoRadius = maxRadius / (float)numStages;
+            int currentZone = (int)(dist / echoRadius);
+            
+            if (currentZone > dot.generation && 
+                dot.generation < numStages && 
+                dot.brightness > 0.2f)
+            {
+                Dot echo;
+                echo.x = dot.x;
+                echo.y = dot.y;
+                
+                float angleVariation = (juce::Random::getSystemRandom().nextFloat() - 0.5f) * 0.5f;
+                echo.angle = dot.angle + angleVariation;
+                
+                float echoSpeed = std::sqrt(dot.vx * dot.vx + dot.vy * dot.vy) * echoRatio;
+                echo.vx = std::cos(echo.angle) * echoSpeed;
+                echo.vy = std::sin(echo.angle) * echoSpeed;
+                
+                echo.age = dot.age * 0.3f;
+                echo.brightness = dot.brightness * echoRatio * 0.8f;
+                echo.generation = dot.generation + 1;
+                
+                if (echo.brightness > 0.1f)
+                    dots.push_back(echo);
+                
+                dot.generation = currentZone;
+            }
+            
+            if (dot.age >= 1.0f || 
+                dot.brightness < 0.05f ||
+                dot.x < -20 || dot.x > getWidth() + 20 ||
+                dot.y < -20 || dot.y > getHeight() + 20)
+            {
+                dots.erase(dots.begin() + i);
+            }
         }
+        
+        if (dots.size() > 300)
+            dots.erase(dots.begin(), dots.begin() + 50);
         
         repaint();
     }
     
 private:
     DelayProcessor& delayProcessor;
-    std::vector<Pulse> pulses;
+    std::vector<Dot> dots;
     int frameCount;
+    int lastFireTime;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DelayGraphComponent)
 };
 
-class DelayPanel : public juce::Component, private juce::Timer {
+// ==============================================================================
+// Main Delay Panel
+// ==============================================================================
+class DelayPanel : public juce::Component, private juce::Timer
+{
 public:
-    DelayPanel(DelayProcessor& processor) : delayProcessor(processor) {
+    static constexpr int MAX_SLIDERS = 8;  // 2 (Dry+Wet) + up to 6 model params
+    
+    DelayPanel(DelayProcessor& processor, PresetManager& /*presets*/) : delayProcessor(processor)
+    {
         goldenLookAndFeel = std::make_unique<GoldenSliderLookAndFeel>();
-        auto params = delayProcessor.getParams();
         
+        // Toggle button
         toggleButton = std::make_unique<EffectToggleButton>();
-        toggleButton->setMidiInfo("MIDI: Note 27");
         toggleButton->setToggleState(!delayProcessor.isBypassed(), juce::dontSendNotification);
         toggleButton->onClick = [this]() { 
             delayProcessor.setBypassed(!toggleButton->getToggleState()); 
         };
         addAndMakeVisible(toggleButton.get());
         
+        // Title
         addAndMakeVisible(titleLabel);
-        titleLabel.setText("Stereo Delay", juce::dontSendNotification);
+        titleLabel.setText("Delay", juce::dontSendNotification);
         titleLabel.setFont(juce::Font(18.0f, juce::Font::bold));
         titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
         titleLabel.setJustificationType(juce::Justification::centredLeft);
         
-        auto cS = [&](std::unique_ptr<VerticalSlider>& s, const juce::String& n, const juce::String& m, 
-                      double min, double max, double v, const juce::String& suf) {
-            s = std::make_unique<VerticalSlider>();
-            s->setLabelText(n);
-            s->setMidiInfo(m);
-            s->setRange(min, max, (max-min)/200.0);
-            s->setValue(v);
-            s->setTextValueSuffix(suf);
-            s->getSlider().setLookAndFeel(goldenLookAndFeel.get());
-            s->getSlider().onValueChange = [this]() { updateDelay(); };
-            addAndMakeVisible(s.get());
+        // Type selector buttons
+        auto createTypeButton = [this](std::unique_ptr<DelayTypeButton>& btn, 
+                                        const juce::String& name, DelayProcessor::Type type)
+        {
+            btn = std::make_unique<DelayTypeButton>(name);
+            btn->onClick = [this, type]() { selectType(type); };
+            addAndMakeVisible(btn.get());
         };
         
-        cS(delayTimeSlider, "Time", "MIDI: CC 47", 1.0, 2000.0, params.delayMs, " ms");
-        cS(ratioSlider, "Ratio", "MIDI: CC 48", 0.0, 1.0, params.ratio, "");
-        cS(stageSlider, "Stage", "MIDI: CC 49", 0.0, 1.0, params.stage, "");
-        cS(mixSlider, "Mix", "MIDI: CC 29", 0.0, 1.0, params.mix, "");
-        cS(widthSlider, "Width", "MIDI: CC 50", 0.0, 2.0, params.stereoWidth, "");
-        cS(lowCutSlider, "LowCut", "MIDI: CC 51", 20.0, 2000.0, params.lowCutHz, " Hz");
-        cS(highCutSlider, "HighCut", "MIDI: CC 52", 2000.0, 20000.0, params.highCutHz, " Hz");
+        createTypeButton(oxideButton,   DelayProcessor::getTypeName(DelayProcessor::Type::Oxide),   DelayProcessor::Type::Oxide);
+        createTypeButton(warpButton,    DelayProcessor::getTypeName(DelayProcessor::Type::Warp),    DelayProcessor::Type::Warp);
+        createTypeButton(crystalButton, DelayProcessor::getTypeName(DelayProcessor::Type::Crystal), DelayProcessor::Type::Crystal);
+        createTypeButton(driftButton,   DelayProcessor::getTypeName(DelayProcessor::Type::Drift),   DelayProcessor::Type::Drift);
         
-        // Add graph component
+        updateTypeButtons();
+        
+        // Create 6 generic sliders (max any model uses)
+        static const char* midiCCs[] = { "CC 30", "CC 31", "CC 32", "CC 33", "CC 34", "CC 35", "CC 36", "CC 37" };
+        
+        for (int i = 0; i < MAX_SLIDERS; ++i)
+        {
+            sliders[i] = std::make_unique<VerticalSlider>();
+            sliders[i]->setMidiInfo(midiCCs[i]);
+            sliders[i]->getSlider().setLookAndFeel(goldenLookAndFeel.get());
+            sliders[i]->getSlider().onValueChange = [this]() { updateProcessor(); };
+            addAndMakeVisible(sliders[i].get());
+        }
+        
+        // Graph component
         graphComponent = std::make_unique<DelayGraphComponent>(delayProcessor);
         addAndMakeVisible(graphComponent.get());
+        
+        // Configure sliders for current type and load defaults
+        rebuildSliders();
         
         startTimerHz(15);
     }
     
-    ~DelayPanel() override {
+    ~DelayPanel() override
+    {
         stopTimer();
-        delayTimeSlider->getSlider().setLookAndFeel(nullptr);
-        ratioSlider->getSlider().setLookAndFeel(nullptr);
-        stageSlider->getSlider().setLookAndFeel(nullptr);
-        mixSlider->getSlider().setLookAndFeel(nullptr);
-        widthSlider->getSlider().setLookAndFeel(nullptr);
-        lowCutSlider->getSlider().setLookAndFeel(nullptr);
-        highCutSlider->getSlider().setLookAndFeel(nullptr);
+        for (int i = 0; i < MAX_SLIDERS; ++i)
+            sliders[i]->getSlider().setLookAndFeel(nullptr);
     }
     
-    void paint(juce::Graphics& g) override {
+    void paint(juce::Graphics& g) override
+    {
         g.fillAll(juce::Colour(0xFF1A1A1A));
         g.setColour(juce::Colour(0xFF404040));
         g.drawRect(getLocalBounds(), 2);
         g.setColour(juce::Colour(0xFF2A2A2A));
         g.fillRect(getLocalBounds().reduced(10));
+        
+        auto area = getLocalBounds().reduced(15);
+        area.removeFromTop(40);
+        g.setColour(juce::Colour(0xFF888888));
+        g.setFont(11.0f);
+        g.drawText("TYPE", 15, area.getY() + 2, 40, 16, juce::Justification::centredLeft);
     }
     
-    void resized() override {
+    void resized() override
+    {
         auto area = getLocalBounds().reduced(15);
-        auto titleRow = area.removeFromTop(40);
+        
+        // Title row
+        auto titleRow = area.removeFromTop(35);
         toggleButton->setBounds(titleRow.removeFromRight(40).withSizeKeepingCentre(40, 40));
         titleLabel.setBounds(titleRow);
-        area.removeFromTop(10);
         
-        // Left-aligned sliders, graph on right
-        int sliderAreaWidth = 480;
-        auto sliderArea = area.removeFromLeft(sliderAreaWidth);
-        area.removeFromLeft(20); // Gap
+        // Type selector row
+        auto typeRow = area.removeFromTop(32);
+        typeRow.removeFromLeft(50);  // Space for "TYPE" label
+        
+        int buttonWidth = 70;
+        int buttonSpacing = 8;
+        oxideButton->setBounds(typeRow.removeFromLeft(buttonWidth));
+        typeRow.removeFromLeft(buttonSpacing);
+        warpButton->setBounds(typeRow.removeFromLeft(buttonWidth));
+        typeRow.removeFromLeft(buttonSpacing);
+        crystalButton->setBounds(typeRow.removeFromLeft(buttonWidth));
+        typeRow.removeFromLeft(buttonSpacing);
+        driftButton->setBounds(typeRow.removeFromLeft(buttonWidth));
+        
+        area.removeFromTop(15);
+        
+        // Controls area
+        auto currentType = delayProcessor.getParams().type;
+        int numParams = DelayProcessor::getNumParams(currentType);
+        
+        int sliderWidth = 60;
+        int spacing = 12;
+        int controlAreaWidth = numParams * sliderWidth + (numParams - 1) * spacing;
+        auto controlArea = area.removeFromLeft(controlAreaWidth);
+        area.removeFromLeft(20);
         
         // Graph fills remaining space
         graphComponent->setBounds(area);
         
-        // Layout sliders
-        int numSliders = 7;
-        int sliderWidth = 60;
-        int spacing = 12;
-        int totalW = (numSliders * sliderWidth) + ((numSliders - 1) * spacing);
-        int startX = sliderArea.getX();
-        auto sArea = sliderArea.withX(startX).withWidth(totalW);
-        
-        delayTimeSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        ratioSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        stageSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        mixSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        widthSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        lowCutSlider->setBounds(sArea.removeFromLeft(sliderWidth)); sArea.removeFromLeft(spacing);
-        highCutSlider->setBounds(sArea.removeFromLeft(sliderWidth));
+        // Layout visible sliders
+        for (int i = 0; i < MAX_SLIDERS; ++i)
+        {
+            if (i < numParams)
+            {
+                sliders[i]->setVisible(true);
+                sliders[i]->setBounds(controlArea.removeFromLeft(sliderWidth));
+                if (i < numParams - 1)
+                    controlArea.removeFromLeft(spacing);
+            }
+            else
+            {
+                sliders[i]->setVisible(false);
+            }
+        }
     }
     
-    void updateFromPreset() {
-        auto params = delayProcessor.getParams();
+    void updateFromPreset()
+    {
+        auto p = delayProcessor.getParams();
         toggleButton->setToggleState(!delayProcessor.isBypassed(), juce::dontSendNotification);
-        delayTimeSlider->setValue(params.delayMs, juce::dontSendNotification);
-        ratioSlider->setValue(params.ratio, juce::dontSendNotification);
-        stageSlider->setValue(params.stage, juce::dontSendNotification);
-        mixSlider->setValue(params.mix, juce::dontSendNotification);
-        widthSlider->setValue(params.stereoWidth, juce::dontSendNotification);
-        lowCutSlider->setValue(params.lowCutHz, juce::dontSendNotification);
-        highCutSlider->setValue(params.highCutHz, juce::dontSendNotification);
-    }
-    
-private:
-    void timerCallback() override {
-        auto params = delayProcessor.getParams();
         
-        if (!delayTimeSlider->getSlider().isMouseOverOrDragging())
-            delayTimeSlider->setValue(params.delayMs, juce::dontSendNotification);
-        if (!ratioSlider->getSlider().isMouseOverOrDragging())
-            ratioSlider->setValue(params.ratio, juce::dontSendNotification);
-        if (!stageSlider->getSlider().isMouseOverOrDragging())
-            stageSlider->setValue(params.stage, juce::dontSendNotification);
-        if (!mixSlider->getSlider().isMouseOverOrDragging())
-            mixSlider->setValue(params.mix, juce::dontSendNotification);
-        if (!widthSlider->getSlider().isMouseOverOrDragging())
-            widthSlider->setValue(params.stereoWidth, juce::dontSendNotification);
-        if (!lowCutSlider->getSlider().isMouseOverOrDragging())
-            lowCutSlider->setValue(params.lowCutHz, juce::dontSendNotification);
-        if (!highCutSlider->getSlider().isMouseOverOrDragging())
-            highCutSlider->setValue(params.highCutHz, juce::dontSendNotification);
+        int numParams = DelayProcessor::getNumParams(p.type);
+        for (int i = 0; i < numParams && i < MAX_SLIDERS; ++i)
+            sliders[i]->setValue(p.p[i], juce::dontSendNotification);
+        
+        updateTypeButtons();
+        rebuildSliders();
+    }
+
+private:
+    void timerCallback() override
+    {
+        auto p = delayProcessor.getParams();
+        int numParams = DelayProcessor::getNumParams(p.type);
+        
+        for (int i = 0; i < numParams && i < MAX_SLIDERS; ++i)
+        {
+            if (!sliders[i]->getSlider().isMouseOverOrDragging())
+                sliders[i]->setValue(p.p[i], juce::dontSendNotification);
+        }
         
         bool shouldBeOn = !delayProcessor.isBypassed();
         if (toggleButton->getToggleState() != shouldBeOn)
             toggleButton->setToggleState(shouldBeOn, juce::dontSendNotification);
     }
     
-    void updateDelay() {
-        DelayProcessor::Params p;
-        p.delayMs = delayTimeSlider->getValue();
-        p.ratio = ratioSlider->getValue();
-        p.stage = stageSlider->getValue();
-        p.mix = mixSlider->getValue();
-        p.stereoWidth = widthSlider->getValue();
-        p.lowCutHz = lowCutSlider->getValue();
-        p.highCutHz = highCutSlider->getValue();
+    void selectType(DelayProcessor::Type type)
+    {
+        auto p = delayProcessor.getParams();
+        if (p.type != type)
+        {
+            p.type = type;
+            // Load defaults for the new type
+            int numParams = DelayProcessor::getNumParams(type);
+            for (int i = 0; i < 6; ++i)
+                p.p[i] = (i < numParams) ? DelayProcessor::getDefaultValue(type, i) : 0.0f;
+            
+            delayProcessor.setParams(p);
+            updateTypeButtons();
+            rebuildSliders();
+            resized();
+            repaint();
+        }
+    }
+    
+    void updateTypeButtons()
+    {
+        auto type = delayProcessor.getParams().type;
+        oxideButton->setSelected(type == DelayProcessor::Type::Oxide);
+        warpButton->setSelected(type == DelayProcessor::Type::Warp);
+        crystalButton->setSelected(type == DelayProcessor::Type::Crystal);
+        driftButton->setSelected(type == DelayProcessor::Type::Drift);
+    }
+    
+    void rebuildSliders()
+    {
+        auto currentType = delayProcessor.getParams().type;
+        int numParams = DelayProcessor::getNumParams(currentType);
+        auto p = delayProcessor.getParams();
+        
+        for (int i = 0; i < MAX_SLIDERS; ++i)
+        {
+            if (i < numParams)
+            {
+                double min, max, step;
+                DelayProcessor::getParamRange(currentType, i, min, max, step);
+                
+                sliders[i]->setLabelText(DelayProcessor::getParamName(currentType, i));
+                sliders[i]->setRange(min, max, step);
+                sliders[i]->setValue(p.p[i], juce::dontSendNotification);
+                sliders[i]->setTextValueSuffix(DelayProcessor::getParamSuffix(currentType, i));
+                sliders[i]->setVisible(true);
+            }
+            else
+            {
+                sliders[i]->setVisible(false);
+            }
+        }
+    }
+    
+    void updateProcessor()
+    {
+        DelayProcessor::Params p = delayProcessor.getParams();
+        int numParams = DelayProcessor::getNumParams(p.type);
+        
+        for (int i = 0; i < numParams && i < MAX_SLIDERS; ++i)
+            p.p[i] = (float)sliders[i]->getValue();
+        
         delayProcessor.setParams(p);
     }
     
@@ -305,7 +592,16 @@ private:
     std::unique_ptr<GoldenSliderLookAndFeel> goldenLookAndFeel;
     std::unique_ptr<EffectToggleButton> toggleButton;
     juce::Label titleLabel;
-    std::unique_ptr<VerticalSlider> delayTimeSlider, ratioSlider, stageSlider, mixSlider, widthSlider, lowCutSlider, highCutSlider;
+    
+    // Type selector buttons
+    std::unique_ptr<DelayTypeButton> oxideButton;
+    std::unique_ptr<DelayTypeButton> warpButton;
+    std::unique_ptr<DelayTypeButton> crystalButton;
+    std::unique_ptr<DelayTypeButton> driftButton;
+    
+    // Dynamic sliders (up to 6)
+    std::unique_ptr<VerticalSlider> sliders[MAX_SLIDERS];
+    
     std::unique_ptr<DelayGraphComponent> graphComponent;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DelayPanel)

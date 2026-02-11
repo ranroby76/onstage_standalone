@@ -1,6 +1,15 @@
+// ==============================================================================
+//  HarmonizerProcessor.h
+//  OnStage - 4-voice harmonizer with RubberBand pitch shift + formant control
+//
+//  Uses RubberBandLiveShifter for high-quality pitch shifting with
+//  independent formant control per voice. Replaces the old
+//  SimplePitchShifter + FormantShifter combo.
+// ==============================================================================
+
 #pragma once
 #include <juce_dsp/juce_dsp.h>
-#include "SimplePitchShifter.h"
+#include "RubberBandPitchShifter.h"
 
 class HarmonizerProcessor
 {
@@ -14,21 +23,23 @@ public:
         struct Voice
         {
             bool enabled = false;
-            float semitones = 0.0f;      // -12 to +12
+            float semitones = 0.0f;       // -12 to +12
             float pan = 0.0f;             // -1.0 (left) to +1.0 (right)
             float gainDb = 0.0f;          // -inf to 0dB
             float delayMs = 0.0f;         // 0 to 200ms
+            float formant = 0.0f;         // -12 to +12 semitones (formant shift)
             
             bool operator==(const Voice& other) const {
                 return enabled == other.enabled && 
                        semitones == other.semitones &&
                        pan == other.pan && 
                        gainDb == other.gainDb && 
-                       delayMs == other.delayMs;
+                       delayMs == other.delayMs &&
+                       formant == other.formant;
             }
         };
 
-        Voice voices[4];  // 4 voices now!
+        Voice voices[4];
         
         bool operator==(const Params& other) const {
             return enabled == other.enabled && 
@@ -44,22 +55,26 @@ public:
 
     HarmonizerProcessor()
     {
-        // Initialize with sensible defaults
+        // Initialize with sensible defaults for Boney-M style trio
         params.voices[0].enabled = false;
         params.voices[0].semitones = 3.0f;   // Minor 3rd
-        params.voices[0].pan = -0.3f;        // Slight left
+        params.voices[0].pan = -0.4f;
+        params.voices[0].formant = 2.0f;     // Slight formant up
         
         params.voices[1].enabled = false;
         params.voices[1].semitones = 7.0f;   // Perfect 5th
-        params.voices[1].pan = 0.3f;         // Slight right
+        params.voices[1].pan = 0.4f;
+        params.voices[1].formant = -1.0f;    // Slight formant down
         
         params.voices[2].enabled = false;
         params.voices[2].semitones = -4.0f;  // Major 3rd down
-        params.voices[2].pan = -0.6f;        // More left
+        params.voices[2].pan = -0.7f;
+        params.voices[2].formant = -3.0f;    // More masculine
         
         params.voices[3].enabled = false;
         params.voices[3].semitones = 12.0f;  // Octave up
-        params.voices[3].pan = 0.0f;         // Center
+        params.voices[3].pan = 0.0f;
+        params.voices[3].formant = 4.0f;     // More feminine
     }
 
     void prepare(const juce::dsp::ProcessSpec& spec)
@@ -69,25 +84,27 @@ public:
         
         for (int i = 0; i < 4; ++i)
         {
-            pitchShifters[i].prepare(sampleRate, maxBlockSize);
+            rbShifters[i].prepare(sampleRate, maxBlockSize);
             currentPitchShift[i] = 0.0f;
+            currentFormantShift[i] = 0.0f;
             
-            // Prepare delay buffers (200ms max at 96kHz = 19200 samples)
             int maxDelaySamples = (int)(0.2 * sampleRate) + 1;
             delayBuffers[i].setSize(1, maxDelaySamples);
             delayBuffers[i].clear();
             delayWritePos[i] = 0;
         }
         
-        wetBuffer.setSize(2, spec.maximumBlockSize);  // Stereo now!
+        wetBuffer.setSize(2, spec.maximumBlockSize);
+        tempBuffer.setSize(1, spec.maximumBlockSize);
     }
 
     void reset()
     {
         for (int i = 0; i < 4; ++i) 
         {
-            pitchShifters[i].reset();
+            rbShifters[i].reset();
             currentPitchShift[i] = 0.0f;
+            currentFormantShift[i] = 0.0f;
             delayBuffers[i].clear();
             delayWritePos[i] = 0;
         }
@@ -104,84 +121,91 @@ public:
         if (!params.enabled || bypassed) return;
         
         auto& block = ctx.getOutputBlock();
-        auto* channelData = block.getChannelPointer(0);  // Mono input
+        auto* channelData = block.getChannelPointer(0);
         int numSamples = (int)block.getNumSamples();
 
-        // Smooth pitch transitions
+        // Smooth pitch and formant transitions
         float targetShift[4];
+        float targetFormant[4];
         for (int v = 0; v < 4; ++v)
+        {
             targetShift[v] = params.voices[v].enabled ? params.voices[v].semitones : 0.0f;
+            targetFormant[v] = params.voices[v].enabled ? params.voices[v].formant : 0.0f;
+        }
 
         float glideCoeff = 1.0f - std::exp(-1.0f / (params.glideMs * 0.001f * sampleRate / numSamples));
         for (int v = 0; v < 4; ++v)
+        {
             currentPitchShift[v] += (targetShift[v] - currentPitchShift[v]) * glideCoeff;
+            currentFormantShift[v] += (targetFormant[v] - currentFormantShift[v]) * glideCoeff;
+        }
 
-        // Clear wet buffer (stereo)
         if (wetBuffer.getNumSamples() < numSamples)
             wetBuffer.setSize(2, numSamples, true, false, true);
+        if (tempBuffer.getNumSamples() < numSamples)
+            tempBuffer.setSize(1, numSamples, true, false, true);
         wetBuffer.clear();
         
         float* wetLeft = wetBuffer.getWritePointer(0);
         float* wetRight = wetBuffer.getWritePointer(1);
 
-        // Process each voice
         for (int v = 0; v < 4; ++v)
         {
             if (!params.voices[v].enabled) continue;
             
-            pitchShifters[v].setTransposeSemitones(currentPitchShift[v]);
-            float gain = juce::Decibels::decibelsToGain(params.voices[v].gainDb);
-            float pan = params.voices[v].pan;  // -1 to +1
+            // Set pitch and formant for RubberBand shifter
+            // RubberBand with FormantPreserved: formants stay at original position by default.
+            // formant param = 0 means preserve formants (natural sound)
+            // formant param != 0 means shift formants by that amount from original
+            rbShifters[v].setTransposeSemitones(currentPitchShift[v]);
+            rbShifters[v].setFormantSemitones(currentFormantShift[v]);
             
-            // Calculate stereo gains from pan
+            float gain = juce::Decibels::decibelsToGain(params.voices[v].gainDb);
+            float pan = params.voices[v].pan;
+            
             float leftGain = gain * std::sqrt(0.5f * (1.0f - pan));
             float rightGain = gain * std::sqrt(0.5f * (1.0f + pan));
             
-            // Calculate delay in samples
             int delaySamples = (int)(params.voices[v].delayMs * 0.001f * sampleRate);
             int maxDelay = delayBuffers[v].getNumSamples();
             
             for (int i = 0; i < numSamples; ++i)
             {
-                // Write input to delay buffer
+                // Voice delay
                 delayBuffers[v].setSample(0, delayWritePos[v], channelData[i]);
                 
-                // Read delayed signal
                 int readPos = (delayWritePos[v] - delaySamples + maxDelay) % maxDelay;
                 float delayedInput = delayBuffers[v].getSample(0, readPos);
                 
-                // Pitch shift the delayed signal
-                float shifted;
-                pitchShifters[v].processSample(delayedInput, shifted);
+                // RubberBand pitch + formant shift (single processor handles both)
+                float output;
+                rbShifters[v].processSample(delayedInput, output);
                 
-                // Add to wet buffer with pan
-                wetLeft[i] += shifted * leftGain;
-                wetRight[i] += shifted * rightGain;
+                // Safety: clamp NaN/inf
+                if (std::isnan(output) || std::isinf(output))
+                    output = 0.0f;
                 
-                // Advance delay write position
+                wetLeft[i] += output * leftGain;
+                wetRight[i] += output * rightGain;
+                
                 delayWritePos[v] = (delayWritePos[v] + 1) % maxDelay;
             }
         }
 
-        // MIX: Add harmonies on top of dry signal
         float wetGain = juce::Decibels::decibelsToGain(params.wetDb);
         
-        // If input is mono, duplicate to stereo with wet signal
         if (block.getNumChannels() == 1)
         {
-            // Expand to stereo
             for (int i = 0; i < numSamples; ++i)
-            {
                 channelData[i] += (wetLeft[i] + wetRight[i]) * 0.5f * wetGain;
-            }
         }
         else
         {
-            // Stereo mix
+            auto* leftChannel = block.getChannelPointer(0);
             auto* rightChannel = block.getChannelPointer(1);
             for (int i = 0; i < numSamples; ++i)
             {
-                channelData[i] += wetLeft[i] * wetGain;
+                leftChannel[i] += wetLeft[i] * wetGain;
                 rightChannel[i] += wetRight[i] * wetGain;
             }
         }
@@ -193,12 +217,15 @@ private:
     double sampleRate = 44100.0;
     int maxBlockSize = 512;
     
-    SimplePitchShifter pitchShifters[4];
-    float currentPitchShift[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    RubberBandPitchShifter rbShifters[4];     // RubberBand pitch + formant shifting
+    float currentPitchShift[4] = {0, 0, 0, 0};
+    float currentFormantShift[4] = {0, 0, 0, 0};
     
-    juce::AudioBuffer<float> wetBuffer;  // Stereo wet buffer
-    
-    // Delay buffers for each voice
     juce::AudioBuffer<float> delayBuffers[4];
     int delayWritePos[4] = {0, 0, 0, 0};
+    
+    juce::AudioBuffer<float> wetBuffer;
+    juce::AudioBuffer<float> tempBuffer;
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HarmonizerProcessor)
 };

@@ -12,6 +12,12 @@ public:
         setButtonText("");
         setToggleState(true, juce::dontSendNotification);
     }
+
+    explicit EffectToggleButton (const juce::String& text)
+    {
+        setButtonText (text);
+        setToggleState (true, juce::dontSendNotification);
+    }
     
     void setMidiInfo(const juce::String& info) { midiInfo = info; }
 

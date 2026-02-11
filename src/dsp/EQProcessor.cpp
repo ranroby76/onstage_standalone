@@ -1,30 +1,31 @@
 #include "EQProcessor.h"
 
+// Initialize static constexpr
+constexpr float EQProcessor::kDefaultFrequencies[EQProcessor::kNumBands];
+
 EQProcessor::EQProcessor()
-    : lowFreq(100.0f)
-    , midFreq(1000.0f)
-    , highFreq(10000.0f)
-    , lowGain(0.0f)
-    , midGain(0.0f)
-    , highGain(0.0f)
-    , lowQ(0.707f)
-    , midQ(0.707f)
-    , highQ(0.707f)
-    , sampleRate(44100.0)
-    , bypassed(false)
 {
+    // Initialize default frequencies (logarithmically spaced)
+    for (int i = 0; i < kNumBands; ++i)
+    {
+        params.bands[i].frequency = kDefaultFrequencies[i];
+        params.bands[i].gainDb    = 0.0f;  // Unity
+        params.bands[i].q         = 1.0f;
+    }
 }
 
 void EQProcessor::prepare(const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate;
-    for (int ch = 0; ch < 2; ++ch)
+
+    for (int band = 0; band < kNumBands; ++band)
     {
-        lowShelf[ch].prepare(spec);
-        midPeak[ch].prepare(spec);
-        highShelf[ch].prepare(spec);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            filters[band][ch].prepare(spec);
+        }
     }
-    
+
     updateFilters();
 }
 
@@ -32,102 +33,169 @@ void EQProcessor::process(juce::dsp::ProcessContextReplacing<float>& context)
 {
     if (bypassed)
         return;
-    
+
     auto& outputBlock = context.getOutputBlock();
     const int numChannels = static_cast<int>(outputBlock.getNumChannels());
-    const int numSamples = static_cast<int>(outputBlock.getNumSamples());
+    const int numSamples  = static_cast<int>(outputBlock.getNumSamples());
 
     for (int channel = 0; channel < numChannels && channel < 2; ++channel)
     {
         auto* channelData = outputBlock.getChannelPointer(channel);
+
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            float input = channelData[sample];
-            float output = lowShelf[channel].processSample(input);
-            output = midPeak[channel].processSample(output);
-            output = highShelf[channel].processSample(output);
-            
-            channelData[sample] = output;
+            float value = channelData[sample];
+
+            // Process through all 9 bands in series
+            for (int band = 0; band < kNumBands; ++band)
+            {
+                // Only process if gain is not at unity (optimization)
+                if (std::abs(params.bands[band].gainDb) > 0.01f ||
+                    params.bands[band].gainDb < -90.0f)  // Handle silence case
+                {
+                    value = filters[band][channel].processSample(value);
+                }
+            }
+
+            channelData[sample] = value;
         }
     }
 }
 
 void EQProcessor::reset()
 {
-    for (int ch = 0; ch < 2; ++ch)
+    for (int band = 0; band < kNumBands; ++band)
     {
-        lowShelf[ch].reset();
-        midPeak[ch].reset();
-        highShelf[ch].reset();
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            filters[band][ch].reset();
+        }
     }
 }
 
-void EQProcessor::setParams(const Params& p)
+void EQProcessor::setParams(const Params& newParams)
 {
-    lowFreq = p.lowFreq;
-    midFreq = p.midFreq;
-    highFreq = p.highFreq;
-    lowGain = p.lowGain;
-    midGain = p.midGain;
-    highGain = p.highGain;
-    lowQ = p.lowQ;
-    midQ = p.midQ;
-    highQ = p.highQ;
+    params = newParams;
     updateFilters();
 }
 
 EQProcessor::Params EQProcessor::getParams() const
 {
-    Params p;
-    p.lowFreq = lowFreq; p.midFreq = midFreq; p.highFreq = highFreq;
-    p.lowGain = lowGain; p.midGain = midGain; p.highGain = highGain;
-    p.lowQ = lowQ; p.midQ = midQ; p.highQ = highQ;
-    return p;
+    return params;
 }
 
-void EQProcessor::setBypassed(bool shouldBeBypassed) { bypassed = shouldBeBypassed; }
-bool EQProcessor::isBypassed() const { return bypassed; }
+void EQProcessor::setBandParams(int bandIndex, const BandParams& bandParams)
+{
+    if (bandIndex >= 0 && bandIndex < kNumBands)
+    {
+        params.bands[bandIndex] = bandParams;
+        updateBandFilter(bandIndex);
+    }
+}
 
-void EQProcessor::setLowFrequency(float freq) { lowFreq = juce::jlimit(20.0f, 2000.0f, freq); updateFilters(); }
-void EQProcessor::setMidFrequency(float freq) { midFreq = juce::jlimit(20.0f, 10000.0f, freq); updateFilters(); }
-void EQProcessor::setHighFrequency(float freq) { highFreq = juce::jlimit(2000.0f, 20000.0f, freq); updateFilters(); }
-void EQProcessor::setLowGain(float gain) { lowGain = juce::jlimit(-24.0f, 24.0f, gain); updateFilters(); }
-void EQProcessor::setMidGain(float gain) { midGain = juce::jlimit(-24.0f, 24.0f, gain); updateFilters(); }
-void EQProcessor::setHighGain(float gain) { highGain = juce::jlimit(-24.0f, 24.0f, gain); updateFilters(); }
-void EQProcessor::setLowQ(float q) { lowQ = juce::jlimit(0.1f, 10.0f, q); updateFilters(); }
-void EQProcessor::setMidQ(float q) { midQ = juce::jlimit(0.1f, 10.0f, q); updateFilters(); }
-void EQProcessor::setHighQ(float q) { highQ = juce::jlimit(0.1f, 10.0f, q); updateFilters(); }
+EQProcessor::BandParams EQProcessor::getBandParams(int bandIndex) const
+{
+    if (bandIndex >= 0 && bandIndex < kNumBands)
+        return params.bands[bandIndex];
+    return BandParams();
+}
 
-float EQProcessor::getLowFrequency() const { return lowFreq; }
-float EQProcessor::getMidFrequency() const { return midFreq; }
-float EQProcessor::getHighFrequency() const { return highFreq; }
-float EQProcessor::getLowGain() const { return lowGain; }
-float EQProcessor::getMidGain() const { return midGain; }
-float EQProcessor::getHighGain() const { return highGain; }
-float EQProcessor::getLowQ() const { return lowQ; }
-float EQProcessor::getMidQ() const { return midQ; }
-float EQProcessor::getHighQ() const { return highQ; }
+void EQProcessor::setBypassed(bool shouldBeBypassed)
+{
+    bypassed = shouldBeBypassed;
+}
+
+bool EQProcessor::isBypassed() const
+{
+    return bypassed;
+}
+
+void EQProcessor::setBandFrequency(int band, float freq)
+{
+    if (band >= 0 && band < kNumBands)
+    {
+        params.bands[band].frequency = juce::jlimit(20.0f, 20000.0f, freq);
+        updateBandFilter(band);
+    }
+}
+
+void EQProcessor::setBandGain(int band, float gainDb)
+{
+    if (band >= 0 && band < kNumBands)
+    {
+        // -100 dB = silence, 0 = unity, +30 = max boost
+        params.bands[band].gainDb = juce::jlimit(-100.0f, 30.0f, gainDb);
+        updateBandFilter(band);
+    }
+}
+
+void EQProcessor::setBandQ(int band, float q)
+{
+    if (band >= 0 && band < kNumBands)
+    {
+        params.bands[band].q = juce::jlimit(0.1f, 10.0f, q);
+        updateBandFilter(band);
+    }
+}
+
+float EQProcessor::getBandFrequency(int band) const
+{
+    if (band >= 0 && band < kNumBands)
+        return params.bands[band].frequency;
+    return 1000.0f;
+}
+
+float EQProcessor::getBandGain(int band) const
+{
+    if (band >= 0 && band < kNumBands)
+        return params.bands[band].gainDb;
+    return 0.0f;
+}
+
+float EQProcessor::getBandQ(int band) const
+{
+    if (band >= 0 && band < kNumBands)
+        return params.bands[band].q;
+    return 1.0f;
+}
 
 void EQProcessor::updateFilters()
 {
-    if (sampleRate <= 0.0)
+    for (int band = 0; band < kNumBands; ++band)
+    {
+        updateBandFilter(band);
+    }
+}
+
+void EQProcessor::updateBandFilter(int bandIndex)
+{
+    if (sampleRate <= 0.0 || bandIndex < 0 || bandIndex >= kNumBands)
         return;
 
-    // FIX: Assign smart pointers directly (avoids crash on null dereference)
-    auto lowCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(
-        sampleRate, lowFreq, lowQ, juce::Decibels::decibelsToGain(lowGain)
-    );
-    auto midCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-        sampleRate, midFreq, midQ, juce::Decibels::decibelsToGain(midGain)
-    );
-    auto highCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(
-        sampleRate, highFreq, highQ, juce::Decibels::decibelsToGain(highGain)
+    const auto& bp = params.bands[bandIndex];
+
+    // Handle silence case: if gain is very low, set gain to essentially zero
+    float linearGain;
+    if (bp.gainDb <= -100.0f)
+    {
+        // Silence - use a very small gain
+        linearGain = 0.0001f;
+    }
+    else
+    {
+        linearGain = juce::Decibels::decibelsToGain(bp.gainDb);
+    }
+
+    // Create bell (peak) filter coefficients
+    auto coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+        sampleRate,
+        bp.frequency,
+        bp.q,
+        linearGain
     );
 
     for (int ch = 0; ch < 2; ++ch)
     {
-        lowShelf[ch].coefficients = lowCoeffs;
-        midPeak[ch].coefficients = midCoeffs;
-        highShelf[ch].coefficients = highCoeffs;
+        filters[bandIndex][ch].coefficients = coeffs;
     }
 }

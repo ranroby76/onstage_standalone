@@ -1,128 +1,216 @@
 #pragma once
-#include <juce_dsp/juce_dsp.h>
+// ==============================================================================
+//  DelayProcessor.h
+//  OnStage - Delay Processor wrapping 4 Airwindows-based DSP models
+//
+//  All models output PURE WET. This wrapper applies:
+//    output = dry * input + wet * effect
+//  Dry and Wet are the FIRST two params (p[0], p[1]) for every model.
+//  Model-specific params follow at p[2..7].
+//
+//  Based on Airwindows open source code (MIT license) by Chris Johnson
+// ==============================================================================
+
+#include <juce_audio_basics/juce_audio_basics.h>
+#include "DelayDSP_Oxide.h"
+#include "DelayDSP_Warp.h"
+#include "DelayDSP_Crystal.h"
+#include "DelayDSP_Drift.h"
 
 class DelayProcessor
 {
 public:
+    enum class Type
+    {
+        Oxide = 0,    // Tape delay
+        Warp,         // Pitch delay
+        Crystal,      // Pure echo 4-tap
+        Drift         // Stereo doubler
+    };
+
+    // p[0] = Dry, p[1] = Wet, p[2..7] = model-specific (up to 6 model params)
+    static constexpr int MAX_PARAMS = 8;
+
     struct Params
     {
-        float delayMs = 350.0f;
-        
-        // "Ratio": Loudness of first repeat (0.0 to 1.0) relative to Dry
-        float ratio = 0.5f; 
-        
-        // "Stage": Gain reduction per repeat (0.0 = no reduction, 1.0 = full kill)
-        float stage = 0.25f; 
-        
-        // "Mix": Master volume for the wet signal (0.0 to 1.0)
-        float mix = 1.0f;
+        Type type = Type::Oxide;
+        float p[MAX_PARAMS] = { 0.0f };
 
-        float stereoWidth = 1.0f;
-        float lowCutHz = 200.0f;
-        float highCutHz = 8000.0f;
-        
         bool operator==(const Params& other) const
         {
-            return delayMs == other.delayMs &&
-                   ratio == other.ratio &&
-                   stage == other.stage &&
-                   mix == other.mix &&
-                   stereoWidth == other.stereoWidth &&
-                   lowCutHz == other.lowCutHz &&
-                   highCutHz == other.highCutHz;
+            if (type != other.type) return false;
+            for (int i = 0; i < MAX_PARAMS; i++)
+                if (p[i] != other.p[i]) return false;
+            return true;
         }
-        
         bool operator!=(const Params& other) const { return !(*this == other); }
     };
 
-    void prepare (double sampleRate, int samplesPerBlock, int numChannels)
+    // ==============================================================================
+    // Total param count = 2 (Dry+Wet) + model params
+    // ==============================================================================
+    static int getNumParams(Type type)
+    {
+        switch (type) {
+            case Type::Oxide:   return 2 + DelayDSP_Oxide::NUM_PARAMS;    // 2+4=6
+            case Type::Warp:    return 2 + DelayDSP_Warp::NUM_PARAMS;     // 2+5=7
+            case Type::Crystal: return 2 + DelayDSP_Crystal::NUM_PARAMS;  // 2+5=7
+            case Type::Drift:   return 2 + DelayDSP_Drift::NUM_PARAMS;    // 2+4=6
+        }
+        return 2;
+    }
+
+    static const char* getParamName(Type type, int index)
+    {
+        if (index == 0) return "Dry";
+        if (index == 1) return "Wet";
+        int modelIdx = index - 2;
+        switch (type) {
+            case Type::Oxide:   return DelayDSP_Oxide::getParamName(modelIdx);
+            case Type::Warp:    return DelayDSP_Warp::getParamName(modelIdx);
+            case Type::Crystal: return DelayDSP_Crystal::getParamName(modelIdx);
+            case Type::Drift:   return DelayDSP_Drift::getParamName(modelIdx);
+        }
+        return "";
+    }
+
+    static const char* getParamSuffix(Type type, int index)
+    {
+        if (index < 2) return "";
+        int modelIdx = index - 2;
+        switch (type) {
+            case Type::Oxide:   return DelayDSP_Oxide::getParamSuffix(modelIdx);
+            case Type::Warp:    return DelayDSP_Warp::getParamSuffix(modelIdx);
+            case Type::Crystal: return DelayDSP_Crystal::getParamSuffix(modelIdx);
+            case Type::Drift:   return DelayDSP_Drift::getParamSuffix(modelIdx);
+        }
+        return "";
+    }
+
+    static float getDefaultValue(Type type, int index)
+    {
+        if (index == 0) return 1.0f;  // Dry default = full
+        if (index == 1) return 0.5f;  // Wet default = half
+        int modelIdx = index - 2;
+        switch (type) {
+            case Type::Oxide:   return DelayDSP_Oxide::getDefaultValue(modelIdx);
+            case Type::Warp:    return DelayDSP_Warp::getDefaultValue(modelIdx);
+            case Type::Crystal: return DelayDSP_Crystal::getDefaultValue(modelIdx);
+            case Type::Drift:   return DelayDSP_Drift::getDefaultValue(modelIdx);
+        }
+        return 0.0f;
+    }
+
+    static void getParamRange(Type type, int index, double& min, double& max, double& step)
+    {
+        if (index < 2) { min = 0.0; max = 1.0; step = 0.01; return; }
+        int modelIdx = index - 2;
+        switch (type) {
+            case Type::Oxide:   DelayDSP_Oxide::getParamRange(modelIdx, min, max, step); break;
+            case Type::Warp:    DelayDSP_Warp::getParamRange(modelIdx, min, max, step); break;
+            case Type::Crystal: DelayDSP_Crystal::getParamRange(modelIdx, min, max, step); break;
+            case Type::Drift:   DelayDSP_Drift::getParamRange(modelIdx, min, max, step); break;
+        }
+    }
+
+    static const char* getTypeName(Type type)
+    {
+        switch (type) {
+            case Type::Oxide:   return "OXIDE";
+            case Type::Warp:    return "WARP";
+            case Type::Crystal: return "CRYSTAL";
+            case Type::Drift:   return "DRIFT";
+        }
+        return "";
+    }
+
+    // ==============================================================================
+    // Lifecycle
+    // ==============================================================================
+    void prepare(double sampleRate, int samplesPerBlock, int /*numChannels*/)
     {
         sRate = sampleRate;
-        juce::dsp::ProcessSpec spec { sampleRate,
-            static_cast<juce::uint32>(samplesPerBlock),
-            static_cast<juce::uint32>(numChannels) };
+        dspOxide.prepare(sampleRate);
+        dspWarp.prepare(sampleRate);
+        dspCrystal.prepare(sampleRate);
+        dspDrift.prepare(sampleRate);
 
-        delayL.reset (new juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> (maxDelaySamples));
-        delayR.reset (new juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> (maxDelaySamples));
-        delayL->prepare (spec);
-        delayR->prepare (spec);
-
-        lowCutL.prepare(spec);
-        lowCutR.prepare(spec);
-        highCutL.prepare(spec);
-        highCutR.prepare(spec);
-
-        updateFilters();
-        reset();
-        applyParams();
+        // Pre-allocate temp buffer for dry capture
+        dryBuffer.setSize(2, samplesPerBlock);
+        loadDefaults();
     }
 
     void reset()
     {
-        if (delayL) delayL->reset();
-        if (delayR) delayR->reset();
-
-        lowCutL.reset();
-        lowCutR.reset();
-        highCutL.reset();
-        highCutR.reset();
+        dspOxide.reset();
+        dspWarp.reset();
+        dspCrystal.reset();
+        dspDrift.reset();
     }
 
-    void process (juce::AudioBuffer<float>& buffer)
+    void process(juce::AudioBuffer<float>& buffer)
     {
-        if (bypassed)
-            return;
+        if (bypassed) return;
 
-        auto n = buffer.getNumSamples();
-        auto* l = buffer.getWritePointer (0);
-        auto* r = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+        const int n = buffer.getNumSamples();
+        const int numCh = buffer.getNumChannels();
 
-        // Feedback calculation
-        const float feedbackGain = juce::jlimit(0.0f, 1.0f, 1.0f - params.stage);
-        
-        // Combined Output Gain = Ratio (First Repeat) * Mix (Master Wet)
-        const float outputGain = params.ratio * params.mix;
+        // Capture dry signal before DSP modifies the buffer
+        dryBuffer.setSize(numCh, n, false, false, true);
+        for (int ch = 0; ch < numCh; ++ch)
+            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, n);
+
+        auto* l = buffer.getWritePointer(0);
+        auto* r = numCh > 1 ? buffer.getWritePointer(1) : nullptr;
+
+        const float dry = params.p[0];
+        const float wet = params.p[1];
+
+        // Run DSP — each model overwrites buffer with pure wet signal
+        switch (params.type)
+        {
+            case Type::Oxide:
+                dspOxide.process(l, r, n, params.p[2], params.p[3], params.p[4], params.p[5]);
+                break;
+            case Type::Warp:
+                dspWarp.process(l, r, n, params.p[2], params.p[3], params.p[4], params.p[5], params.p[6]);
+                break;
+            case Type::Crystal:
+                dspCrystal.process(l, r, n, params.p[2], params.p[3], params.p[4], params.p[5], params.p[6]);
+                break;
+            case Type::Drift:
+                dspDrift.process(l, r, n, params.p[2], params.p[3], params.p[4], params.p[5]);
+                break;
+        }
+
+        // Mix: output = dry * original + wet * effect
+        const float* dryL = dryBuffer.getReadPointer(0);
+        const float* dryR = numCh > 1 ? dryBuffer.getReadPointer(1) : nullptr;
 
         for (int i = 0; i < n; ++i)
         {
-            const float inL = l[i];
-            const float inR = r ? r[i] : inL;
-
-            // 1. Read from Delay Line
-            const float dl = delayL->popSample (0, delaySamples);
-            const float dr = delayR->popSample (0, delaySamples);
-
-            // 2. Calculate Feedback Signal (for the NEXT repeat)
-            float fbL = dl * feedbackGain;
-            float fbR = dr * feedbackGain;
-
-            // 3. Apply Filters to Feedback
-            fbL = lowCutL.processSample(fbL);
-            fbL = highCutL.processSample(fbL);
-            fbR = lowCutR.processSample(fbR);
-            fbR = highCutR.processSample(fbR);
-
-            // 4. Apply Stereo Width to Feedback
-            const float mid = (fbL + fbR) * 0.5f;
-            const float side = (fbL - fbR) * 0.5f * params.stereoWidth;
-            fbL = mid + side;
-            fbR = mid - side;
-
-            // 5. Write Feedback + Input back into Delay Line
-            delayL->pushSample (0, inL + fbL);
-            delayR->pushSample (0, inR + fbR);
-
-            // 6. Output Mix: Dry + (Delayed * OutputGain)
-            l[i] = inL + (dl * outputGain);
-            if (r) r[i] = inR + (dr * outputGain);
+            l[i] = dryL[i] * dry + l[i] * wet;
+            if (r && dryR)
+                r[i] = dryR[i] * dry + r[i] * wet;
         }
     }
 
     void setParams(const Params& p)
     {
-        params = p;
-        applyParams();
-        updateFilters();
+        if (params.type != p.type)
+        {
+            params = p;
+            switch (params.type) {
+                case Type::Oxide:   dspOxide.reset(); dspOxide.prepare(sRate); break;
+                case Type::Warp:    dspWarp.reset(); dspWarp.prepare(sRate); break;
+                case Type::Crystal: dspCrystal.reset(); dspCrystal.prepare(sRate); break;
+                case Type::Drift:   dspDrift.reset(); dspDrift.prepare(sRate); break;
+            }
+        }
+        else
+        {
+            params = p;
+        }
     }
 
     Params getParams() const { return params; }
@@ -131,31 +219,21 @@ public:
     bool isBypassed() const { return bypassed; }
 
 private:
-    void applyParams()
+    void loadDefaults()
     {
-        delaySamples = static_cast<int> (std::round (params.delayMs * 0.001 * sRate));
-        delaySamples = juce::jlimit (1, maxDelaySamples - 1, delaySamples);
+        int total = getNumParams(params.type);
+        for (int i = 0; i < MAX_PARAMS; i++)
+            params.p[i] = (i < total) ? getDefaultValue(params.type, i) : 0.0f;
     }
 
-    void updateFilters()
-    {
-        auto lowCutCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sRate, params.lowCutHz, 0.707f);
-        lowCutL.coefficients = lowCutCoeffs;
-        lowCutR.coefficients = lowCutCoeffs;
-
-        auto highCutCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sRate, params.highCutHz, 0.707f);
-        highCutL.coefficients = highCutCoeffs;
-        highCutR.coefficients = highCutCoeffs;
-    }
-
-    static constexpr int maxDelaySamples = 96000 * 4;
     double sRate = 44100.0;
-    
-    std::unique_ptr<juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear>> delayL, delayR;
-    juce::dsp::IIR::Filter<float> lowCutL, lowCutR;
-    juce::dsp::IIR::Filter<float> highCutL, highCutR;
-
     Params params;
-    int delaySamples = 44100 / 2;
     bool bypassed = false;
+
+    juce::AudioBuffer<float> dryBuffer;
+
+    DelayDSP_Oxide   dspOxide;
+    DelayDSP_Warp    dspWarp;
+    DelayDSP_Crystal dspCrystal;
+    DelayDSP_Drift   dspDrift;
 };

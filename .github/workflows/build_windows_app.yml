@@ -9,7 +9,7 @@ jobs:
   build_windows_app:
     name: Build Windows Standalone
     runs-on: windows-2022
-    
+
     steps:
       # 1. Checkout
       - name: Checkout Repository
@@ -22,7 +22,7 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 3. Clone JUCE
+      # 3. Clone JUCE (into workspace root, passed via -DJUCE_DIR)
       - name: Clone JUCE Framework
         run: |
           git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
@@ -33,18 +33,18 @@ jobs:
         run: |
           $vlcUrl = "https://get.videolan.org/vlc/3.0.21/win64/vlc-3.0.21-win64.7z"
           $outputFile = "vlc.7z"
-          
+
           Write-Host "Downloading VLC from $vlcUrl..."
           Invoke-WebRequest -Uri $vlcUrl -OutFile $outputFile
-          
+
           Write-Host "Extracting VLC..."
           7z x $outputFile -y
-          
-          # Rename folder to match CMake expectation "vlc-3.0.21"
+
+          # Rename folder to match expected name
           if (Test-Path "vlc-3.0.21-win64") {
             Rename-Item "vlc-3.0.21-win64" "vlc-3.0.21"
           }
-          
+
           if (Test-Path "vlc-3.0.21/sdk/lib/libvlc.lib") {
             Write-Host "VLC SDK found and ready."
           } else {
@@ -52,13 +52,12 @@ jobs:
             exit 1
           }
 
-      # 5. Configure CMake
+      # 5. Configure CMake — pass JUCE and VLC paths explicitly
       - name: Configure CMake
         run: |
-          # JUCE_ASIO=1 is required for your OnStage ASIO features
           cmake -B build -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DJUCE_ASIO=1
+            -DJUCE_DIR="${{ github.workspace }}/JUCE" `
+            -DVLC_ROOT="${{ github.workspace }}/vlc-3.0.21"
 
       # 6. Build
       - name: Build App
@@ -68,32 +67,28 @@ jobs:
       - name: Package App
         shell: pwsh
         run: |
-          $buildDir = "build/Release"
           $distDir = "dist_windows"
           $zipName = "OnStage_Windows.zip"
-          
+
           New-Item -ItemType Directory -Force -Path $distDir
-          
-          # Check for Executable
-          if (Test-Path "$buildDir/OnStage.exe") {
-            Write-Host "Found OnStage.exe, copying..."
-            Copy-Item "$buildDir/OnStage.exe" -Destination $distDir
-            
-            # Copy VLC DLLs required for runtime
-            # These must sit next to the .exe for it to launch
-            Copy-Item "vlc-3.0.21/libvlc.dll" -Destination $distDir
-            Copy-Item "vlc-3.0.21/libvlccore.dll" -Destination $distDir
-            Copy-Item -Recurse "vlc-3.0.21/plugins" -Destination "$distDir/plugins"
-            
-            # Copy Assets (if CMake copies them to build dir, otherwise from source)
-            if (Test-Path "$buildDir/assets") {
-                Copy-Item -Recurse "$buildDir/assets" -Destination "$distDir/assets"
-            }
-          } else {
-            Write-Error "OnStage.exe NOT FOUND in build directory!"
+
+          # JUCE puts artefacts under OnStage_artefacts/
+          $exePath = Get-ChildItem -Path build -Recurse -Filter "OnStage.exe" | Select-Object -First 1
+
+          if ($null -eq $exePath) {
+            Write-Error "OnStage.exe NOT FOUND!"
+            Get-ChildItem -Path build -Recurse -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
             exit 1
           }
-          
+
+          Write-Host "Found: $($exePath.FullName)"
+          Copy-Item $exePath.FullName -Destination $distDir
+
+          # Copy VLC runtime DLLs (must sit next to the .exe)
+          Copy-Item "vlc-3.0.21/libvlc.dll" -Destination $distDir
+          Copy-Item "vlc-3.0.21/libvlccore.dll" -Destination $distDir
+          Copy-Item -Recurse "vlc-3.0.21/plugins" -Destination "$distDir/plugins"
+
           # Create Zip
           Compress-Archive -Path "$distDir/*" -DestinationPath $zipName
 

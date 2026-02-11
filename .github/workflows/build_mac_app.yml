@@ -8,14 +8,17 @@ on:
 jobs:
   build_mac_app:
     name: Build macOS Standalone
-    runs-on: macos-latest
-    
+    runs-on: macos-14
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Install Dependencies
-        run: brew install ninja cmake
+      - name: Clone JUCE Framework
+        run: |
+          git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
 
       - name: Import Signing Certificate
         env:
@@ -23,6 +26,13 @@ jobs:
           P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: "admin"
         run: |
+          # Skip signing if secrets aren't configured yet
+          if [ -z "$BUILD_CERTIFICATE_BASE64" ]; then
+            echo "::warning::No signing certificate configured — skipping code signing"
+            echo "SKIP_SIGNING=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
           echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -30,86 +40,103 @@ jobs:
           security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          
-          # List available identities to verify import
+
           echo "Available signing identities:"
           security find-identity -v -p codesigning build.keychain
+          echo "SKIP_SIGNING=false" >> $GITHUB_ENV
 
+      # Xcode generator — proven for macOS universal builds
       - name: Configure CMake
         run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          cmake -B build -G Xcode \
+            -DJUCE_DIR="${{ github.workspace }}/JUCE" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
 
       - name: Build App
-        run: cmake --build build --config Release --parallel 4
+        run: cmake --build build --config Release --parallel $(sysctl -n hw.logicalcpu)
+
+      - name: Create Entitlements
+        run: |
+          cat > entitlements.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.device.audio-input</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
 
       - name: Sign & Notarize
+        if: env.SKIP_SIGNING != 'true'
         env:
           APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
           APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
           TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
           KEYCHAIN_PASSWORD: "admin"
         run: |
-          # Unlock keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
-          
-          # Find the signing identity
+
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | sed 's/"//g')
-          
+
           if [ -z "$IDENTITY" ]; then
             echo "::error::No Developer ID Application certificate found"
             security find-identity -v -p codesigning build.keychain
             exit 1
           fi
-          
+
           echo "Signing with identity: $IDENTITY"
-          
-          # Locate App
-          if [ -d "build/OnStage_artefacts/Release/OnStage.app" ]; then
-            APP_PATH="build/OnStage_artefacts/Release/OnStage.app"
-          elif [ -d "build/OnStage.app" ]; then
-            APP_PATH="build/OnStage.app"
-          elif [ -d "build/Release/OnStage.app" ]; then
-            APP_PATH="build/Release/OnStage.app"
-          else
+
+          APP_PATH=$(find build -name "OnStage.app" -type d | head -1)
+
+          if [ -z "$APP_PATH" ]; then
             echo "::error::OnStage.app not found!"
-            find build -name "OnStage.app" -type d
+            find build -name "*.app" -type d
             exit 1
           fi
-          
+
           echo "Processing $APP_PATH..."
-          
-          # Sign all frameworks and dylibs first
-          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.framework" \) -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
-          
+
+          # Sign inner dylibs/frameworks first (inside-out)
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) \
+            -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
+
+          find "$APP_PATH" -type d -name "*.framework" \
+            -exec codesign --force --options runtime --sign "$IDENTITY" --timestamp {} \;
+
           # Sign the app bundle
-          codesign --force --deep --options runtime --sign "$IDENTITY" --timestamp "$APP_PATH"
-          
-          # Verify signature
+          codesign --force --deep --strict \
+            --options runtime \
+            --sign "$IDENTITY" \
+            --entitlements entitlements.plist \
+            --timestamp \
+            "$APP_PATH"
+
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          
-          # Create zip for notarization
+
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Submission.zip"
-          
-          # Submit for notarization
+
           echo "Submitting for notarization..."
           xcrun notarytool submit "OnStage_Mac_Submission.zip" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait
-          
-          # Staple the notarization ticket
-          xcrun stapler staple "$APP_PATH" || echo "::warning::Stapling failed but continuing"
-          
-          # Create final signed zip
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Signed.zip"
 
-      - name: Upload Signed App
+          xcrun stapler staple "$APP_PATH"
+
+      - name: Package App
+        run: |
+          APP_PATH=$(find build -name "OnStage.app" -type d | head -1)
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac.zip"
+
+      - name: Upload App
         uses: actions/upload-artifact@v4
         with:
-          name: OnStage-Mac-App-Signed
-          path: OnStage_Mac_Signed.zip
+          name: OnStage-Mac-App
+          path: OnStage_Mac.zip

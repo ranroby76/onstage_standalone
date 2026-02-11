@@ -1,331 +1,640 @@
-// **D:\Workspace\onstage_with_chatgpt_9\src\AudioEngine.cpp** (partial - showing fixed sections) **D:\Workspace\onstage_with_chatgpt_9\src\AudioEngine.h** (add these member variables) **Summary of fixes:** 1. ✅ Latency slider - fixed with increased drag sensitivity 2. ✅ ASIO control panel - added `device->showControlPanel()` 3. ✅ I/O tab alignment - added 15px top padding 4. ✅ Slider sensitivity - increased to 400 for smoother tracking 5. ✅ Banner slider middle points - speed range changed to 0.5-1.5 (symmetric) 6. ✅ Banner double-click - added `onDoubleClick` to reset to 1.0 7. ✅ Recording duration - started writerThread, using actual sample rate 8. ✅ Meter jumps - added peak detection with smooth decay
+// D:\Workspace\ONSTAGE_WIRED\src\UI\IOPage.cpp
+// ==============================================================================
+//  IOPage.cpp
+//  OnStage — ASIO-only device settings page
+// ==============================================================================
 
 #include "IOPage.h"
-#include "../RegistrationManager.h"
+#include "../AudioEngine.h"
+#include "../IOSettingsManager.h"
+#include "../AppLogger.h"
+#include "../dsp/RecorderProcessor.h"  // NEW: For RecorderProcessor::setGlobalDefaultFolder
 
-float IOPage::sliderValueToGain(float v) { 
-    if (v < 0.01f) return 0.0f; 
-    return (v <= 0.5f) ? v * 2.0f : juce::Decibels::decibelsToGain((v - 0.5f) * 60.0f); 
-}
-float IOPage::gainToSliderValue(float g) { 
-    if (g < 0.01f) return 0.0f; 
-    return (g <= 1.0f) ? g * 0.5f : 0.5f + (juce::Decibels::gainToDecibels(g) / 60.0f) * 0.5f; 
-}
+// ==============================================================================
+//  Constructor
+// ==============================================================================
 
-IOPage::IOPage(AudioEngine& engine, IOSettingsManager& settings) : audioEngine(engine), ioSettingsManager(settings) {
-    goldenLookAndFeel = std::make_unique<GoldenSliderLookAndFeel>(); setLookAndFeel(goldenLookAndFeel.get());
-    addAndMakeVisible(asioLabel); asioLabel.setText("AUDIO DEVICE", juce::dontSendNotification);
-    asioLabel.setFont(juce::Font(18.0f, juce::Font::bold)); asioLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    addAndMakeVisible(driverLabel); driverLabel.setText("Driver:", juce::dontSendNotification);
-    addAndMakeVisible(specificDriverSelector); specificDriverSelector.addItemList(audioEngine.getSpecificDrivers("ASIO"), 1);
-    specificDriverSelector.onChange = [this] { onSpecificDriverChanged(); };
-    addAndMakeVisible(controlPanelButton); controlPanelButton.setButtonText("CP");
-    controlPanelButton.onClick = [this] { audioEngine.openDriverControlPanel(); };
-    addAndMakeVisible(deviceInfoLabel); deviceInfoLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    addAndMakeVisible(logicLabel); logicLabel.setText("MIC STATUS", juce::dontSendNotification);
-    logicLabel.setFont(juce::Font(18.0f, juce::Font::bold)); logicLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    
-    // Mic Mute/Bypass Buttons with onClick callbacks
-    auto setupB = [&](MidiTooltipToggleButton& b, const juce::String& t, const juce::String& m) { 
-        b.setButtonText(t); 
-        b.setMidiInfo(m); 
-        addAndMakeVisible(b); 
-    };
-    setupB(mic1Mute, "Mic 1 Mute", "Note 10"); 
-    setupB(mic1Bypass, "Mic 1 FX Bypass", "Note 11");
-    setupB(mic2Mute, "Mic 2 Mute", "Note 12"); 
-    setupB(mic2Bypass, "Mic 2 FX Bypass", "Note 13");
-    
-    // Connect mic buttons to AudioEngine AND IOSettingsManager
-    mic1Mute.onClick = [this] { 
-        audioEngine.setMicMute(0, mic1Mute.getToggleState()); 
-        ioSettingsManager.saveMicMute(0, mic1Mute.getToggleState());
-    };
-    mic1Bypass.onClick = [this] { 
-        audioEngine.setFxBypass(0, mic1Bypass.getToggleState()); 
-        ioSettingsManager.saveMicBypass(0, mic1Bypass.getToggleState());
-    };
-    mic2Mute.onClick = [this] { 
-        audioEngine.setMicMute(1, mic2Mute.getToggleState()); 
-        ioSettingsManager.saveMicMute(1, mic2Mute.getToggleState());
-    };
-    mic2Bypass.onClick = [this] { 
-        audioEngine.setFxBypass(1, mic2Bypass.getToggleState()); 
-        ioSettingsManager.saveMicBypass(1, mic2Bypass.getToggleState());
-    };
-    
-    addAndMakeVisible(settingsLabel); settingsLabel.setText("SETTINGS", juce::dontSendNotification);
-    settingsLabel.setFont(juce::Font(18.0f, juce::Font::bold)); settingsLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    
-    // Latency Label and Slider
-    addAndMakeVisible(latencyLabel);
-    latencyLabel.setText("Recorded Vocals Latency", juce::dontSendNotification);
-    latencyLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    latencyLabel.setFont(juce::Font(12.0f));
-    
-    latencySlider = std::make_unique<StyledSlider>(juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
-    latencySlider->setRange(0.0, 500.0, 1.0); 
-    latencySlider->setTextValueSuffix(" ms");
-    latencySlider->onValueChange = [this] {
-        float latencyMs = (float)latencySlider->getValue();
-        audioEngine.setLatencyCorrectionMs(latencyMs);
-        ioSettingsManager.saveVocalSettings(latencyMs, (float)vocalBoostSlider->getValue());
-    };
-    addAndMakeVisible(latencySlider.get());
-    
-    // Vocal Boost Label and Slider
-    addAndMakeVisible(vocalBoostLabel);
-    vocalBoostLabel.setText("Vocals Recorded Gain Boost", juce::dontSendNotification);
-    vocalBoostLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    vocalBoostLabel.setFont(juce::Font(12.0f));
-    
-    vocalBoostSlider = std::make_unique<StyledSlider>(juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
-    vocalBoostSlider->setRange(-24.0, 24.0, 0.1); 
-    vocalBoostSlider->setTextValueSuffix(" dB");
-    vocalBoostSlider->onValueChange = [this] {
-        float boostDb = (float)vocalBoostSlider->getValue();
-        audioEngine.setVocalBoostDb(boostDb);
-        ioSettingsManager.saveVocalSettings((float)latencySlider->getValue(), boostDb);
-    };
-    addAndMakeVisible(vocalBoostSlider.get());
-    
-    addAndMakeVisible(midiLabel); midiLabel.setText("MIDI INPUT", juce::dontSendNotification);
-    midiLabel.setFont(juce::Font(18.0f, juce::Font::bold)); midiLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    addAndMakeVisible(midiInputSelector); 
-    midiInputSelector.onChange = [this] {
-        juce::String deviceName = midiInputSelector.getText();
-        audioEngine.setMidiInput(deviceName);
-        ioSettingsManager.saveMidiDevice(deviceName);
-    };
-    addAndMakeVisible(midiRefreshButton); midiRefreshButton.setButtonText("Refresh");
-    midiRefreshButton.onClick = [this] { updateMidiDevices(); };
-    addAndMakeVisible(inputsLabel); inputsLabel.setText("INPUTS MATRIX", juce::dontSendNotification);
-    inputsLabel.setFont(juce::Font(18.0f, juce::Font::bold)); inputsLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    auto setupH = [&](juce::Label& l, const juce::String& t) { l.setText(t, juce::dontSendNotification); l.setFont(juce::Font(11.0f, juce::Font::bold)); l.setJustificationType(juce::Justification::centred); l.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37)); addAndMakeVisible(l); };
-    setupH(headMic1, "Mic 1"); setupH(headMic2, "Mic 2"); setupH(headPbL, "Pb L"); setupH(headPbR, "Pb R"); setupH(headGain, "Gain");
-    addAndMakeVisible(inputsViewport); inputsViewport.setViewedComponent(&inputsContainer, false);
-    addAndMakeVisible(outputsLabel); outputsLabel.setText("OUTPUTS ROUTING", juce::dontSendNotification);
-    outputsLabel.setFont(juce::Font(18.0f, juce::Font::bold)); outputsLabel.setColour(juce::Label::textColourId, juce::Colour(0xFFD4AF37));
-    addAndMakeVisible(outputsViewport); outputsViewport.setViewedComponent(&outputsContainer, false);
-    restoreSavedSettings(); startTimerHz(20);
-}
+IOPage::IOPage (AudioEngine& engine, IOSettingsManager& settings)
+    : audioEngine (engine),
+      ioSettingsManager (settings)
+{
+    goldenLookAndFeel = std::make_unique<GoldenSliderLookAndFeel>();
+    setLookAndFeel (goldenLookAndFeel.get());
 
-IOPage::~IOPage() { stopTimer(); setLookAndFeel(nullptr); }
+    // --- Force ASIO device type ----------------------------------------------
+    auto& dm = audioEngine.getDeviceManager();
+    dm.setCurrentAudioDeviceType ("ASIO", true);
+    dm.addChangeListener (this);
 
-void IOPage::resized() {
-    auto area = getLocalBounds().reduced(10);
-    int w = area.getWidth();
-    auto leftCol = area.removeFromLeft((int)(w * 0.25f)).reduced(10, 0);
-    auto centerCol = area.removeFromLeft((int)(w * 0.50f)).reduced(10, 0);
-    auto rightCol = area.reduced(10, 0);
+    // --- Section: AUDIO DEVICE -----------------------------------------------
+    addAndMakeVisible (sectionAudioLabel);
+    sectionAudioLabel.setText ("AUDIO DEVICE (ASIO)", juce::dontSendNotification);
+    sectionAudioLabel.setFont (juce::Font (18.0f, juce::Font::bold));
+    sectionAudioLabel.setColour (juce::Label::textColourId, juce::Colour (0xFFD4AF37));
 
-    // FIXED #3: Left Column Layout - Added top padding for Audio Device section
-    int y = 15;  // Start 15px down instead of 0
-    asioLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    auto dr = leftCol.withY(y).withHeight(25);
-    driverLabel.setBounds(dr.removeFromLeft(50)); controlPanelButton.setBounds(dr.removeFromRight(40));
-    specificDriverSelector.setBounds(dr.reduced(5, 0)); y += 30;
-    deviceInfoLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 35); y += 40;
-    logicLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    mic1Mute.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    mic1Bypass.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    mic2Mute.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    mic2Bypass.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 40;
-    settingsLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    latencyLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 20); y += 20;
-    latencySlider->setBounds(leftCol.getX(), y, leftCol.getWidth(), 30); y += 35;
-    vocalBoostLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 20); y += 20;
-    vocalBoostSlider->setBounds(leftCol.getX(), y, leftCol.getWidth(), 30); y += 40;
-    midiLabel.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    midiInputSelector.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25); y += 30;
-    midiRefreshButton.setBounds(leftCol.getX(), y, leftCol.getWidth(), 25);
+    addAndMakeVisible (driverLabel);
+    driverLabel.setText ("ASIO Driver:", juce::dontSendNotification);
+    driverLabel.setFont (juce::Font (13.0f));
+    driverLabel.setColour (juce::Label::textColourId, juce::Colours::white);
 
-    // Center Matrix - EXACT REFERENCE ALIGNMENT 
-    inputsLabel.setBounds(centerCol.removeFromTop(30));
-    
-    // Position Matrix Headers (Above Viewport)
-    auto headerRow = centerCol.removeFromTop(20);
-    
-    // Exact Right-to-Left alignment matching InputItemComponent
-    int rightX = headerRow.getRight();
-    // Skip LED (30) + Gap (10) = 40
-    rightX -= 40;
-    
-    // Gain Header (Matches Slider 100)
-    int sliderW = 100;
-    headGain.setBounds(rightX - sliderW, headerRow.getY(), sliderW, 20);
-    
-    // Skip Gap (25)
-    int checksEnd = rightX - sliderW - 25;
-    
-    // Columns (90px each)
-    int colW = 90;
-    headPbR.setBounds(checksEnd - colW, headerRow.getY(), colW, 20);
-    headPbL.setBounds(checksEnd - colW*2, headerRow.getY(), colW, 20);
-    headMic2.setBounds(checksEnd - colW*3, headerRow.getY(), colW, 20);
-    headMic1.setBounds(checksEnd - colW*4, headerRow.getY(), colW, 20);
+    addAndMakeVisible (driverSelector);
+    populateDriverList();
+    driverSelector.onChange = [this] { onDriverChanged(); };
 
-    inputsViewport.setBounds(centerCol);
-    inputsContainer.setBounds(0, 0, inputsViewport.getWidth(), inputItems.size() * 40);
-    
-    for (int i=0; i<inputItems.size(); ++i) {
-        inputItems[i]->setBounds(0, i * 40, inputsContainer.getWidth(), 40);
-    }
+    addAndMakeVisible (controlPanelButton);
+    controlPanelButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xFF333333));
+    controlPanelButton.setColour (juce::TextButton::textColourOffId, juce::Colour (0xFFD4AF37));
+    controlPanelButton.onClick = [this]
+    {
+        auto* device = audioEngine.getDeviceManager().getCurrentAudioDevice();
+        if (device != nullptr)
+            device->showControlPanel();
+    };
 
-    // Right Column Layout - FIXED ALIGNMENT
-    outputsLabel.setBounds(rightCol.removeFromTop(30));
-    rightCol.removeFromTop(20);  // Match input headers spacing for perfect alignment
-    outputsViewport.setBounds(rightCol);
-    outputsContainer.setSize(outputsViewport.getWidth(), outputItems.size() * 40);  // 40px = same as inputs
-    for (int i=0; i<outputItems.size(); ++i) outputItems[i]->setBounds(0, i * 40, outputsContainer.getWidth(), 40);
+    // --- Device info labels --------------------------------------------------
+    auto setupInfoLabel = [&] (juce::Label& lbl, const juce::String& initial)
+    {
+        addAndMakeVisible (lbl);
+        lbl.setText (initial, juce::dontSendNotification);
+        lbl.setFont (juce::Font (13.0f));
+        lbl.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+    };
+
+    setupInfoLabel (sampleRateLabel,  "Sample Rate: N/A");
+    setupInfoLabel (bufferSizeLabel,  "Buffer Size: N/A");
+    setupInfoLabel (latencyLabel,     "Latency: N/A");
+    setupInfoLabel (inputCountLabel,  "Inputs: N/A");
+    setupInfoLabel (outputCountLabel, "Outputs: N/A");
+
+    // --- Section: MIDI INPUT -------------------------------------------------
+    addAndMakeVisible (sectionMidiLabel);
+    sectionMidiLabel.setText ("MIDI INPUT", juce::dontSendNotification);
+    sectionMidiLabel.setFont (juce::Font (18.0f, juce::Font::bold));
+    sectionMidiLabel.setColour (juce::Label::textColourId, juce::Colour (0xFFD4AF37));
+
+    addAndMakeVisible (midiSelectButton);
+    midiSelectButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xFF333333));
+    midiSelectButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    midiSelectButton.onClick = [this] { openMidiPopup(); };
+
+    addAndMakeVisible (midiSummaryLabel);
+    midiSummaryLabel.setFont (juce::Font (11.0f));
+    midiSummaryLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+    midiSummaryLabel.setJustificationType (juce::Justification::topLeft);
+
+    // --- Section: RECORDING FOLDER (NEW) -------------------------------------
+    addAndMakeVisible (sectionRecordingLabel);
+    sectionRecordingLabel.setText ("RECORDING FOLDER", juce::dontSendNotification);
+    sectionRecordingLabel.setFont (juce::Font (18.0f, juce::Font::bold));
+    sectionRecordingLabel.setColour (juce::Label::textColourId, juce::Colour (0xFFD4AF37));
+
+    addAndMakeVisible (recordingFolderButton);
+    recordingFolderButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xFF333333));
+    recordingFolderButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+    recordingFolderButton.onClick = [this] { chooseRecordingFolder(); };
+
+    addAndMakeVisible (recordingFolderPathLabel);
+    recordingFolderPathLabel.setFont (juce::Font (11.0f));
+    recordingFolderPathLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
+    recordingFolderPathLabel.setJustificationType (juce::Justification::topLeft);
+
+    // --- Section: INPUTS -----------------------------------------------------
+    addAndMakeVisible (sectionInputsLabel);
+    sectionInputsLabel.setText ("INPUT CHANNELS", juce::dontSendNotification);
+    sectionInputsLabel.setFont (juce::Font (16.0f, juce::Font::bold));
+    sectionInputsLabel.setColour (juce::Label::textColourId, juce::Colour (0xFFD4AF37));
+
+    addAndMakeVisible (inputChannelList);
+    inputChannelList.setMultiLine (true);
+    inputChannelList.setReadOnly (true);
+    inputChannelList.setScrollbarsShown (true);
+    inputChannelList.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xFF1A1A1A));
+    inputChannelList.setColour (juce::TextEditor::textColourId,       juce::Colours::lightgrey);
+    inputChannelList.setColour (juce::TextEditor::outlineColourId,    juce::Colour (0xFF333333));
+    inputChannelList.setFont (juce::Font (24.0f));  // Font size * 2
+
+    // --- Section: OUTPUTS ----------------------------------------------------
+    addAndMakeVisible (sectionOutputsLabel);
+    sectionOutputsLabel.setText ("OUTPUT CHANNELS", juce::dontSendNotification);
+    sectionOutputsLabel.setFont (juce::Font (16.0f, juce::Font::bold));
+    sectionOutputsLabel.setColour (juce::Label::textColourId, juce::Colour (0xFFD4AF37));
+
+    addAndMakeVisible (outputChannelList);
+    outputChannelList.setMultiLine (true);
+    outputChannelList.setReadOnly (true);
+    outputChannelList.setScrollbarsShown (true);
+    outputChannelList.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xFF1A1A1A));
+    outputChannelList.setColour (juce::TextEditor::textColourId,       juce::Colours::lightgrey);
+    outputChannelList.setColour (juce::TextEditor::outlineColourId,    juce::Colour (0xFF333333));
+    outputChannelList.setFont (juce::Font (24.0f));  // Font size * 2
+
+    // --- Routing notice ------------------------------------------------------
+    addAndMakeVisible (routingNotice);
+    routingNotice.setText ("All channels are always active.\nUse the Studio tab to route audio between nodes.",
+                           juce::dontSendNotification);
+    routingNotice.setFont (juce::Font (12.0f, juce::Font::italic));
+    routingNotice.setColour (juce::Label::textColourId, juce::Colour (0xFF888888));
+    routingNotice.setJustificationType (juce::Justification::centredLeft);
+
+    // --- Restore saved settings and kick off ---------------------------------
+    restoreSavedSettings();
+    updateDeviceInfo();
+    updateMidiSummary();
+    updateRecordingFolderDisplay();  // NEW: Initialize recording folder display
+    startTimerHz (4);
 }
 
-void IOPage::timerCallback() {
-    auto* d = audioEngine.getDeviceManager().getCurrentAudioDevice();
-    if (d) deviceInfoLabel.setText("SR: " + juce::String(d->getCurrentSampleRate()) + "Hz\nBuf: " + juce::String(d->getCurrentBufferSizeSamples()), juce::dontSendNotification);
-    
-    // Update input LEDs
-    for (auto* item : inputItems) 
-        item->signalLed.setOn(audioEngine.getInputLevel(item->itemIndex) > 0.001f);
-    
-    // Update output LEDs
-    for (auto* item : outputItems) 
-        item->signalLed.setOn(audioEngine.getOutputLevel(item->itemIndex) > 0.001f);
+IOPage::~IOPage()
+{
+    closeMidiPopup();
+    audioEngine.getDeviceManager().removeChangeListener (this);
+    stopTimer();
+    setLookAndFeel (nullptr);
 }
 
-void IOPage::updateInputList() {
-    inputItems.clear(); 
-    auto inputs = audioEngine.getAvailableInputDevices(); 
-    auto saved = ioSettingsManager.getInputRouting();
+// ==============================================================================
+//  Restore saved settings on startup
+// ==============================================================================
+
+void IOPage::restoreSavedSettings()
+{
+    // --- Restore ASIO driver -------------------------------------------------
+    juce::String savedDriver = ioSettingsManager.getLastSpecificDriver();
     
-    for (int i = 0; i < inputs.size(); ++i) {
-        auto* item = inputItems.add(new InputItemComponent(inputs[i], i)); 
-        inputsContainer.addAndMakeVisible(item);
+    if (savedDriver.isNotEmpty())
+    {
+        // Check if the saved driver is available
+        auto& dm = audioEngine.getDeviceManager();
+        auto* asioType = dm.getCurrentDeviceTypeObject();
         
-        int mask = audioEngine.getInputRoute(i); 
-        float gain = audioEngine.getInputGain(i);
-        if (saved.count(inputs[i])) { 
-            mask = saved[inputs[i]].first; 
-            gain = saved[inputs[i]].second; 
+        if (asioType != nullptr)
+        {
+            asioType->scanForDevices();
+            auto availableDrivers = asioType->getDeviceNames();
+            
+            if (availableDrivers.contains (savedDriver))
+            {
+                LOG_INFO ("IOPage: Restoring saved ASIO driver: " + savedDriver);
+                driverSelector.setText (savedDriver, juce::dontSendNotification);
+                openDeviceWithAllChannels (savedDriver);
+            }
+            else
+            {
+                LOG_INFO ("IOPage: Saved ASIO driver not available: " + savedDriver);
+                driverSelector.setSelectedId (1, juce::dontSendNotification);  // "None"
+            }
+        }
+    }
+    else
+    {
+        // No saved driver - default to "None"
+        driverSelector.setSelectedId (1, juce::dontSendNotification);
+    }
+    
+    // --- Restore MIDI devices ------------------------------------------------
+    auto savedMidiDevices = ioSettingsManager.getLastMidiDevices();
+    auto& dm = audioEngine.getDeviceManager();
+    auto availableMidi = juce::MidiInput::getAvailableDevices();
+    
+    for (const auto& savedId : savedMidiDevices)
+    {
+        // Check if device is still connected
+        bool found = false;
+        for (const auto& device : availableMidi)
+        {
+            if (device.identifier == savedId)
+            {
+                dm.setMidiInputDeviceEnabled (savedId, true);
+                LOG_INFO ("IOPage: Restored MIDI device: " + device.name);
+                found = true;
+                break;
+            }
         }
         
-        // Set visual state
-        item->checkV1.setToggleState(mask & 1, juce::dontSendNotification); 
-        item->checkV2.setToggleState(mask & 2, juce::dontSendNotification);
-        item->checkPBL.setToggleState(mask & 4, juce::dontSendNotification); 
-        item->checkPBR.setToggleState(mask & 8, juce::dontSendNotification);
-        item->gainSlider->setValue(gainToSliderValue(gain), juce::dontSendNotification);
-        
-        // Apply routing to AudioEngine immediately
-        audioEngine.setInputRoute(i, mask);
-        audioEngine.setInputGain(i, gain);
-        
-        // Setup callbacks
-        auto up = [this, i, item, n=inputs[i]] {
-            int m = 0; 
-            if (item->checkV1.getToggleState()) m|=1; 
-            if (item->checkV2.getToggleState()) m|=2; 
-            if (item->checkPBL.getToggleState()) m|=4; 
-            if (item->checkPBR.getToggleState()) m|=8;
-            float g = sliderValueToGain((float)item->gainSlider->getValue()); 
-            audioEngine.setInputRoute(i, m); 
-            audioEngine.setInputGain(i, g);
-            auto map = ioSettingsManager.getInputRouting(); 
-            map[n] = { m, g }; 
-            ioSettingsManager.saveInputRouting(map);
-        };
-        item->checkV1.onClick = item->checkV2.onClick = item->checkPBL.onClick = item->checkPBR.onClick = up; 
-        item->gainSlider->onValueChange = up;
-    }
-    resized();
-}
-
-void IOPage::updateOutputList() {
-    outputItems.clear(); 
-    auto outputs = audioEngine.getAvailableOutputDevices(); 
-    auto saved = ioSettingsManager.getOutputRouting();
-    
-    for (int i = 0; i < outputs.size(); ++i) {
-        auto* item = outputItems.add(new OutputItemComponent(outputs[i], i)); 
-        outputsContainer.addAndMakeVisible(item);
-        
-        int mask = (saved.count(outputs[i])) ? saved[outputs[i]] : audioEngine.getOutputRoute(i);
-        
-        // Set visual state
-        item->checkL.setToggleState(mask & 1, juce::dontSendNotification); 
-        item->checkR.setToggleState(mask & 2, juce::dontSendNotification);
-        
-        // Apply routing to AudioEngine immediately
-        audioEngine.setOutputRoute(i, mask);
-        
-        // Setup callbacks
-        auto up = [this, i, item, n=outputs[i]] {
-            int m = 0; 
-            if (item->checkL.getToggleState()) m|=1; 
-            if (item->checkR.getToggleState()) m|=2;
-            audioEngine.setOutputRoute(i, m); 
-            auto map = ioSettingsManager.getOutputRouting(); 
-            map[n] = m; 
-            ioSettingsManager.saveOutputRouting(map);
-        };
-        item->checkL.onClick = item->checkR.onClick = up;
-    }
-    resized();
-}
-
-void IOPage::restoreSavedSettings() {
-    // Restore ASIO driver
-    specificDriverSelector.setText(ioSettingsManager.getLastSpecificDriver(), juce::dontSendNotification);
-    onSpecificDriverChanged(); 
-    
-    // Restore MIDI device
-    updateMidiDevices(); 
-    juce::String savedMidiDevice = ioSettingsManager.getLastMidiDevice();
-    midiInputSelector.setText(savedMidiDevice, juce::dontSendNotification);
-    if (savedMidiDevice.isNotEmpty() && savedMidiDevice != "OFF") {
-        audioEngine.setMidiInput(savedMidiDevice);
+        if (!found)
+        {
+            LOG_INFO ("IOPage: Saved MIDI device not connected: " + savedId);
+        }
     }
     
-    // Restore latency and vocal boost sliders
-    float latencyMs = ioSettingsManager.getLastLatencyMs();
-    float vocalBoostDb = ioSettingsManager.getLastVocalBoostDb();
-    latencySlider->setValue(latencyMs, juce::dontSendNotification);
-    vocalBoostSlider->setValue(vocalBoostDb, juce::dontSendNotification);
-    audioEngine.setLatencyCorrectionMs(latencyMs);
-    audioEngine.setVocalBoostDb(vocalBoostDb);
+    // --- Restore recording folder (NEW) --------------------------------------
+    juce::String savedRecordingFolder = ioSettingsManager.getRecordingFolder();
     
-    // Restore mic mute/bypass states
-    auto mic1Settings = ioSettingsManager.getMicSettings(0);
-    auto mic2Settings = ioSettingsManager.getMicSettings(1);
-    
-    mic1Mute.setToggleState(mic1Settings.isMuted, juce::dontSendNotification);
-    mic1Bypass.setToggleState(mic1Settings.isBypassed, juce::dontSendNotification);
-    mic2Mute.setToggleState(mic2Settings.isMuted, juce::dontSendNotification);
-    mic2Bypass.setToggleState(mic2Settings.isBypassed, juce::dontSendNotification);
-    
-    audioEngine.setMicMute(0, mic1Settings.isMuted);
-    audioEngine.setFxBypass(0, mic1Settings.isBypassed);
-    audioEngine.setMicMute(1, mic2Settings.isMuted);
-    audioEngine.setFxBypass(1, mic2Settings.isBypassed);
+    if (savedRecordingFolder.isNotEmpty())
+    {
+        juce::File folder (savedRecordingFolder);
+        if (folder.exists())
+        {
+            RecorderProcessor::setGlobalDefaultFolder (folder);
+            LOG_INFO ("IOPage: Restored recording folder: " + savedRecordingFolder);
+        }
+        else
+        {
+            LOG_INFO ("IOPage: Saved recording folder does not exist: " + savedRecordingFolder);
+        }
+    }
 }
 
-void IOPage::onSpecificDriverChanged() { 
-    audioEngine.setSpecificDriver("ASIO", specificDriverSelector.getText()); 
-    ioSettingsManager.saveSpecificDriver(specificDriverSelector.getText()); 
-    updateInputList(); 
-    updateOutputList(); 
+// ==============================================================================
+//  Save MIDI settings
+// ==============================================================================
+
+void IOPage::saveMidiSettings()
+{
+    auto devices = juce::MidiInput::getAvailableDevices();
+    auto& dm = audioEngine.getDeviceManager();
+    
+    juce::StringArray enabledIds;
+    for (const auto& d : devices)
+    {
+        if (dm.isMidiInputDeviceEnabled (d.identifier))
+            enabledIds.add (d.identifier);
+    }
+    
+    ioSettingsManager.saveMidiDevices (enabledIds);
 }
 
-void IOPage::updateMidiDevices() { 
-    midiInputSelector.clear(); 
-    auto list = audioEngine.getAvailableMidiInputs(); 
-    list.insert(0, "OFF"); 
-    midiInputSelector.addItemList(list, 1); 
+// ==============================================================================
+//  Driver list
+// ==============================================================================
+
+void IOPage::populateDriverList()
+{
+    driverSelector.clear (juce::dontSendNotification);
+    driverSelector.addItem ("None", 1);
+
+    auto& dm = audioEngine.getDeviceManager();
+    auto* asioType = dm.getCurrentDeviceTypeObject();
+
+    if (asioType != nullptr)
+    {
+        asioType->scanForDevices();
+        auto names = asioType->getDeviceNames();
+
+        for (int i = 0; i < names.size(); ++i)
+            driverSelector.addItem (names[i], i + 2);
+    }
+
+    auto* currentDevice = dm.getCurrentAudioDevice();
+    if (currentDevice != nullptr)
+        driverSelector.setText (currentDevice->getName(), juce::dontSendNotification);
+    else
+        driverSelector.setSelectedId (1, juce::dontSendNotification);
 }
 
-void IOPage::paint(juce::Graphics& g) { 
-    g.fillAll(juce::Colour(0xFF202020)); 
-    g.setColour(juce::Colour(0xFF404040)); 
-    g.fillRect((int)(getWidth()*0.25f), 10, 2, getHeight()-20); 
-    g.fillRect((int)(getWidth()*0.75f), 10, 2, getHeight()-20); 
+// ==============================================================================
+//  Driver changed
+// ==============================================================================
+
+void IOPage::onDriverChanged()
+{
+    juce::String selected = driverSelector.getText();
+
+    if (selected == "None" || selected.isEmpty())
+    {
+        audioEngine.getDeviceManager().closeAudioDevice();
+        LOG_INFO ("IOPage: Audio device closed (None selected)");
+        
+        // Save empty driver selection
+        ioSettingsManager.saveSpecificDriver ("");
+        
+        updateDeviceInfo();
+        return;
+    }
+
+    openDeviceWithAllChannels (selected);
+    
+    // Save the selected driver
+    ioSettingsManager.saveSpecificDriver (selected);
+}
+
+// ==============================================================================
+//  Open device with ALL channels enabled
+// ==============================================================================
+
+void IOPage::openDeviceWithAllChannels (const juce::String& deviceName)
+{
+    auto& dm = audioEngine.getDeviceManager();
+
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    dm.getAudioDeviceSetup (setup);
+
+    setup.outputDeviceName = deviceName;
+    setup.inputDeviceName  = deviceName;
+
+    juce::BigInteger allChannels;
+    allChannels.setRange (0, 128, true);
+
+    setup.inputChannels  = allChannels;
+    setup.outputChannels = allChannels;
+    setup.useDefaultInputChannels  = false;
+    setup.useDefaultOutputChannels = false;
+
+    juce::String err = dm.setAudioDeviceSetup (setup, true);
+
+    if (err.isNotEmpty())
+    {
+        LOG_ERROR ("IOPage: Failed to open ASIO device: " + err);
+        juce::NativeMessageBox::showMessageBoxAsync (
+            juce::AlertWindow::WarningIcon,
+            "ASIO Error",
+            "Could not open device:\n" + err);
+    }
+    else
+    {
+        LOG_INFO ("IOPage: Opened ASIO device: " + deviceName);
+    }
+
+    updateDeviceInfo();
+}
+
+// ==============================================================================
+//  Update device info display
+// ==============================================================================
+
+void IOPage::updateDeviceInfo()
+{
+    auto* device = audioEngine.getDeviceManager().getCurrentAudioDevice();
+
+    if (device == nullptr)
+    {
+        sampleRateLabel.setText  ("Sample Rate: N/A", juce::dontSendNotification);
+        bufferSizeLabel.setText  ("Buffer Size: N/A", juce::dontSendNotification);
+        latencyLabel.setText     ("Latency: N/A",     juce::dontSendNotification);
+        inputCountLabel.setText  ("Inputs: N/A",      juce::dontSendNotification);
+        outputCountLabel.setText ("Outputs: N/A",     juce::dontSendNotification);
+        inputChannelList.setText ("");
+        outputChannelList.setText ("");
+        return;
+    }
+
+    double sr  = device->getCurrentSampleRate();
+    int    buf = device->getCurrentBufferSizeSamples();
+    double latMs = (sr > 0) ? (buf / sr) * 1000.0 : 0.0;
+
+    auto activeIns  = device->getActiveInputChannels();
+    auto activeOuts = device->getActiveOutputChannels();
+    int numIns  = activeIns.countNumberOfSetBits();
+    int numOuts = activeOuts.countNumberOfSetBits();
+
+    sampleRateLabel.setText  ("Sample Rate: " + juce::String ((int) sr) + " Hz", juce::dontSendNotification);
+    bufferSizeLabel.setText  ("Buffer Size: " + juce::String (buf) + " samples",  juce::dontSendNotification);
+    latencyLabel.setText     ("Latency: " + juce::String (latMs, 1) + " ms",      juce::dontSendNotification);
+    inputCountLabel.setText  ("Inputs: " + juce::String (numIns),                  juce::dontSendNotification);
+    outputCountLabel.setText ("Outputs: " + juce::String (numOuts),                juce::dontSendNotification);
+
+    auto inNames  = device->getInputChannelNames();
+    auto outNames = device->getOutputChannelNames();
+
+    juce::String inText;
+    int ch = 1;
+    for (int i = 0; i < inNames.size(); ++i)
+    {
+        if (activeIns[i])
+            inText += juce::String (ch++) + ".  " + inNames[i] + "\n";
+    }
+    inputChannelList.setText (inText.trimEnd());
+
+    juce::String outText;
+    ch = 1;
+    for (int i = 0; i < outNames.size(); ++i)
+    {
+        if (activeOuts[i])
+            outText += juce::String (ch++) + ".  " + outNames[i] + "\n";
+    }
+    outputChannelList.setText (outText.trimEnd());
+}
+
+// ==============================================================================
+//  MIDI multi-select popup
+// ==============================================================================
+
+void IOPage::openMidiPopup()
+{
+    // If already open, just bring to front
+    if (midiPopup != nullptr)
+    {
+        midiPopup->toFront (true);
+        return;
+    }
+
+    auto& dm = audioEngine.getDeviceManager();
+
+    auto* content = new MidiSelectorContent (dm);
+    content->onSelectionChanged = [this] { 
+        updateMidiSummary(); 
+        saveMidiSettings();  // Save whenever selection changes
+    };
+
+    midiPopup = std::make_unique<MidiPopupWindow> (
+        "MIDI Input Devices",
+        juce::Colour (0xFF202020),
+        juce::DocumentWindow::closeButton);
+
+    midiPopup->setUsingNativeTitleBar (false);
+    midiPopup->setContentOwned (content, true);
+    midiPopup->setResizable (false, false);
+    midiPopup->setAlwaysOnTop (true);
+
+    // Position near the button
+    auto screenPos = midiSelectButton.localPointToGlobal (juce::Point<int> (0, midiSelectButton.getHeight()));
+    midiPopup->setTopLeftPosition (screenPos.x, screenPos.y + 4);
+
+    midiPopup->setVisible (true);
+
+    // Override close button to call our cleanup
+    midiPopup->onClose = [this] { closeMidiPopup(); };
+}
+
+void IOPage::closeMidiPopup()
+{
+    midiPopup.reset();
+}
+
+void IOPage::updateMidiSummary()
+{
+    auto devices = juce::MidiInput::getAvailableDevices();
+    auto& dm = audioEngine.getDeviceManager();
+
+    juce::StringArray enabled;
+    for (auto& d : devices)
+    {
+        if (dm.isMidiInputDeviceEnabled (d.identifier))
+            enabled.add (d.name);
+    }
+
+    if (enabled.isEmpty())
+        midiSummaryLabel.setText ("No MIDI devices active", juce::dontSendNotification);
+    else
+        midiSummaryLabel.setText (enabled.joinIntoString (", "), juce::dontSendNotification);
+}
+
+// ==============================================================================
+//  Recording Folder Management (NEW)
+// ==============================================================================
+
+void IOPage::chooseRecordingFolder()
+{
+    recordingFolderChooser = std::make_shared<juce::FileChooser> (
+        "Select Default Recording Folder",
+        RecorderProcessor::getEffectiveDefaultFolder(),
+        "",
+        true);
+    
+    recordingFolderChooser->launchAsync (
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        [this, chooser = recordingFolderChooser] (const juce::FileChooser& fc)
+        {
+            auto results = fc.getResults();
+            if (results.isEmpty())
+                return;
+            
+            auto folder = results.getFirst();
+            
+            // Save to settings
+            ioSettingsManager.saveRecordingFolder (folder.getFullPathName());
+            
+            // Update RecorderProcessor global default
+            RecorderProcessor::setGlobalDefaultFolder (folder);
+            
+            // Update display
+            updateRecordingFolderDisplay();
+            
+            LOG_INFO ("IOPage: Recording folder set to: " + folder.getFullPathName());
+        });
+}
+
+void IOPage::updateRecordingFolderDisplay()
+{
+    juce::String folderPath = ioSettingsManager.getRecordingFolder();
+    
+    if (folderPath.isEmpty())
+    {
+        // Show default
+        auto defaultFolder = RecorderProcessor::getEffectiveDefaultFolder();
+        recordingFolderPathLabel.setText ("Default: " + defaultFolder.getFullPathName(),
+                                         juce::dontSendNotification);
+    }
+    else
+    {
+        recordingFolderPathLabel.setText ("Current: " + folderPath,
+                                         juce::dontSendNotification);
+    }
+}
+
+// ==============================================================================
+//  ChangeListener
+// ==============================================================================
+
+void IOPage::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    updateDeviceInfo();
+}
+
+// ==============================================================================
+//  Timer
+// ==============================================================================
+
+void IOPage::timerCallback()
+{
+    auto* device = audioEngine.getDeviceManager().getCurrentAudioDevice();
+    if (device != nullptr)
+    {
+        double sr  = device->getCurrentSampleRate();
+        int    buf = device->getCurrentBufferSizeSamples();
+        double latMs = (buf / sr) * 1000.0;
+        sampleRateLabel.setText ("Sample Rate: " + juce::String ((int) sr) + " Hz", juce::dontSendNotification);
+        bufferSizeLabel.setText ("Buffer Size: " + juce::String (buf) + " samples",  juce::dontSendNotification);
+        latencyLabel.setText    ("Latency: " + juce::String (latMs, 1) + " ms",      juce::dontSendNotification);
+    }
+}
+
+// ==============================================================================
+//  Paint
+// ==============================================================================
+
+void IOPage::paint (juce::Graphics& g)
+{
+    g.fillAll (juce::Colour (0xFF202020));
+
+    // Left canvas width * 1.25 = 43.75%
+    int divX = (int) (getWidth() * 0.4375f);
+    g.setColour (juce::Colour (0xFF404040));
+    g.drawVerticalLine (divX, 10.0f, (float) getHeight() - 10.0f);
+}
+
+// ==============================================================================
+//  Layout
+// ==============================================================================
+
+void IOPage::resized()
+{
+    auto area = getLocalBounds().reduced (16);
+
+    // Left canvas width * 1.25 = 43.75%
+    int divX = (int) (area.getWidth() * 0.4375f);
+    auto left  = area.removeFromLeft (divX).reduced (0, 4);
+    area.removeFromLeft (16);
+
+    auto right = area;
+
+    // ---- Left column (centered content) -------------------------------------
+    // Calculate content width and center it
+    int contentWidth = juce::jmin (left.getWidth() - 20, 280);
+    int leftPadding = (left.getWidth() - contentWidth) / 2;
+    auto leftContent = left.reduced (leftPadding, 0);
+
+    sectionAudioLabel.setBounds (leftContent.removeFromTop (28));
+    leftContent.removeFromTop (6);
+
+    driverLabel.setBounds (leftContent.removeFromTop (20));
+    leftContent.removeFromTop (2);
+
+    auto driverRow = leftContent.removeFromTop (28);
+    controlPanelButton.setBounds (driverRow.removeFromRight (110));
+    driverRow.removeFromRight (6);
+    driverSelector.setBounds (driverRow);
+    leftContent.removeFromTop (12);
+
+    sampleRateLabel.setBounds  (leftContent.removeFromTop (20));
+    bufferSizeLabel.setBounds  (leftContent.removeFromTop (20));
+    latencyLabel.setBounds     (leftContent.removeFromTop (20));
+    leftContent.removeFromTop (4);
+    inputCountLabel.setBounds  (leftContent.removeFromTop (20));
+    outputCountLabel.setBounds (leftContent.removeFromTop (20));
+    leftContent.removeFromTop (20);
+
+    // MIDI section
+    sectionMidiLabel.setBounds (leftContent.removeFromTop (28));
+    leftContent.removeFromTop (4);
+    midiSelectButton.setBounds (leftContent.removeFromTop (28));
+    leftContent.removeFromTop (4);
+    midiSummaryLabel.setBounds (leftContent.removeFromTop (36));
+    leftContent.removeFromTop (20);
+
+    // Recording Folder section (NEW)
+    sectionRecordingLabel.setBounds (leftContent.removeFromTop (28));
+    leftContent.removeFromTop (4);
+    recordingFolderButton.setBounds (leftContent.removeFromTop (28));
+    leftContent.removeFromTop (4);
+    recordingFolderPathLabel.setBounds (leftContent.removeFromTop (36));
+    leftContent.removeFromTop (20);
+
+    // Routing notice
+    routingNotice.setBounds (leftContent.removeFromTop (40));
+
+    // ---- Right area: Inputs (top half) / Outputs (bottom half) --------------
+    int halfH = right.getHeight() / 2 - 8;
+
+    auto inputArea  = right.removeFromTop (halfH);
+    right.removeFromTop (16);
+    auto outputArea = right;
+
+    sectionInputsLabel.setBounds (inputArea.removeFromTop (24));
+    inputArea.removeFromTop (4);
+    inputChannelList.setBounds (inputArea);
+
+    sectionOutputsLabel.setBounds (outputArea.removeFromTop (24));
+    outputArea.removeFromTop (4);
+    outputChannelList.setBounds (outputArea);
 }

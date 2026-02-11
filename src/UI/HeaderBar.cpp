@@ -1,10 +1,8 @@
-// **Changes:** 1.  Implemented `manualButton` initialization and click handler (opens `ManualComponent` in a Dialog). 2.  Updated `resized()` to place the Manual button to the left of the Save button. <!-- end list -->
-
 #include "HeaderBar.h"
 #include <juce_graphics/juce_graphics.h>
 #include "BinaryData.h"
 #include "RegistrationComponent.h"
-#include "ManualComponent.h" // NEW
+#include "ManualComponent.h"
 
 using namespace juce;
 
@@ -23,7 +21,7 @@ HeaderBar::HeaderBar(AudioEngine& engine) : audioEngine(engine)
         DialogWindow::LaunchOptions opt;
         opt.content.setOwned(new ManualComponent());
         opt.dialogTitle = "OnStage User Manual";
-        opt.componentToCentreAround = this;
+        opt.componentToCentreAround = getTopLevelComponent();
         opt.dialogBackgroundColour = Colour(0xFF202020);
         opt.useNativeTitleBar = true;
         opt.resizable = false;
@@ -55,13 +53,13 @@ HeaderBar::HeaderBar(AudioEngine& engine) : audioEngine(engine)
     // REGISTER BUTTON
     addAndMakeVisible(registerButton);
     registerButton.setButtonText("REGISTER");
-    registerButton.setColour(TextButton::buttonColourId, Colour(0xFF8B0000)); // Dark Red
+    registerButton.setColour(TextButton::buttonColourId, Colour(0xFF8B0000));
     registerButton.setColour(TextButton::textColourOffId, Colours::white);
     registerButton.onClick = [this]() { 
         DialogWindow::LaunchOptions opt;
         opt.content.setOwned(new RegistrationComponent());
         opt.dialogTitle = "Registration";
-        opt.componentToCentreAround = this;
+        opt.componentToCentreAround = getTopLevelComponent();
         opt.dialogBackgroundColour = Colour(0xFFE08020);
         opt.useNativeTitleBar = true;
         opt.resizable = false;
@@ -99,7 +97,7 @@ void HeaderBar::paint(Graphics& g)
     if (fananLogo.isValid())
     {
         int logoHeight = height - 20;
-        int logoWidth = (int)(logoHeight * 5.668f); // 1060/187 aspect ratio for Subcore logo
+        int logoWidth = (int)(logoHeight * 5.668f);
         Rectangle<int> fananArea(55, (height - logoHeight) / 2, logoWidth, logoHeight);
         g.drawImageWithin(fananLogo, fananArea.getX(), fananArea.getY(), 
                          fananArea.getWidth(), fananArea.getHeight(),
@@ -143,7 +141,6 @@ void HeaderBar::resized()
     // ---------------------------------------------------------
     // 2. Calculate Gap
     // ---------------------------------------------------------
-    // The space between the left logo's right edge and the right logo's left edge
     int availableSpaceBetweenLogos = onstageLeftEdge - fananRightEdge;
     
     // ---------------------------------------------------------
@@ -156,23 +153,19 @@ void HeaderBar::resized()
     int buttonY = (height - buttonHeight) / 2;
     int modeLabelWidth = 50;
     
-    // Total width of the center group: Manual | Save | Load | Label | Register | Mode
-    int totalCenterGroupWidth = manualWidth + (buttonWidth * 2) + 150 + 80 + (spacing * 4) + modeLabelWidth + spacing;
+    // Total width: Manual | Save | Load | Label | Register | Mode
+    int totalCenterGroupWidth = manualWidth + (buttonWidth * 2) + 150 + 80 + (spacing * 5) + modeLabelWidth;
 
     // ---------------------------------------------------------
     // 4. Calculate Identical Gap
     // ---------------------------------------------------------
-    // We want: [Left Logo] [GAP] [Center] [GAP] [Right Logo]
-    // So: availableSpaceBetweenLogos = (2 * Gap) + totalCenterGroupWidth
-    // Therefore: Gap = (availableSpaceBetweenLogos - totalCenterGroupWidth) / 2
-    
     int gap = (availableSpaceBetweenLogos - totalCenterGroupWidth) / 2;
-    if (gap < 0) gap = 0; // Prevent overlap if window is too small
+    if (gap < 0) gap = 0;
     
     // ---------------------------------------------------------
-    // 5. Position Components
+    // 5. Position Components (left to right)
     // ---------------------------------------------------------
-    int startX = fananRightEdge + gap; // Start immediately after the first gap
+    int startX = fananRightEdge + gap;
 
     // 1. Manual Button
     manualButton.setBounds(startX, buttonY, manualWidth, buttonHeight);
@@ -183,10 +176,10 @@ void HeaderBar::resized()
     // 3. Load Preset
     loadPresetButton.setBounds(savePresetButton.getRight() + spacing, buttonY, buttonWidth, buttonHeight);
     
-    // 4. Label
+    // 4. Preset Name Label
     presetNameLabel.setBounds(loadPresetButton.getRight() + spacing, buttonY, 150, buttonHeight);
     
-    // 5. Register
+    // 5. Register Button
     registerButton.setBounds(presetNameLabel.getRight() + spacing, buttonY, 80, buttonHeight);
     
     // 6. Mode Label
