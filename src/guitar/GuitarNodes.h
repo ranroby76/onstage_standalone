@@ -36,7 +36,7 @@ class OverdriveProcessorNode : public EffectProcessorNode
 public:
     OverdriveProcessorNode() : EffectProcessorNode ("Overdrive", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarOverdrive"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -69,7 +69,7 @@ class DistortionProcessorNode : public EffectProcessorNode
 public:
     DistortionProcessorNode() : EffectProcessorNode ("Distortion", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarDistortion"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -102,7 +102,7 @@ class FuzzProcessorNode : public EffectProcessorNode
 public:
     FuzzProcessorNode() : EffectProcessorNode ("Fuzz", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarFuzz"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -135,7 +135,7 @@ class GuitarChorusProcessorNode : public EffectProcessorNode
 public:
     GuitarChorusProcessorNode() : EffectProcessorNode ("Guitar Chorus", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarChorus"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -168,7 +168,7 @@ class GuitarFlangerProcessorNode : public EffectProcessorNode
 public:
     GuitarFlangerProcessorNode() : EffectProcessorNode ("Guitar Flanger", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarFlanger"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -201,7 +201,7 @@ class GuitarPhaserProcessorNode : public EffectProcessorNode
 public:
     GuitarPhaserProcessorNode() : EffectProcessorNode ("Guitar Phaser", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarPhaser"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -234,7 +234,7 @@ class GuitarTremoloProcessorNode : public EffectProcessorNode
 public:
     GuitarTremoloProcessorNode() : EffectProcessorNode ("Guitar Tremolo", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarTremolo"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -267,7 +267,7 @@ class GuitarReverbProcessorNode : public EffectProcessorNode
 public:
     GuitarReverbProcessorNode() : EffectProcessorNode ("Guitar Reverb", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarReverb"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -300,7 +300,7 @@ class GuitarNoiseGateProcessorNode : public EffectProcessorNode
 public:
     GuitarNoiseGateProcessorNode() : EffectProcessorNode ("Guitar Gate", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarNoiseGate"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -333,7 +333,7 @@ class ToneStackProcessorNode : public EffectProcessorNode
 public:
     ToneStackProcessorNode() : EffectProcessorNode ("Tone Stack", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarToneStack"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -366,7 +366,7 @@ class CabSimProcessorNode : public EffectProcessorNode
 public:
     CabSimProcessorNode() : EffectProcessorNode ("Cab Sim", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarCabSim"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {
@@ -531,7 +531,7 @@ class CabIRProcessorNode : public EffectProcessorNode
 public:
     CabIRProcessorNode() : EffectProcessorNode ("Cab IR", 2, 2) {}
     juce::String getEffectType() const override { return "GuitarCabIR"; }
-    juce::String getNodeCategory() const { return "Guitar"; }
+    juce::String getNodeCategory() const override { return "Guitar"; }
 
     void prepareToPlay (double sr, int bs) override
     {

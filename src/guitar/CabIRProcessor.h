@@ -124,7 +124,7 @@ public:
 
     void loadIRFromMemory (const void* data, size_t dataSize)
     {
-        currentIRFile = {};
+        currentIRFile = juce::File();
         currentIRName = "Built-in IR";
 
         convolution.loadImpulseResponse (
