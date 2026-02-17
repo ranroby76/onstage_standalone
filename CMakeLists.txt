@@ -1,4 +1,3 @@
-
 # D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
 cmake_minimum_required(VERSION 3.22)
 project(Colosseum VERSION 1.0.0)
@@ -187,11 +186,9 @@ set(COMMON_DEFINITIONS
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
     JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_VST=1
 )
 
 if(PLATFORM_WINDOWS)
@@ -214,15 +211,17 @@ if(PLATFORM_LINUX)
 endif()
 
 # =============================================================================
-# VST2 Support - Manual loading via L button (no background scanning)
+# VST2 Support - Manual loading (no background scanning)
+# Only enabled when VST2 SDK is available (Windows local builds)
 # =============================================================================
 set(VST2_SDK_PATH "D:/Workspace/vst2sdk" CACHE PATH "Path to VST2 SDK")
 
 if(EXISTS "${VST2_SDK_PATH}/pluginterfaces/vst2.x/aeffectx.h")
     message(STATUS "VST2 SDK found - enabling VST2 hosting support")
     target_include_directories(SubterraneumApp PRIVATE ${VST2_SDK_PATH})
+    target_compile_definitions(SubterraneumApp PRIVATE JUCE_PLUGINHOST_VST=1)
 else()
-    message(WARNING "VST2 SDK not found at ${VST2_SDK_PATH} - VST2 hosting disabled")
+    message(STATUS "VST2 SDK not found - VST2 hosting disabled")
     target_compile_definitions(SubterraneumApp PRIVATE JUCE_PLUGINHOST_VST=0)
 endif()
 
