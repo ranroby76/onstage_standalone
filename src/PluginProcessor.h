@@ -43,7 +43,7 @@ public:
     // =========================================================================
     class PluginTransportPlayHead : public juce::AudioPlayHead {
     public:
-        PluginTransportPlayHead(MeteringProcessor& owner) : owner(owner) {}
+        PluginTransportPlayHead(MeteringProcessor& ownerRef) : owner(ownerRef) {}
         
         juce::Optional<PositionInfo> getPosition() const override
         {
@@ -178,13 +178,13 @@ public:
     
     const BusInfo* getInputBusInfo(int busIndex) const {
         if (busIndex >= 0 && busIndex < static_cast<int>(inputBusInfo.size()))
-            return &inputBusInfo[busIndex];
+            return &inputBusInfo[static_cast<size_t>(busIndex)];
         return nullptr;
     }
     
     const BusInfo* getOutputBusInfo(int busIndex) const {
         if (busIndex >= 0 && busIndex < static_cast<int>(outputBusInfo.size()))
-            return &outputBusInfo[busIndex];
+            return &outputBusInfo[static_cast<size_t>(busIndex)];
         return nullptr;
     }
     
