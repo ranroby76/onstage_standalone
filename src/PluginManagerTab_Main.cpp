@@ -5,6 +5,10 @@
 // FIX: checkForCrashedScan included
 // FIX: Rescan status label for visual feedback
 // FIX: Dark orange-purple button color
+// FIX: X button click detection - use e.x directly (already in item-local coordinates)
+// FIX: buildTree() preserves expand/collapse state across rebuilds
+// FIX: Darker folder/vendor header rectangles
+// NEW: Eye toggle - hide/show plugins from Add menus (persisted to settings)
 
 #include "PluginManagerTab.h"
 #include "BackgroundPluginScanner.h"
@@ -99,6 +103,12 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
         "- EFFECTS: Show only effect plugins\n"
         "- ALL: Show everything\n"
         "- Sort By: Organize by Type or Vendor\n\n"
+        "VISIBILITY (Eye Icon)\n"
+        "---------------------------------------------\n"
+        "Click the eye icon next to any plugin to\n"
+        "hide/show it in the Add Plugins menus.\n"
+        "Hidden plugins stay in your library but\n"
+        "won't appear in right-click or browser.\n\n"
         "USING PLUGINS\n"
         "---------------------------------------------\n"
         "1. Go to the Rack tab\n"
@@ -360,9 +370,44 @@ void PluginManagerTab::rescanExistingPlugins() {
 }
 
 // =============================================================================
-// Build Tree View
+// FIX: Save/restore expanded state across tree rebuilds
+// =============================================================================
+void PluginManagerTab::saveExpandedState() {
+    expandedFolders.clear();
+    
+    if (auto* root = pluginTree.getRootItem()) {
+        for (int i = 0; i < root->getNumSubItems(); ++i) {
+            auto* sub = root->getSubItem(i);
+            if (sub && sub->isOpen()) {
+                if (auto* treeItem = dynamic_cast<PluginTreeItem*>(sub)) {
+                    expandedFolders.insert(treeItem->name);
+                }
+            }
+        }
+    }
+}
+
+void PluginManagerTab::restoreExpandedState() {
+    if (expandedFolders.empty()) return;
+    
+    if (auto* root = pluginTree.getRootItem()) {
+        for (int i = 0; i < root->getNumSubItems(); ++i) {
+            if (auto* treeItem = dynamic_cast<PluginTreeItem*>(root->getSubItem(i))) {
+                if (expandedFolders.count(treeItem->name) > 0) {
+                    treeItem->setOpen(true);
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Build Tree View - FIX: Preserves expand/collapse state, loads hidden state
 // =============================================================================
 void PluginManagerTab::buildTree() {
+    // FIX: Save which folders are expanded before destroying the tree
+    saveExpandedState();
+    
     pluginTree.setRootItem(nullptr);
     
     auto types = processor.knownPluginList.getTypes();
@@ -398,6 +443,7 @@ void PluginManagerTab::buildTree() {
             for (const auto& p : pair.second) {
                 auto* item = new PluginTreeItem(p.name, p, true);
                 item->parentTab = this;
+                item->hiddenFromMenus = isPluginHidden(p);
                 vendorItem->addSubItem(item);
             }
             root->addSubItem(vendorItem);
@@ -411,6 +457,7 @@ void PluginManagerTab::buildTree() {
         for (const auto& p : filtered) {
             auto* item = new PluginTreeItem(p.name, p, false);
             item->parentTab = this;
+            item->hiddenFromMenus = isPluginHidden(p);
             if (p.isInstrument)
                 instrFolder->addSubItem(item);
             else
@@ -425,6 +472,9 @@ void PluginManagerTab::buildTree() {
     }
     
     pluginTree.setRootItem(root);
+    
+    // FIX: Restore which folders were expanded
+    restoreExpandedState();
 }
 
 void PluginManagerTab::showScanDialog() {
@@ -497,6 +547,38 @@ void PluginManagerTab::removePluginFromList(const juce::PluginDescription& desc)
         userSettings->saveIfNeeded();
     }
     
+    buildTree();
+}
+
+// =============================================================================
+// NEW: Plugin Visibility (Eye Toggle) - Hide/show plugins from Add menus
+// =============================================================================
+juce::String PluginManagerTab::getPluginVisibilityKey(const juce::PluginDescription& desc) {
+    return "PluginHidden_" + desc.fileOrIdentifier.replaceCharacters(" :/\\.", "_____") 
+           + "_" + juce::String(desc.uniqueId);
+}
+
+bool PluginManagerTab::isPluginHidden(const juce::PluginDescription& desc) {
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        return userSettings->getBoolValue(getPluginVisibilityKey(desc), false);
+    }
+    return false;
+}
+
+void PluginManagerTab::setPluginHidden(const juce::PluginDescription& desc, bool hidden) {
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (hidden) {
+            userSettings->setValue(getPluginVisibilityKey(desc), true);
+        } else {
+            userSettings->removeValue(getPluginVisibilityKey(desc));
+        }
+        userSettings->saveIfNeeded();
+    }
+}
+
+void PluginManagerTab::togglePluginVisibility(const juce::PluginDescription& desc) {
+    bool currentlyHidden = isPluginHidden(desc);
+    setPluginHidden(desc, !currentlyHidden);
     buildTree();
 }
 
@@ -602,10 +684,15 @@ juce::Colour PluginManagerTab::PluginTreeItem::getFormatColor() const {
     return SubterraneumAudioProcessor::getFormatColor(description.pluginFormatName);
 }
 
+// FIX: Darker folder/vendor headers, eye toggle icon, dimmed text when hidden
 void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h) {
     if (!isPlugin) { 
-        g.setColour(juce::Colours::grey);
-        g.drawRect(0, 0, w, h, 1); 
+        // FIX: Darker folder/vendor header - subtle dark background instead of bright outline
+        g.setColour(juce::Colour(0xFF2A2A2A));
+        g.fillRect(0, 0, w, h);
+        g.setColour(juce::Colour(0xFF444444));
+        g.drawRect(0, 0, w, h, 1);
+        
         g.setColour(juce::Colours::white);
         g.setFont(juce::Font(14.0f, juce::Font::bold));
         g.drawText(name, 25, 0, w-25, h, juce::Justification::centredLeft);
@@ -616,6 +703,7 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         juce::String formatBadge = getFormatBadge();
         juce::Colour formatColor = getFormatColor();
         
+        // Format badge (left side)
         int badgeWidth = 40;
         int badgeHeight = h - 4;
         int badgeX = 5;
@@ -628,6 +716,7 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         g.setFont(juce::Font(10.0f, juce::Font::bold));
         g.drawText(formatBadge, badgeX, badgeY, badgeWidth, badgeHeight, juce::Justification::centred);
         
+        // Delete X button (far right)
         int deleteBtnWidth = 20;
         int deleteBtnHeight = h - 6;
         int deleteBtnX = w - deleteBtnWidth - 5;
@@ -639,10 +728,33 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         g.setFont(juce::Font(10.0f, juce::Font::bold));
         g.drawText("X", deleteBtnX, deleteBtnY, deleteBtnWidth, deleteBtnHeight, juce::Justification::centred);
         
-        g.setColour(juce::Colours::lightgrey);
+        // NEW: Eye visibility toggle button (left of X button)
+        int eyeBtnWidth = 24;
+        int eyeBtnHeight = h - 6;
+        int eyeBtnX = deleteBtnX - eyeBtnWidth - 4;
+        int eyeBtnY = 3;
+        
+        if (hiddenFromMenus) {
+            // Hidden state - dim, dark background
+            g.setColour(juce::Colour(0xFF3A3A3A));
+            g.fillRoundedRectangle((float)eyeBtnX, (float)eyeBtnY, (float)eyeBtnWidth, (float)eyeBtnHeight, 3.0f);
+            g.setColour(juce::Colours::grey.darker());
+            g.setFont(juce::Font(13.0f));
+            g.drawText(juce::String::charToString(0x2014), eyeBtnX, eyeBtnY, eyeBtnWidth, eyeBtnHeight, juce::Justification::centred);
+        } else {
+            // Visible state - green background, bright icon
+            g.setColour(juce::Colour(0xFF2A4A2A));
+            g.fillRoundedRectangle((float)eyeBtnX, (float)eyeBtnY, (float)eyeBtnWidth, (float)eyeBtnHeight, 3.0f);
+            g.setColour(juce::Colours::lightgreen);
+            g.setFont(juce::Font(14.0f));
+            g.drawText(juce::String::charToString(0x25C9), eyeBtnX, eyeBtnY, eyeBtnWidth, eyeBtnHeight, juce::Justification::centred);
+        }
+        
+        // Plugin name text - dimmed if hidden
+        g.setColour(hiddenFromMenus ? juce::Colours::grey : juce::Colours::lightgrey);
         g.setFont(14.0f);
         int textStartX = badgeX + badgeWidth + 8;
-        int textEndX = deleteBtnX - 8;
+        int textEndX = eyeBtnX - 8;
         
         if (showColumns) {
             const int COL_NAME = 200, COL_VENDOR = 150, COL_CAT = 100, COL_VER = 80;
@@ -651,7 +763,7 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
             g.drawText(name, x, 0, COL_NAME - 5, h, juce::Justification::centredLeft);
             x += COL_NAME;
             
-            g.setColour(juce::Colours::grey);
+            g.setColour(hiddenFromMenus ? juce::Colours::grey.darker() : juce::Colours::grey);
             g.drawText(description.manufacturerName, x, 0, COL_VENDOR - 5, h, juce::Justification::centredLeft);
             x += COL_VENDOR;
             
@@ -669,6 +781,8 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
     }
 }
 
+// FIX: e.x is already in item-local coordinates - no getEventRelativeTo needed
+// NEW: Added eye toggle click handling
 void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
     if (!isPlugin) {
         setOpen(!isOpen());
@@ -678,13 +792,19 @@ void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
     auto itemBounds = getItemPosition(true);
     int w = itemBounds.getWidth();
     
+    // FIX: e.x is already in item-local coordinates - no conversion needed
+    int clickX = e.x;
+    
+    // Delete X button bounds
     int deleteBtnWidth = 20;
     int deleteBtnX = w - deleteBtnWidth - 5;
     
-    auto localPos = e.getEventRelativeTo(getOwnerView()).getPosition();
-    localPos.x -= itemBounds.getX();
+    // Eye toggle button bounds
+    int eyeBtnWidth = 24;
+    int eyeBtnX = deleteBtnX - eyeBtnWidth - 4;
     
-    if (localPos.x >= deleteBtnX && localPos.x <= deleteBtnX + deleteBtnWidth) {
+    // Check X button click
+    if (clickX >= deleteBtnX && clickX <= deleteBtnX + deleteBtnWidth) {
         if (parentTab != nullptr) {
             juce::AlertWindow::showOkCancelBox(
                 juce::MessageBoxIconType::QuestionIcon,
@@ -699,6 +819,15 @@ void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
                     }
                 }));
         }
+        return;
+    }
+    
+    // NEW: Check eye toggle button click
+    if (clickX >= eyeBtnX && clickX <= eyeBtnX + eyeBtnWidth) {
+        if (parentTab != nullptr) {
+            parentTab->togglePluginVisibility(description);
+        }
+        return;
     }
 }
 

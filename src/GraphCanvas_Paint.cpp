@@ -1,12 +1,19 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Paint.cpp
 // FIXED: Added RecorderProcessor visualization
 // FIX: Added folder button to recorder, fixed layout
+// NEW: Added ManualSampler, AutoSampler, MidiPlayer visualization
 
 #include "GraphCanvas.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
 #include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
+#include "ManualSamplerProcessor.h"
+#include "AutoSamplerProcessor.h"
+#include "MidiPlayerProcessor.h"
+#include "CCStepperProcessor.h"
+#include "TransientSplitterProcessor.h"
 
 void GraphCanvas::paint(juce::Graphics& g)
 {
@@ -162,6 +169,24 @@ void GraphCanvas::paint(juce::Graphics& g)
         
         g.drawText(title, titleBounds.reduced(5, 0), juce::Justification::centredLeft, true);
         
+        // Auto Sampling chain LED: white rectangle with red circle
+        if (cache && cache->inSamplingChain)
+        {
+            float ledW = 14.0f, ledH = 10.0f;
+            float ledX = titleBounds.getRight() - ledW - 5.0f;
+            float ledY = titleBounds.getCentreY() - ledH / 2.0f;
+            auto ledRect = juce::Rectangle<float>(ledX, ledY, ledW, ledH);
+            
+            g.setColour(juce::Colours::white);
+            g.fillRoundedRectangle(ledRect, 2.0f);
+            
+            float circleSize = 6.0f;
+            g.setColour(juce::Colours::red);
+            g.fillEllipse(ledRect.getCentreX() - circleSize / 2.0f,
+                          ledRect.getCentreY() - circleSize / 2.0f,
+                          circleSize, circleSize);
+        }
+        
         // Get processor for visualization checks
         auto* proc = node->getProcessor();
 
@@ -289,7 +314,11 @@ void GraphCanvas::paint(juce::Graphics& g)
                 {
                     anyActivity = true;
                     
-                    juce::Colour textColor = event.isNoteOn ? juce::Colour(0, 255, 100) : juce::Colour(255, 150, 0);
+                    juce::Colour textColor;
+                    if (event.isCC)
+                        textColor = juce::Colour(80, 200, 255);   // Cyan for CC
+                    else
+                        textColor = event.isNoteOn ? juce::Colour(0, 255, 100) : juce::Colour(255, 150, 0);
                     g.setColour(textColor);
                     
                     juce::String text = event.toString();
@@ -510,6 +539,643 @@ void GraphCanvas::paint(juce::Graphics& g)
         }
         // =====================================================================
         // END RECORDER VISUALIZATION
+        // =====================================================================
+
+        // =====================================================================
+        // MANUAL SAMPLER VISUALIZATION (480×180)
+        // Armed button, status, note display, file count, meters, waveform
+        // =====================================================================
+        if (auto* manualSampler = dynamic_cast<ManualSamplerProcessor*>(proc))
+        {
+            bool armed = manualSampler->getArmed();
+            bool recording = manualSampler->isCurrentlyRecording();
+            auto contentArea = bounds.reduced(8, 6);
+            
+            // ROW 1: Family name textbox + file count
+            auto nameRow = contentArea.removeFromTop(24);
+            auto countArea = nameRow.removeFromRight(70);
+            auto nameBoxArea = nameRow.reduced(0, 2);
+            
+            g.setColour(juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(nameBoxArea, 4.0f);
+            g.setColour(juce::Colours::grey);
+            g.drawRoundedRectangle(nameBoxArea, 4.0f, 1.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(12.0f));
+            g.drawText(manualSampler->getFamilyName(), nameBoxArea.reduced(6, 0), juce::Justification::centredLeft);
+            
+            g.setColour(juce::Colour(120, 120, 140));
+            g.setFont(juce::Font(10.0f));
+            g.drawText(juce::String(manualSampler->getTotalFilesRecorded()) + " files", countArea, juce::Justification::centredRight);
+            
+            contentArea.removeFromTop(4);
+            
+            // ROW 2: Armed button + Status + Note display + Meters
+            auto controlRow = contentArea.removeFromTop(44);
+            
+            // ARMED button (50x38)
+            auto armBtnArea = controlRow.removeFromLeft(50).reduced(3);
+            g.setColour(armed ? (recording ? juce::Colour(80, 20, 20) : juce::Colour(60, 40, 10)) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(armBtnArea, 8.0f);
+            g.setColour(armed ? (recording ? juce::Colours::red : juce::Colours::orange) : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(armBtnArea, 8.0f, 1.5f);
+            
+            if (recording) {
+                float circleSize = armBtnArea.getHeight() * 0.45f;
+                auto circleArea = armBtnArea.withSizeKeepingCentre(circleSize, circleSize);
+                g.setColour(juce::Colours::red);
+                g.fillEllipse(circleArea);
+                g.setColour(juce::Colours::red.withAlpha(0.25f));
+                g.fillEllipse(circleArea.expanded(4));
+            } else {
+                g.setColour(armed ? juce::Colours::orange : juce::Colour(100, 100, 120));
+                g.setFont(juce::Font(10.0f, juce::Font::bold));
+                g.drawText("ARM", armBtnArea, juce::Justification::centred);
+            }
+            
+            controlRow.removeFromLeft(8);
+            
+            // Note display
+            auto noteArea = controlRow.removeFromLeft(80);
+            g.setColour(juce::Colour(30, 30, 35));
+            g.fillRoundedRectangle(noteArea, 4.0f);
+            
+            if (recording) {
+                g.setColour(juce::Colours::lightgreen);
+                g.setFont(juce::Font(18.0f, juce::Font::bold));
+                g.drawText(ManualSamplerProcessor::midiNoteToName(manualSampler->getLastRecordedNote()), noteArea, juce::Justification::centred);
+            } else if (armed) {
+                g.setColour(juce::Colours::orange.withAlpha(0.6f));
+                g.setFont(juce::Font(11.0f, juce::Font::italic));
+                g.drawText("Waiting...", noteArea, juce::Justification::centred);
+            } else {
+                g.setColour(juce::Colour(80, 80, 100));
+                g.setFont(juce::Font(11.0f));
+                g.drawText("--", noteArea, juce::Justification::centred);
+            }
+            
+            // Level meters on right
+            auto meterArea = controlRow.removeFromRight(28).reduced(2, 4);
+            float meterW = (meterArea.getWidth() - 2) / 2.0f;
+            float meterH = meterArea.getHeight();
+            float levelL = juce::jlimit(0.0f, 1.0f, manualSampler->getLeftLevel());
+            float levelR = juce::jlimit(0.0f, 1.0f, manualSampler->getRightLevel());
+            
+            auto meterL = juce::Rectangle<float>(meterArea.getX(), meterArea.getY(), meterW, meterH);
+            g.setColour(juce::Colour(25, 25, 30));
+            g.fillRect(meterL);
+            if (levelL > 0.0f) {
+                float fillH = levelL * meterH;
+                g.setColour(levelL < 0.7f ? juce::Colours::limegreen : (levelL < 0.9f ? juce::Colours::yellow : juce::Colours::red));
+                g.fillRect(meterL.getX(), meterL.getBottom() - fillH, meterW, fillH);
+            }
+            auto meterR = juce::Rectangle<float>(meterArea.getX() + meterW + 2, meterArea.getY(), meterW, meterH);
+            g.setColour(juce::Colour(25, 25, 30));
+            g.fillRect(meterR);
+            if (levelR > 0.0f) {
+                float fillH = levelR * meterH;
+                g.setColour(levelR < 0.7f ? juce::Colours::limegreen : (levelR < 0.9f ? juce::Colours::yellow : juce::Colours::red));
+                g.fillRect(meterR.getX(), meterR.getBottom() - fillH, meterW, fillH);
+            }
+            
+            contentArea.removeFromTop(4);
+            
+            // ROW 3: Waveform display (remaining space)
+            auto waveformArea = contentArea.reduced(0, 2);
+            g.setColour(juce::Colour(18, 18, 22));
+            g.fillRoundedRectangle(waveformArea, 6.0f);
+            g.setColour(juce::Colour(60, 60, 70));
+            g.drawHorizontalLine((int)waveformArea.getCentreY(), waveformArea.getX() + 2, waveformArea.getRight() - 2);
+            g.setColour(juce::Colour(70, 70, 80));
+            g.drawRoundedRectangle(waveformArea, 6.0f, 1.0f);
+            
+            // Silence threshold line
+            float threshDB = manualSampler->getSilenceThresholdDb();
+            float threshLinear = std::pow(10.0f, threshDB / 20.0f);
+            float threshY = waveformArea.getCentreY() - (threshLinear * (waveformArea.getHeight() - 8) * 0.48f);
+            g.setColour(juce::Colours::red.withAlpha(0.3f));
+            g.drawHorizontalLine((int)threshY, waveformArea.getX() + 2, waveformArea.getRight() - 2);
+        }
+        // =====================================================================
+        // END MANUAL SAMPLER VISUALIZATION
+        // =====================================================================
+
+        // =====================================================================
+        // AUTO SAMPLER VISUALIZATION (480×180)
+        // Progress, Start/Stop, current note, meters, waveform
+        // =====================================================================
+        if (auto* autoSampler = dynamic_cast<AutoSamplerProcessor*>(proc))
+        {
+            bool running = autoSampler->isRunning();
+            auto contentArea = bounds.reduced(8, 6);
+            
+            // ROW 1: Family name textbox + progress
+            auto nameRow = contentArea.removeFromTop(24);
+            auto progressArea = nameRow.removeFromRight(90);
+            auto nameBoxArea = nameRow.reduced(0, 2);
+            
+            g.setColour(juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(nameBoxArea, 4.0f);
+            g.setColour(juce::Colours::grey);
+            g.drawRoundedRectangle(nameBoxArea, 4.0f, 1.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(12.0f));
+            g.drawText(autoSampler->getFamilyName(), nameBoxArea.reduced(6, 0), juce::Justification::centredLeft);
+            
+            g.setColour(running ? juce::Colours::lightgreen : juce::Colour(120, 120, 140));
+            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.drawText(juce::String(autoSampler->getCurrentNoteIndex()) + " / " + juce::String(autoSampler->getTotalNotes()),
+                       progressArea, juce::Justification::centredRight);
+            
+            contentArea.removeFromTop(4);
+            
+            // ROW 2: Start/Stop + E button indicator + current note + meters
+            auto controlRow = contentArea.removeFromTop(44);
+            
+            // Start/Stop button (50x38)
+            auto startBtnArea = controlRow.removeFromLeft(50).reduced(3);
+            g.setColour(running ? juce::Colour(20, 60, 20) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(startBtnArea, 8.0f);
+            g.setColour(running ? juce::Colours::green.darker() : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(startBtnArea, 8.0f, 1.5f);
+            
+            if (running) {
+                float sqSize = startBtnArea.getHeight() * 0.35f;
+                auto sq = startBtnArea.withSizeKeepingCentre(sqSize, sqSize);
+                g.setColour(juce::Colour(60, 140, 220));
+                g.fillRect(sq);
+            } else {
+                float triH = startBtnArea.getHeight() * 0.45f;
+                auto center = startBtnArea.getCentre();
+                juce::Path tri;
+                tri.addTriangle(
+                    center.x - triH * 0.35f, center.y - triH * 0.5f,
+                    center.x - triH * 0.35f, center.y + triH * 0.5f,
+                    center.x + triH * 0.55f, center.y);
+                g.setColour(juce::Colour(80, 200, 80));
+                g.fillPath(tri);
+            }
+            
+            controlRow.removeFromLeft(8);
+            
+            // Current note display
+            auto noteArea = controlRow.removeFromLeft(80);
+            g.setColour(juce::Colour(30, 30, 35));
+            g.fillRoundedRectangle(noteArea, 4.0f);
+            
+            if (running) {
+                g.setColour(juce::Colours::lightgreen);
+                g.setFont(juce::Font(16.0f, juce::Font::bold));
+                g.drawText(AutoSamplerProcessor::midiNoteToName(autoSampler->getCurrentNote()), noteArea, juce::Justification::centred);
+            } else {
+                g.setColour(juce::Colour(80, 80, 100));
+                g.setFont(juce::Font(11.0f));
+                int total = autoSampler->getTotalNotes();
+                g.drawText(total > 0 ? juce::String(total) + " notes" : "No notes", noteArea, juce::Justification::centred);
+            }
+            
+            // Level meters on right
+            auto meterArea = controlRow.removeFromRight(28).reduced(2, 4);
+            float meterW = (meterArea.getWidth() - 2) / 2.0f;
+            float meterH = meterArea.getHeight();
+            float levelL = juce::jlimit(0.0f, 1.0f, autoSampler->getLeftLevel());
+            float levelR = juce::jlimit(0.0f, 1.0f, autoSampler->getRightLevel());
+            
+            auto meterL = juce::Rectangle<float>(meterArea.getX(), meterArea.getY(), meterW, meterH);
+            g.setColour(juce::Colour(25, 25, 30));
+            g.fillRect(meterL);
+            if (levelL > 0.0f) {
+                float fillH = levelL * meterH;
+                g.setColour(levelL < 0.7f ? juce::Colours::limegreen : (levelL < 0.9f ? juce::Colours::yellow : juce::Colours::red));
+                g.fillRect(meterL.getX(), meterL.getBottom() - fillH, meterW, fillH);
+            }
+            auto meterR = juce::Rectangle<float>(meterArea.getX() + meterW + 2, meterArea.getY(), meterW, meterH);
+            g.setColour(juce::Colour(25, 25, 30));
+            g.fillRect(meterR);
+            if (levelR > 0.0f) {
+                float fillH = levelR * meterH;
+                g.setColour(levelR < 0.7f ? juce::Colours::limegreen : (levelR < 0.9f ? juce::Colours::yellow : juce::Colours::red));
+                g.fillRect(meterR.getX(), meterR.getBottom() - fillH, meterW, fillH);
+            }
+            
+            contentArea.removeFromTop(4);
+            
+            // ROW 3: Waveform display / Instructions
+            auto waveformArea = contentArea.reduced(0, 2);
+            g.setColour(juce::Colour(18, 18, 22));
+            g.fillRoundedRectangle(waveformArea, 6.0f);
+            g.setColour(juce::Colour(60, 60, 70));
+            g.drawHorizontalLine((int)waveformArea.getCentreY(), waveformArea.getX() + 2, waveformArea.getRight() - 2);
+            g.setColour(juce::Colour(70, 70, 80));
+            g.drawRoundedRectangle(waveformArea, 6.0f, 1.0f);
+            
+            // Show instructions when idle
+            if (!running && autoSampler->getTotalNotes() == 0) {
+                g.setColour(juce::Colour(90, 90, 110));
+                g.setFont(juce::Font(10.0f));
+                g.drawText("1. Connect MIDI out to VSTi chain",
+                           waveformArea.reduced(8, 0).removeFromTop(waveformArea.getHeight() / 3 + 4),
+                           juce::Justification::centredLeft);
+                g.drawText("2. Press E to configure notes",
+                           waveformArea.reduced(8, 0).withTrimmedTop((int)(waveformArea.getHeight() / 3)),
+                           juce::Justification::centredLeft);
+                g.drawText("3. Press Play to auto-sample",
+                           waveformArea.reduced(8, 0).removeFromBottom(waveformArea.getHeight() / 3 + 4),
+                           juce::Justification::centredLeft);
+            }
+            
+            // Progress bar at bottom of waveform
+            if (running && autoSampler->getTotalNotes() > 0) {
+                float progress = (float)autoSampler->getCurrentNoteIndex() / (float)autoSampler->getTotalNotes();
+                auto progBar = waveformArea.removeFromBottom(4);
+                g.setColour(juce::Colour(40, 180, 80).withAlpha(0.6f));
+                g.fillRect(progBar.getX(), progBar.getY(), progBar.getWidth() * progress, progBar.getHeight());
+            }
+        }
+        // =====================================================================
+        // END AUTO SAMPLER VISUALIZATION
+        // =====================================================================
+
+        // =====================================================================
+        // MIDI PLAYER VISUALIZATION (480×180)
+        // Filename + LOAD, Transport buttons, BPM, Channel dots, Slider
+        // =====================================================================
+        if (auto* midiPlayer = dynamic_cast<MidiPlayerProcessor*>(proc))
+        {
+            bool playing = midiPlayer->isPlaying();
+            bool paused = midiPlayer->isPaused();
+            bool hasFile = midiPlayer->hasFileLoaded();
+            bool looping = midiPlayer->isLooping();
+            auto contentArea = bounds.reduced(8, 6);
+            
+            // TOP ROW: Filename + Load + Info buttons
+            auto topRow = contentArea.removeFromTop(26);
+            auto infoBtnArea = topRow.removeFromRight(34);
+            topRow.removeFromRight(4);
+            auto loadBtnArea = topRow.removeFromRight(68);
+            topRow.removeFromRight(6);
+            auto fileArea = topRow;
+            
+            // Filename display
+            g.setColour(juce::Colour(30, 30, 35));
+            g.fillRoundedRectangle(fileArea, 4.0f);
+            g.setColour(juce::Colour(60, 60, 70));
+            g.drawRoundedRectangle(fileArea, 4.0f, 1.0f);
+            
+            if (hasFile) {
+                g.setColour(juce::Colours::white);
+                g.setFont(juce::Font(13.0f));
+                juce::String fname = midiPlayer->getFileName();
+                if (fname.length() > 35) fname = fname.substring(0, 32) + "...";
+                g.drawText(fname, fileArea.reduced(8, 0), juce::Justification::centredLeft);
+            } else {
+                g.setColour(juce::Colour(100, 100, 120));
+                g.setFont(juce::Font(12.0f, juce::Font::italic));
+                g.drawText("No file loaded", fileArea.reduced(8, 0), juce::Justification::centredLeft);
+            }
+            
+            // LOAD button
+            g.setColour(juce::Colour(60, 100, 160));
+            g.fillRoundedRectangle(loadBtnArea, 5.0f);
+            g.setColour(juce::Colour(80, 130, 200));
+            g.drawRoundedRectangle(loadBtnArea, 5.0f, 1.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.drawText("LOAD", loadBtnArea, juce::Justification::centred);
+            
+            // E button (editor - channel mute table)
+            g.setColour(hasFile ? juce::Colours::cyan.darker() : juce::Colour(50, 50, 55));
+            g.fillRoundedRectangle(infoBtnArea, 5.0f);
+            g.setColour(hasFile ? juce::Colour(60, 180, 200) : juce::Colour(70, 70, 80));
+            g.drawRoundedRectangle(infoBtnArea, 5.0f, 1.0f);
+            g.setColour(hasFile ? juce::Colours::black : juce::Colours::grey);
+            g.setFont(juce::Font(13.0f, juce::Font::bold));
+            g.drawText("E", infoBtnArea, juce::Justification::centred);
+            
+            contentArea.removeFromTop(6);
+            
+            // MIDDLE ROW: Transport + BPM + Channel dots
+            auto controlRow = contentArea.removeFromTop(44);
+            
+            // PLAY/PAUSE button (50x38)
+            auto playBtnArea = controlRow.removeFromLeft(50).reduced(3);
+            g.setColour(playing ? juce::Colour(20, 70, 20) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(playBtnArea, 8.0f);
+            g.setColour(playing ? juce::Colours::green.darker() : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(playBtnArea, 8.0f, 1.5f);
+            
+            if (playing) {
+                float barW = 4.0f, barH = playBtnArea.getHeight() * 0.45f;
+                float cx = playBtnArea.getCentreX(), cy = playBtnArea.getCentreY();
+                g.setColour(juce::Colours::limegreen);
+                g.fillRect(cx - barW - 1.5f, cy - barH / 2, barW, barH);
+                g.fillRect(cx + 1.5f, cy - barH / 2, barW, barH);
+            } else {
+                float triH = playBtnArea.getHeight() * 0.5f;
+                auto center = playBtnArea.getCentre();
+                juce::Path tri;
+                tri.addTriangle(
+                    center.x - triH * 0.35f, center.y - triH * 0.5f,
+                    center.x - triH * 0.35f, center.y + triH * 0.5f,
+                    center.x + triH * 0.55f, center.y);
+                g.setColour(paused ? juce::Colours::yellow : juce::Colour(80, 200, 80));
+                g.fillPath(tri);
+            }
+            
+            if (playing) {
+                g.setColour(juce::Colours::green.withAlpha(0.12f));
+                g.fillRoundedRectangle(playBtnArea.expanded(3), 10.0f);
+            }
+            
+            controlRow.removeFromLeft(4);
+            
+            // STOP button (50x38)
+            auto stopBtnArea = controlRow.removeFromLeft(50).reduced(3);
+            g.setColour(juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(stopBtnArea, 8.0f);
+            g.setColour(juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(stopBtnArea, 8.0f, 1.5f);
+            float sqSize = stopBtnArea.getHeight() * 0.38f;
+            auto sq = stopBtnArea.withSizeKeepingCentre(sqSize, sqSize);
+            g.setColour(juce::Colour(60, 140, 220));
+            g.fillRect(sq);
+            
+            controlRow.removeFromLeft(4);
+            
+            // LOOP toggle (50x38)
+            auto loopBtnArea = controlRow.removeFromLeft(50).reduced(3);
+            g.setColour(looping ? juce::Colour(20, 60, 80) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(loopBtnArea, 8.0f);
+            g.setColour(looping ? juce::Colour(0, 180, 220) : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(loopBtnArea, 8.0f, 1.5f);
+            g.setColour(looping ? juce::Colour(0, 220, 255) : juce::Colour(100, 100, 120));
+            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.drawText("LOOP", loopBtnArea, juce::Justification::centred);
+            
+            controlRow.removeFromLeft(10);
+            
+            // BPM Knob Display (drag up/down to change tempo)
+            auto bpmArea = controlRow.removeFromLeft(60);
+            double bpm = midiPlayer->getCurrentBpm();
+            bool synced = midiPlayer->isSyncToMaster();
+            
+            g.setColour(synced ? juce::Colour(30, 30, 35) : juce::Colour(40, 35, 20));
+            g.fillRoundedRectangle(bpmArea, 4.0f);
+            g.setColour(synced ? juce::Colour(60, 60, 70) : juce::Colour(180, 140, 40));
+            g.drawRoundedRectangle(bpmArea, 4.0f, 1.0f);
+            
+            g.setColour(synced ? juce::Colour(200, 200, 220) : juce::Colours::orange);
+            g.setFont(juce::Font(16.0f, juce::Font::bold));
+            g.drawText(juce::String(bpm, 1), bpmArea.reduced(4, 0), juce::Justification::centred);
+            g.setColour(juce::Colour(120, 120, 140));
+            g.setFont(juce::Font(8.0f));
+            g.drawText("BPM", bpmArea.reduced(2, 1), juce::Justification::bottomRight);
+            
+            // Up/down arrows to hint draggable
+            float arrowX = bpmArea.getRight() - 8;
+            float arrowMidY = bpmArea.getCentreY();
+            g.setColour(synced ? juce::Colour(80, 80, 100) : juce::Colour(180, 140, 40).withAlpha(0.6f));
+            juce::Path upArrow, downArrow;
+            upArrow.addTriangle(arrowX, arrowMidY - 3, arrowX - 3, arrowMidY - 7, arrowX + 3, arrowMidY - 7);
+            downArrow.addTriangle(arrowX, arrowMidY + 3, arrowX - 3, arrowMidY + 7, arrowX + 3, arrowMidY + 7);
+            g.fillPath(upArrow);
+            g.fillPath(downArrow);
+            
+            controlRow.removeFromLeft(4);
+            
+            // SYNC button
+            auto syncBtnArea = controlRow.removeFromLeft(32).reduced(2, 6);
+            g.setColour(synced ? juce::Colour(20, 60, 80) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(syncBtnArea, 4.0f);
+            g.setColour(synced ? juce::Colour(0, 180, 220) : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(syncBtnArea, 4.0f, 1.0f);
+            g.setColour(synced ? juce::Colour(0, 220, 255) : juce::Colour(100, 100, 120));
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.drawText("SYNC", syncBtnArea, juce::Justification::centred);
+            
+            controlRow.removeFromLeft(6);
+            
+            // Channel Activity Dots (2 rows x 8)
+            auto chArea = controlRow;
+            if (chArea.getWidth() > 70)
+            {
+                float dotSize = 8.0f, dotSpacing = 11.0f;
+                float startX = chArea.getX();
+                float topY = chArea.getCentreY() - dotSpacing + 1;
+                
+                for (int row = 0; row < 2; row++)
+                {
+                    for (int col = 0; col < 8; col++)
+                    {
+                        int ch = row * 8 + col;
+                        float x = startX + col * dotSpacing;
+                        float y = topY + row * (dotSpacing + 2);
+                        auto dotRect = juce::Rectangle<float>(x, y, dotSize, dotSize);
+                        
+                        bool muted = midiPlayer->isChannelMuted(ch);
+                        
+                        if (muted) {
+                            // Muted channel: red X dot
+                            g.setColour(juce::Colour(80, 30, 30));
+                            g.fillEllipse(dotRect);
+                            g.setColour(juce::Colour(180, 60, 60));
+                            g.drawLine(dotRect.getX() + 2, dotRect.getY() + 2,
+                                       dotRect.getRight() - 2, dotRect.getBottom() - 2, 1.5f);
+                            g.drawLine(dotRect.getRight() - 2, dotRect.getY() + 2,
+                                       dotRect.getX() + 2, dotRect.getBottom() - 2, 1.5f);
+                        } else if (midiPlayer->isChannelActive(ch)) {
+                            juce::Colour dotColor = (ch == 9) ? juce::Colour(255, 160, 40) : juce::Colour(60, 220, 100);
+                            g.setColour(dotColor);
+                            g.fillEllipse(dotRect);
+                            g.setColour(dotColor.withAlpha(0.3f));
+                            g.fillEllipse(dotRect.expanded(2));
+                        } else {
+                            g.setColour(juce::Colour(40, 40, 48));
+                            g.fillEllipse(dotRect);
+                        }
+                    }
+                }
+            }
+            
+            contentArea.removeFromTop(6);
+            
+            // BOTTOM: Time + Slider
+            auto bottomArea = contentArea;
+            auto timeRow = bottomArea.removeFromTop(16);
+            
+            double currentSec = midiPlayer->getCurrentTimeSeconds();
+            double totalSec = midiPlayer->getTotalTimeSeconds();
+            int curMin = (int)(currentSec / 60.0), curSec2 = (int)currentSec % 60;
+            int totMin = (int)(totalSec / 60.0), totSec2 = (int)totalSec % 60;
+            
+            g.setColour(playing ? juce::Colours::lightgreen : juce::Colour(180, 180, 200));
+            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.drawText(juce::String::formatted("%d:%02d", curMin, curSec2),
+                       timeRow.removeFromLeft(45), juce::Justification::centredLeft);
+            g.setColour(juce::Colour(100, 100, 120));
+            g.setFont(juce::Font(11.0f));
+            g.drawText(juce::String::formatted("/ %d:%02d", totMin, totSec2),
+                       timeRow.removeFromLeft(55), juce::Justification::centredLeft);
+            
+            // Current section from markers
+            auto& mkrs = midiPlayer->getMarkers();
+            if (!mkrs.empty()) {
+                juce::String currentSection;
+                double curTick = midiPlayer->getCurrentTick();
+                for (int mi = (int)mkrs.size() - 1; mi >= 0; mi--) {
+                    if (curTick >= mkrs[mi].tick) { currentSection = mkrs[mi].name; break; }
+                }
+                if (currentSection.isNotEmpty()) {
+                    g.setColour(juce::Colour(150, 180, 220));
+                    g.setFont(juce::Font(10.0f));
+                    g.drawText(currentSection, timeRow, juce::Justification::centredRight);
+                }
+            }
+            
+            bottomArea.removeFromTop(4);
+            
+            // POSITION SLIDER
+            auto sliderArea = bottomArea.reduced(0, 1);
+            float trackH = 10.0f;
+            float trackY = sliderArea.getCentreY() - trackH / 2;
+            float trackX = sliderArea.getX() + 6;
+            float trackW = sliderArea.getWidth() - 12;
+            auto trackRect = juce::Rectangle<float>(trackX, trackY, trackW, trackH);
+            
+            g.setColour(juce::Colour(20, 20, 25));
+            g.fillRoundedRectangle(trackRect, 5.0f);
+            g.setColour(juce::Colour(50, 50, 60));
+            g.drawRoundedRectangle(trackRect, 5.0f, 1.0f);
+            
+            double pos = midiPlayer->getPositionNormalized();
+            float fillW = (float)(pos * trackW);
+            
+            if (fillW > 0.5f) {
+                auto fillRect = juce::Rectangle<float>(trackX, trackY, fillW, trackH);
+                g.setGradientFill(juce::ColourGradient(
+                    juce::Colour(20, 60, 140), trackX, trackY,
+                    juce::Colour(40, 140, 255), trackX + fillW, trackY, false));
+                g.fillRoundedRectangle(fillRect, 5.0f);
+            }
+            
+            // Marker ticks
+            if (!mkrs.empty() && midiPlayer->getTotalTicks() > 0) {
+                double totalT = midiPlayer->getTotalTicks();
+                g.setColour(juce::Colour(200, 200, 100).withAlpha(0.5f));
+                for (auto& marker : mkrs) {
+                    float mx = trackX + (float)(marker.tick / totalT) * trackW;
+                    g.drawVerticalLine((int)mx, trackY - 2, trackY + trackH + 2);
+                }
+            }
+            
+            // Thumb
+            float thumbX = trackX + fillW;
+            float thumbRadius = 8.0f;
+            auto thumbRect = juce::Rectangle<float>(
+                thumbX - thumbRadius, sliderArea.getCentreY() - thumbRadius,
+                thumbRadius * 2, thumbRadius * 2);
+            
+            g.setColour(juce::Colours::black.withAlpha(0.3f));
+            g.fillEllipse(thumbRect.translated(1, 1));
+            g.setColour(playing ? juce::Colour(60, 180, 255) : juce::Colour(160, 160, 180));
+            g.fillEllipse(thumbRect);
+            g.setColour(juce::Colours::white.withAlpha(0.35f));
+            g.fillEllipse(thumbRect.reduced(3));
+            g.setColour(juce::Colours::white.withAlpha(0.5f));
+            g.drawEllipse(thumbRect, 1.5f);
+        }
+        // =====================================================================
+        // END MIDI PLAYER VISUALIZATION
+        // =====================================================================
+
+        // =====================================================================
+        // STEP SEQ - Compact transport-only node
+        // Layout:
+        //   TOP:    Play/Stop + BPM display + Sync button + Slot counter
+        //   BOTTOM: E + X buttons (drawn by drawNodeButtons)
+        // =====================================================================
+        if (auto* ccStepper = dynamic_cast<CCStepperProcessor*>(proc))
+        {
+            bool stepSeqPlaying = ccStepper->isPlaying();
+            auto contentArea = bounds.reduced(8, 6);
+
+            // --- SINGLE ROW: Transport + BPM + Sync + Counter ---
+            auto topRow = contentArea.removeFromTop(28);
+
+            // PLAY/STOP button
+            auto playBtnArea = topRow.removeFromLeft(50).reduced(2);
+            g.setColour(stepSeqPlaying ? juce::Colour(20, 70, 20) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(playBtnArea, 6.0f);
+            g.setColour(stepSeqPlaying ? juce::Colours::green.darker() : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(playBtnArea, 6.0f, 1.0f);
+
+            if (stepSeqPlaying) {
+                float sqSize = playBtnArea.getHeight() * 0.38f;
+                auto sq = playBtnArea.withSizeKeepingCentre(sqSize, sqSize);
+                g.setColour(juce::Colour(60, 140, 220));
+                g.fillRect(sq);
+            } else {
+                float triH = playBtnArea.getHeight() * 0.5f;
+                auto center = playBtnArea.getCentre();
+                juce::Path tri;
+                tri.addTriangle(
+                    center.x - triH * 0.35f, center.y - triH * 0.5f,
+                    center.x - triH * 0.35f, center.y + triH * 0.5f,
+                    center.x + triH * 0.55f, center.y);
+                g.setColour(juce::Colour(80, 200, 80));
+                g.fillPath(tri);
+            }
+
+            if (stepSeqPlaying) {
+                g.setColour(juce::Colours::green.withAlpha(0.12f));
+                g.fillRoundedRectangle(playBtnArea.expanded(2), 8.0f);
+            }
+
+            topRow.removeFromLeft(6);
+
+            // BPM display (draggable)
+            auto bpmArea = topRow.removeFromLeft(70);
+            double bpmVal = ccStepper->isSyncToMasterBpm() ? ccStepper->getEffectiveBpm() : ccStepper->getBpm();
+
+            g.setColour(juce::Colour(30, 30, 35));
+            g.fillRoundedRectangle(bpmArea, 4.0f);
+            g.setColour(juce::Colour(60, 60, 70));
+            g.drawRoundedRectangle(bpmArea, 4.0f, 1.0f);
+
+            g.setColour(juce::Colour(200, 200, 220));
+            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.drawText(juce::String(bpmVal, 1), bpmArea.reduced(4, 0), juce::Justification::centredLeft);
+            g.setColour(juce::Colour(120, 120, 140));
+            g.setFont(juce::Font(8.0f));
+            g.drawText("BPM", bpmArea.reduced(4, 2), juce::Justification::bottomRight);
+
+            topRow.removeFromLeft(4);
+
+            // SYNC button
+            auto syncBtnArea = topRow.removeFromLeft(32).reduced(1, 3);
+            bool synced = ccStepper->isSyncToMasterBpm();
+            g.setColour(synced ? juce::Colour(30, 90, 30) : juce::Colour(45, 45, 50));
+            g.fillRoundedRectangle(syncBtnArea, 4.0f);
+            g.setColour(synced ? juce::Colours::limegreen.darker() : juce::Colour(80, 80, 90));
+            g.drawRoundedRectangle(syncBtnArea, 4.0f, 1.0f);
+            g.setColour(synced ? juce::Colours::limegreen : juce::Colour(120, 120, 140));
+            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.drawText("SYN", syncBtnArea, juce::Justification::centred);
+
+            topRow.removeFromLeft(6);
+
+            // Slot counter
+            int enabledCount = 0;
+            for (int si = 0; si < CCStepperProcessor::MaxSlots; si++)
+                if (ccStepper->getSlot(si).enabled) enabledCount++;
+
+            g.setColour(juce::Colour(140, 140, 160));
+            g.setFont(juce::Font(11.0f));
+            g.drawText(juce::String(enabledCount) + "/16",
+                       topRow, juce::Justification::centredRight);
+        }
+        // =====================================================================
+        // END STEP SEQ VISUALIZATION
         // =====================================================================
 
         // Draw pins
@@ -775,6 +1441,140 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         return;
     }
     
+    // Manual Sampler: F (folder) + X (delete)
+    if (dynamic_cast<ManualSamplerProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+        
+        // F button (folder)
+        auto folderRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colour(60, 60, 65));
+        g.fillRoundedRectangle(folderRect, 3.0f);
+        g.setColour(juce::Colour(200, 180, 100));
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("F", folderRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+        
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+    
+    // Auto Sampler: E (editor) + F (folder) + X (delete)
+    if (dynamic_cast<AutoSamplerProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+        
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+        
+        // F button (folder)
+        auto folderRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colour(60, 60, 65));
+        g.fillRoundedRectangle(folderRect, 3.0f);
+        g.setColour(juce::Colour(200, 180, 100));
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("F", folderRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+        
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+    
+    // MIDI Player: E (editor/mute) + X (delete)
+    if (dynamic_cast<MidiPlayerProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+        
+        // E button (channel mute table)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+        
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+    
+    // Step Seq: E (editor popup) + X (delete)
+    if (dynamic_cast<CCStepperProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+    
+    // Transient Splitter: E (editor popup) + X (delete)
+    if (dynamic_cast<TransientSplitterProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        auto deleteRect2 = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect2, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("X", deleteRect2, juce::Justification::centred);
+        return;
+    }
+    
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(proc);
     bool isInstrument = cache && cache->isInstrument;
 
@@ -836,6 +1636,31 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
 
+    // T button (transport override) - all plugin nodes
+    if (meteringProc)
+    {
+        bool synced = meteringProc->isTransportSynced();
+        auto transportRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(synced ? juce::Colours::yellow.darker(0.4f) : juce::Colours::yellow);
+        g.fillRoundedRectangle(transportRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("T", transportRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+    }
+
+    // L button (load/reload VST2) - VST2 plugin nodes only
+    if (meteringProc && meteringProc->isVST2())
+    {
+        auto loadRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colour(0xFF4DA6FF));  // Blue for VST2
+        g.fillRoundedRectangle(loadRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("L", loadRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+    }
+
     auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
     g.setColour(juce::Colours::darkred);
     g.fillRoundedRectangle(deleteRect, 3.0f);
@@ -859,3 +1684,9 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.setFont(juce::Font(9.0f, juce::Font::bold));
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
 }
+
+
+
+
+
+

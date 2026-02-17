@@ -1,12 +1,20 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_PluginMenu.cpp
 // Plugin menu implementation
 // FIXED: Added Recorder system tool
+// NEW: Hidden plugins (eye toggle) are filtered out of the menu
+// NEW: Added Manual Sampling and Auto Sampling system tools
 
 #include "GraphCanvas.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
 #include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
+#include "ManualSamplerProcessor.h"
+#include "AutoSamplerProcessor.h"
+#include "MidiPlayerProcessor.h"
+#include "CCStepperProcessor.h"
+#include "TransientSplitterProcessor.h"
 #include <fstream>
 #include <chrono>
 #include <ctime>
@@ -78,7 +86,7 @@ private:
 #define LOG(msg) ((void)0)
 
 // =============================================================================
-// PLUGIN MENU WITH ENHANCED DEBUG LOGGING
+// PLUGIN MENU WITH HIDDEN PLUGIN FILTERING
 // =============================================================================
 void GraphCanvas::showPluginMenu()
 {
@@ -88,16 +96,29 @@ void GraphCanvas::showPluginMenu()
 
     m.addSectionHeader("Add Node");
     m.addSeparator();
-    m.addItem(1, "Connector");
-    m.addItem(2, "Stereo Meter");
-    m.addItem(3, "MIDI Monitor");
-    m.addItem(4, "Recorder");
+    
+    // System Tools submenu
+    juce::PopupMenu systemToolsMenu;
+    systemToolsMenu.addItem(1, "Connector");
+    systemToolsMenu.addItem(2, "Stereo Meter");
+    systemToolsMenu.addItem(3, "MIDI Monitor");
+    systemToolsMenu.addItem(4, "Recorder");
+    systemToolsMenu.addItem(6, "Manual Sampling");
+    systemToolsMenu.addItem(7, "Auto Sampling");
+    systemToolsMenu.addItem(8, "MIDI Player");
+    systemToolsMenu.addItem(9, "Step Seq");
+    systemToolsMenu.addItem(10, "Transient Splitter");
+    #if JUCE_PLUGINHOST_VST
+    systemToolsMenu.addSeparator();
+    systemToolsMenu.addItem(5, "VST2 Plugin...");
+    #endif
+    m.addSubMenu("System Tools", systemToolsMenu);
     m.addSeparator();
 
     if (processor.knownPluginList.getNumTypes() == 0)
     {
         LOG("No plugins found in list");
-        m.addItem(10, "No plugins found. Please scan via Plugin Manager tab.", true, false);
+        m.addItem(11, "No plugins found. Please scan via Plugin Manager tab.", true, false);
     }
     else
     {
@@ -106,9 +127,19 @@ void GraphCanvas::showPluginMenu()
         auto types = processor.knownPluginList.getTypes();
         const int idBase = 100;
 
+        // NEW: Helper lambda to check if a plugin is hidden via eye toggle
+        auto* userSettings = processor.appProperties.getUserSettings();
+        auto isHidden = [&](const juce::PluginDescription& desc) -> bool {
+            if (!userSettings) return false;
+            juce::String key = "PluginHidden_" + desc.fileOrIdentifier.replaceCharacters(" :/\\.", "_____")
+                               + "_" + juce::String(desc.uniqueId);
+            return userSettings->getBoolValue(key, false);
+        };
+
         std::vector<juce::PluginDescription> instruments, effects;
         for (auto& t : types)
         {
+            if (isHidden(t)) continue;  // NEW: Skip hidden plugins
             if (t.isInstrument) instruments.push_back(t);
             else effects.push_back(t);
         }
@@ -122,7 +153,7 @@ void GraphCanvas::showPluginMenu()
                 std::map<juce::String, juce::Array<int>> vendorMap;
                 for (int i = 0; i < (int)types.size(); ++i)
                 {
-                    if (types[(size_t)i].isInstrument)
+                    if (types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]))
                     {
                         juce::String vendor = types[(size_t)i].manufacturerName.isEmpty()
                                             ? "Unknown"
@@ -148,7 +179,7 @@ void GraphCanvas::showPluginMenu()
             {
                 for (int i = 0; i < (int)types.size(); ++i)
                 {
-                    if (types[(size_t)i].isInstrument)
+                    if (types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]))
                         instrMenu.addItem(idBase + i, types[(size_t)i].name);
                 }
             }
@@ -165,7 +196,7 @@ void GraphCanvas::showPluginMenu()
                 std::map<juce::String, juce::Array<int>> vendorMap;
                 for (int i = 0; i < (int)types.size(); ++i)
                 {
-                    if (!types[(size_t)i].isInstrument)
+                    if (!types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]))
                     {
                         juce::String vendor = types[(size_t)i].manufacturerName.isEmpty()
                                             ? "Unknown"
@@ -191,7 +222,7 @@ void GraphCanvas::showPluginMenu()
             {
                 for (int i = 0; i < (int)types.size(); ++i)
                 {
-                    if (!types[(size_t)i].isInstrument)
+                    if (!types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]))
                         fxMenu.addItem(idBase + i, types[(size_t)i].name);
                 }
             }
@@ -267,7 +298,72 @@ void GraphCanvas::showPluginMenu()
                 LOG("Recorder added successfully");
             }
         }
+        else if (result == 5)
+        {
+            LOG("VST2 Plugin loader selected");
+            safeThis->loadVST2Plugin(safeThis->lastRightClickPos);
+        }
+        else if (result == 6)
+        {
+            LOG("Adding Manual Sampling node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<ManualSamplerProcessor>());
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("Manual Sampling added successfully");
+            }
+        }
+        else if (result == 7)
+        {
+            LOG("Adding Auto Sampling node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<AutoSamplerProcessor>(safeThis->processor.mainGraph.get(), &safeThis->processor));
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("Auto Sampling added successfully");
+            }
+        }
+        else if (result == 8)
+        {
+            LOG("Adding MIDI Player node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<MidiPlayerProcessor>());
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("MIDI Player added successfully");
+            }
+        }
+        else if (result == 9)
+        {
+            LOG("Adding Step Seq node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<CCStepperProcessor>());
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("Step Seq added successfully");
+            }
+        }
         else if (result == 10)
+        {
+            LOG("Adding Transient Splitter node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<TransientSplitterProcessor>());
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("Transient Splitter added successfully");
+            }
+        }
+        else if (result == 11)
         {
             LOG("No plugins menu item selected");
             return;
@@ -378,3 +474,7 @@ void GraphCanvas::showPluginMenu()
     
     LOG("<<< showPluginMenu() complete");
 }
+
+
+
+

@@ -1,3 +1,4 @@
+
 // FIXED: Plugin drag-and-drop matching - use fileOrIdentifier instead of createIdentifierString()
 // FIXED: Signature must match header exactly (SourceDetails, not juce::DragAndDropTarget::SourceDetails)
 // FIXED: Added Recorder system tool support
@@ -7,6 +8,11 @@
 #include "StereoMeterProcessor.h"
 #include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
+#include "ManualSamplerProcessor.h"
+#include "AutoSamplerProcessor.h"
+#include "MidiPlayerProcessor.h"
+#include "CCStepperProcessor.h"
+#include "TransientSplitterProcessor.h"
 
 bool GraphCanvas::isInterestedInDragSource(const SourceDetails& dragSourceDetails) {
     juce::String dragId = dragSourceDetails.description.toString();
@@ -63,6 +69,21 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
             nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMonitorProcessor()));
         } else if (toolName == "Recorder") {
             nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new RecorderProcessor()));
+        } else if (toolName == "ManualSampler") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new ManualSamplerProcessor()));
+        } else if (toolName == "AutoSampler") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new AutoSamplerProcessor(processor.mainGraph.get(), &processor)));
+        } else if (toolName == "MidiPlayer") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiPlayerProcessor()));
+        } else if (toolName == "StepSeq") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
+        } else if (toolName == "TransientSplitter") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
+        } else if (toolName == "VST2Plugin") {
+            // VST2 opens a file chooser - no node created here
+            loadVST2Plugin(dropPos.toFloat());
+            repaint();
+            return;
         }
         
         if (nodePtr) {
@@ -132,3 +153,5 @@ void GraphCanvas::addPluginAtPosition(const juce::PluginDescription& description
             "OK");
     }
 }
+
+

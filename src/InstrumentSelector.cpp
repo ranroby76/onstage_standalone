@@ -1,4 +1,3 @@
-// D:\Workspace\Subterraneum_plugins_daw\src\InstrumentSelector.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
 // BUG FIX: Suspend audio processing during mode switching to prevent crashes and silence
@@ -8,7 +7,7 @@
 #include "PluginEditor.h"
 
 InstrumentSelector::InstrumentSelector(SubterraneumAudioProcessor& p) : processor(p) { 
-    titleLabel.setText("Instruments", juce::dontSendNotification); 
+    titleLabel.setText("Instruments Selector", juce::dontSendNotification); 
     titleLabel.setFont(juce::Font(14.0f, juce::Font::bold)); 
     titleLabel.setJustificationType(juce::Justification::centredLeft); 
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white); 

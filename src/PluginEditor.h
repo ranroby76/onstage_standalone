@@ -38,6 +38,7 @@ public:
     
     // Keyboard shortcut support
     bool keyPressed(const juce::KeyPress& key) override;
+    void mouseDown(const juce::MouseEvent& e) override;
     
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     
@@ -99,6 +100,15 @@ private:
     // NEW: Send MIDI panic to all instruments
     void sendMidiPanic();
     
+    // =========================================================================
+    // Workspace Selector Bar — 16 switchable sessions
+    // =========================================================================
+    static constexpr int workspaceBarHeight = 28;
+    juce::TextButton workspaceButtons[16];
+    juce::Label workspacesLabel { "wsLabel", "WORKSPACES" };
+    void updateWorkspaceButtonColors();
+    void showWorkspaceContextMenu(int workspaceIndex);
+    
     class VirtualKeyboardWindow : public juce::DocumentWindow { 
     public: 
         VirtualKeyboardWindow(SubterraneumAudioProcessor& p);
@@ -112,3 +122,7 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessorEditor) 
 };
+
+
+
+

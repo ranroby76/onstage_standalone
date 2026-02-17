@@ -119,7 +119,8 @@ RecorderProcessor::RecorderProcessor()
 RecorderProcessor::~RecorderProcessor() {
     unregisterRecorder(this);
     stopRecording();
-    writerThread.stopThread(1000);
+    backgroundWriter.reset();
+    writerThread.stopThread(5000);
 }
 
 // =============================================================================
@@ -368,3 +369,6 @@ void RecorderProcessor::setStateInformation(const void* data, int sizeInBytes) {
         }
     }
 }
+
+
+

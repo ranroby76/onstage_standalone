@@ -1,3 +1,4 @@
+
 # D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
 cmake_minimum_required(VERSION 3.22)
 project(Colosseum VERSION 1.0.0)
@@ -32,6 +33,14 @@ endif()
 # =============================================================================
 set(JUCE_PATH "D:/Workspace/JUCE" CACHE PATH "Path to JUCE")
 set(CLAP_WRAPPER_PATH "" CACHE PATH "Path to clap-wrapper (optional)")
+
+# =============================================================================
+# macOS Deployment Target (must be set before add_subdirectory)
+# =============================================================================
+if(PLATFORM_MAC AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
+    message(STATUS "macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
 
 # =============================================================================
 # Add JUCE
@@ -143,6 +152,11 @@ target_sources(SubterraneumApp PRIVATE
     src/StereoMeterProcessor.cpp
     src/MidiMonitorProcessor.cpp
     src/RecorderProcessor.cpp
+    src/ManualSamplerProcessor.cpp
+    src/AutoSamplerProcessor.cpp
+    src/MidiPlayerProcessor.cpp
+    src/CCStepperProcessor.cpp
+    src/TransientSplitterProcessor.cpp
 
     # -------------------------------------------------------------------------
     # Core / Standalone
@@ -177,7 +191,7 @@ set(COMMON_DEFINITIONS
     JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
     JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_VST=0
+    JUCE_PLUGINHOST_VST=1
 )
 
 if(PLATFORM_WINDOWS)
@@ -200,9 +214,17 @@ if(PLATFORM_LINUX)
 endif()
 
 # =============================================================================
-# VST2 Support - DISABLED for stability
+# VST2 Support - Manual loading via L button (no background scanning)
 # =============================================================================
-message(STATUS "VST2 support disabled for stability (VST3 only)")
+set(VST2_SDK_PATH "D:/Workspace/vst2sdk" CACHE PATH "Path to VST2 SDK")
+
+if(EXISTS "${VST2_SDK_PATH}/pluginterfaces/vst2.x/aeffectx.h")
+    message(STATUS "VST2 SDK found - enabling VST2 hosting support")
+    target_include_directories(SubterraneumApp PRIVATE ${VST2_SDK_PATH})
+else()
+    message(WARNING "VST2 SDK not found at ${VST2_SDK_PATH} - VST2 hosting disabled")
+    target_compile_definitions(SubterraneumApp PRIVATE JUCE_PLUGINHOST_VST=0)
+endif()
 
 target_compile_definitions(SubterraneumApp PRIVATE ${COMMON_DEFINITIONS})
 
@@ -223,6 +245,9 @@ target_link_libraries(SubterraneumApp PRIVATE
     juce::juce_gui_extra
     juce::juce_dsp
     juce::juce_opengl
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
 )
 
 # =============================================================================

@@ -1,6 +1,9 @@
+
+// #D:\Workspace\Subterraneum_plugins_daw\src\PluginBrowserPanel.cpp
 // FIX: Removed vendor from items, removed favorites, added title,
 // collapsible vendor/folder groups, custom drag image for visibility
 // FIX: Added Recorder to System Tools
+// NEW: Hidden plugins (eye toggle) are filtered out
 
 #include "PluginBrowserPanel.h"
 
@@ -77,7 +80,13 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
             case SystemToolType::Connector:   name = "Connector"; break;
             case SystemToolType::StereoMeter: name = "Stereo Meter"; break;
             case SystemToolType::MidiMonitor: name = "MIDI Monitor"; break;
-            case SystemToolType::Recorder:    name = "Recorder"; break;  // NEW
+            case SystemToolType::Recorder:       name = "Recorder"; break;
+            case SystemToolType::ManualSampler:  name = "Manual Sampling"; break;
+            case SystemToolType::AutoSampler:    name = "Auto Sampling"; break;
+            case SystemToolType::MidiPlayer:     name = "MIDI Player"; break;
+            case SystemToolType::StepSeq:        name = "Step Seq"; break;
+            case SystemToolType::TransientSplitter: name = "Transient Splitter"; break;
+            case SystemToolType::VST2Plugin:     name = "VST2 Plugin..."; break;
             default: name = "Unknown";
         }
     } else {
@@ -110,9 +119,33 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
                         dragId = "TOOL:MidiMonitor"; 
                         displayName = "MIDI Monitor";
                         break;
-                    case SystemToolType::Recorder:    // NEW
+                    case SystemToolType::Recorder:
                         dragId = "TOOL:Recorder"; 
                         displayName = "Recorder";
+                        break;
+                    case SystemToolType::ManualSampler:
+                        dragId = "TOOL:ManualSampler"; 
+                        displayName = "Manual Sampling";
+                        break;
+                    case SystemToolType::AutoSampler:
+                        dragId = "TOOL:AutoSampler"; 
+                        displayName = "Auto Sampling";
+                        break;
+                    case SystemToolType::MidiPlayer:
+                        dragId = "TOOL:MidiPlayer"; 
+                        displayName = "MIDI Player";
+                        break;
+                    case SystemToolType::StepSeq:
+                        dragId = "TOOL:StepSeq"; 
+                        displayName = "Step Seq";
+                        break;
+                    case SystemToolType::TransientSplitter:
+                        dragId = "TOOL:TransientSplitter"; 
+                        displayName = "Transient Splitter";
+                        break;
+                    case SystemToolType::VST2Plugin:
+                        dragId = "TOOL:VST2Plugin"; 
+                        displayName = "VST2 Plugin...";
                         break;
                     default: 
                         dragId = "TOOL:Unknown";
@@ -360,6 +393,42 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(r);
     y += 34;
     
+    auto* ms = items.add(new PluginBrowserItem(SystemToolType::ManualSampler));
+    ms->setBounds(0, y, getWidth(), 32);
+    ms->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ms);
+    y += 34;
+    
+    auto* as = items.add(new PluginBrowserItem(SystemToolType::AutoSampler));
+    as->setBounds(0, y, getWidth(), 32);
+    as->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(as);
+    y += 34;
+    
+    auto* mp = items.add(new PluginBrowserItem(SystemToolType::MidiPlayer));
+    mp->setBounds(0, y, getWidth(), 32);
+    mp->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(mp);
+    y += 34;
+    
+    auto* ss = items.add(new PluginBrowserItem(SystemToolType::StepSeq));
+    ss->setBounds(0, y, getWidth(), 32);
+    ss->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ss);
+    y += 34;
+    
+    auto* ts = items.add(new PluginBrowserItem(SystemToolType::TransientSplitter));
+    ts->setBounds(0, y, getWidth(), 32);
+    ts->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ts);
+    y += 34;
+    
+    auto* v2 = items.add(new PluginBrowserItem(SystemToolType::VST2Plugin));
+    v2->setBounds(0, y, getWidth(), 32);
+    v2->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(v2);
+    y += 34;
+    
     setSize(getWidth(), y + 10);
 }
 
@@ -486,9 +555,18 @@ void PluginBrowserPanel::textEditorTextChanged(juce::TextEditor&) {
     applyFilters();
 }
 
-void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) { applyFilters(); }
+void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) {
+    applyFilters();
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+    viewport.setViewPosition(0, 0);
+    repaint();
+}
 
-void PluginBrowserPanel::refresh() { updateButtons(); applyFilters(); }
+void PluginBrowserPanel::refresh() {
+    updateButtons();
+    applyFilters();
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+}
 
 void PluginBrowserPanel::updateButtons() {
     allBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::All ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
@@ -505,7 +583,7 @@ void PluginBrowserPanel::updateButtons() {
 void PluginBrowserPanel::applyFilters() {
     if (typeFilter == TypeFilter::Tools) {
         pluginList->setSystemTools();
-        countLabel.setText("4 tools", juce::dontSendNotification);  // FIXED: was "3 tools"
+        countLabel.setText("4 tools", juce::dontSendNotification);
         return;
     }
     
@@ -515,13 +593,23 @@ void PluginBrowserPanel::applyFilters() {
     countLabel.setText(juce::String(filtered.size()) + " plugin" + (filtered.size() != 1 ? "s" : ""), juce::dontSendNotification);
 }
 
+// NEW: Filters out hidden plugins (eye toggle in Plugin Manager tab)
 juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     auto all = processor.knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> result;
     
+    auto* userSettings = processor.appProperties.getUserSettings();
+    
     for (const auto& p : all) {
         if (typeFilter == TypeFilter::Instruments && !p.isInstrument) continue;
         if (typeFilter == TypeFilter::Effects && p.isInstrument) continue;
+        
+        // NEW: Skip hidden plugins (eye toggle)
+        if (userSettings) {
+            juce::String key = "PluginHidden_" + p.fileOrIdentifier.replaceCharacters(" :/\\.", "_____")
+                               + "_" + juce::String(p.uniqueId);
+            if (userSettings->getBoolValue(key, false)) continue;
+        }
         
         if (searchText.isNotEmpty()) {
             juce::String s = searchText.toLowerCase();
@@ -532,3 +620,6 @@ juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     }
     return result;
 }
+
+
+

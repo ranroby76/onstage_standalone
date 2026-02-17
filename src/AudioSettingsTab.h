@@ -1,3 +1,4 @@
+
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Added timeSigValueLabel to display current time signature
 // FIX: Added recording folder selection button
@@ -8,6 +9,8 @@
 #include "Style.h"
 #include "MidiSelectors.h"
 #include "PluginProcessor.h"
+#include "ManualSamplerProcessor.h"
+#include "AutoSamplerProcessor.h"
 
 // Custom LookAndFeel for gold sliders (moved from StudioTab)
 class GoldSliderLookAndFeel : public juce::LookAndFeel_V4
@@ -98,11 +101,16 @@ private:
     
     juce::ComboBox deviceCombo; 
     juce::TextButton controlPanelBtn { "Control Panel" };
+    juce::TextButton reconnectMidiBtn { "Reconnect MIDI Devices" };
     juce::Label statusLabel { "status", "" };
     
     // Recording folder selection (aligned right in driver settings)
     juce::TextButton recordingFolderBtn { "Set Recording Folder..." };
     juce::Label recordingFolderLabel { "recFolder", "" };
+    
+    // Sampler folder selection (next to recording folder)
+    juce::TextButton samplerFolderBtn { "Set Sampler Folder..." };
+    juce::Label samplerFolderLabel { "sampFolder", "" };
     
     // =========================================================================
     // MIDI Settings - Split into Inputs and Outputs
@@ -192,4 +200,15 @@ private:
     // Recording folder helpers
     void selectRecordingFolder();
     void updateRecordingFolderLabel();
+    
+    // Sampler folder helpers
+    void selectSamplerFolder();
+    void updateSamplerFolderLabel();
+    
+    // MIDI reconnection
+    void reconnectMidiDevices();
 };
+
+
+
+
