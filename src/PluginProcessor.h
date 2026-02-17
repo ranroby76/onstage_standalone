@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
@@ -619,6 +620,7 @@ public:
     
     bool sortPluginsByVendor = true;
     bool instrumentSelectorMultiMode = true;  // FIX #2: Multi-mode is now default
+    float rackZoomLevel = 1.0f;  // Zoom level for Rack tab (0.25 - 2.0)
     
     static juce::AudioDeviceManager* standaloneDeviceManager;
     
@@ -659,4 +661,6 @@ private:
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
+
+
 

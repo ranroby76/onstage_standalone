@@ -7,6 +7,7 @@
 // MidiMonitorProcessor - Visual MIDI activity monitor module
 // Shows real-time MIDI messages in simple numeric format: status, channel, data1, data2
 // Example: "144, 1, 60, 100" (Note On, Ch 1, Note 60, Vel 100)
+// CC:      "CC 74, Ch 1, Val 64"
 // 6x height, 2x width - displays up to 16 channels simultaneously
 // MIDI input only, no audio, no MIDI output (MIDI is consumed for display)
 // =============================================================================
@@ -16,16 +17,19 @@ public:
     struct MidiEventInfo {
         bool isActive = false;          // Is this slot showing an event?
         bool isNoteOn = false;          // true = Note On, false = Note Off
+        bool isCC = false;              // true = CC message
         int channel = 1;                // MIDI channel 1-16
         int noteNumber = 60;            // MIDI note 0-127
         int velocity = 0;               // Velocity 0-127
+        int ccNumber = 0;               // CC# 0-127 (when isCC)
+        int ccValue = 0;                // CC value 0-127 (when isCC)
         
-        // FIX: Simple numeric format instead of text descriptions
-        // Returns: "status, channel, note, velocity"
-        // Example: "144, 1, 60, 100" for Note On Ch1 C4 vel100
-        // Example: "128, 1, 60, 0" for Note Off Ch1 C4
         juce::String toString() const {
-            // MIDI status byte: Note On = 144 (0x90), Note Off = 128 (0x80)
+            if (isCC)
+            {
+                return juce::String::formatted("CC %d, Ch %d, Val %d",
+                                              ccNumber, channel, ccValue);
+            }
             int statusByte = isNoteOn ? 144 : 128;
             return juce::String::formatted("%d, %d, %d, %d", 
                                           statusByte,
@@ -64,13 +68,12 @@ public:
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     
     // Get MIDI events for display (one per channel, up to 16)
-    // Returns array of 16 event slots (one per MIDI channel)
     std::array<MidiEventInfo, 16> getMidiEvents() const;
     
     // Check if any MIDI activity is happening
     bool hasActivity() const;
     
-    // FIX: Track if MIDI events have changed since last read (for efficient repainting)
+    // Track if MIDI events have changed since last read (for efficient repainting)
     bool hasChanged() const { return midiEventsChanged.load(); }
     void clearChanged() { midiEventsChanged.store(false); }
     
@@ -78,11 +81,10 @@ public:
     
 private:
     // Thread-safe storage for MIDI events (one slot per MIDI channel 1-16)
-    // FIX #4: Sample-and-hold - events stay visible until next message
     std::array<MidiEventInfo, 16> midiEvents;
     juce::CriticalSection midiEventsLock;
     
-    // FIX: Track when MIDI data changes for efficient repainting
+    // Track when MIDI data changes for efficient repainting
     std::atomic<bool> midiEventsChanged { false };
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiMonitorProcessor)

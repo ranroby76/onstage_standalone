@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\AutoSamplerEditorComponent.h
 // AUTO SAMPLER EDITOR - Popup for E button
 // Text editor for note/velocity syntax with Load/Save preset support
@@ -19,7 +20,7 @@ public:
         // Title
         // =====================================================================
         titleLabel.setText("Auto Sampler Editor", juce::dontSendNotification);
-        titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+        titleLabel.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
         titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
         titleLabel.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(titleLabel);
@@ -41,7 +42,7 @@ public:
             "    using midpoints between notes as split boundaries\n"
             "  Files: RecFolder/Family.sfz + Family/samples/*.wav",
             juce::dontSendNotification);
-        helpLabel.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 10.5f, juce::Font::plain));
+        helpLabel.setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::plain).withName(juce::Font::getDefaultMonospacedFontName())));
         helpLabel.setColour(juce::Label::textColourId, juce::Colour(160, 160, 180));
         helpLabel.setJustificationType(juce::Justification::topLeft);
         addAndMakeVisible(helpLabel);
@@ -52,7 +53,7 @@ public:
         textEditor.setMultiLine(true, true);
         textEditor.setReturnKeyStartsNewLine(true);
         textEditor.setScrollbarsShown(true);
-        textEditor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 13.0f, juce::Font::plain));
+        textEditor.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::plain).withName(juce::Font::getDefaultMonospacedFontName())));
         textEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(30, 30, 35));
         textEditor.setColour(juce::TextEditor::textColourId, juce::Colour(220, 220, 240));
         textEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(70, 70, 80));
@@ -76,7 +77,7 @@ public:
         // =====================================================================
         // Parse Count Label (shows how many files will be generated)
         // =====================================================================
-        parseCountLabel.setFont(juce::Font(12.0f));
+        parseCountLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         parseCountLabel.setColour(juce::Label::textColourId, juce::Colour(100, 200, 100));
         parseCountLabel.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(parseCountLabel);
@@ -87,7 +88,7 @@ public:
         // Settings: Silence Threshold
         // =====================================================================
         threshLabel.setText("Silence Threshold (dB):", juce::dontSendNotification);
-        threshLabel.setFont(juce::Font(12.0f));
+        threshLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         threshLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(threshLabel);
         
@@ -104,7 +105,7 @@ public:
         // Settings: Silence Duration
         // =====================================================================
         durLabel.setText("Silence Duration (ms):", juce::dontSendNotification);
-        durLabel.setFont(juce::Font(12.0f));
+        durLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         durLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(durLabel);
         
@@ -121,7 +122,7 @@ public:
         // Settings: Note Hold Time
         // =====================================================================
         holdLabel.setText("Note Hold Time (ms):", juce::dontSendNotification);
-        holdLabel.setFont(juce::Font(12.0f));
+        holdLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         holdLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(holdLabel);
         
@@ -292,3 +293,4 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AutoSamplerEditorComponent)
 };
+

@@ -1,4 +1,5 @@
 
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\MidiPlayerProcessor.cpp
 // MIDI FILE PLAYER - Implementation
 // Handles Type 0 and Type 1 MIDI files with embedded tempo maps
@@ -534,9 +535,9 @@ void MidiPlayerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     if (syncToMaster.load())
     {
         // Sync to master: read BPM from host/app playhead
-        if (auto* playHead = getPlayHead())
+        if (auto* pHead = getPlayHead())
         {
-            auto posInfo = playHead->getPosition();
+            auto posInfo = pHead->getPosition();
             if (posInfo.hasValue())
             {
                 auto bpmOpt = posInfo->getBpm();
@@ -822,6 +823,8 @@ void MidiPlayerProcessor::setStateInformation(const void* data, int sizeInBytes)
             channelMuted[i].store((muteMask >> i) & 1);
     }
 }
+
+
 
 
 

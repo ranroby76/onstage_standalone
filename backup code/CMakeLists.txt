@@ -34,6 +34,14 @@ set(JUCE_PATH "D:/Workspace/JUCE" CACHE PATH "Path to JUCE")
 set(CLAP_WRAPPER_PATH "" CACHE PATH "Path to clap-wrapper (optional)")
 
 # =============================================================================
+# macOS Deployment Target (must be set before add_subdirectory)
+# =============================================================================
+if(PLATFORM_MAC AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
+    message(STATUS "macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
+
+# =============================================================================
 # Add JUCE
 # =============================================================================
 add_subdirectory(${JUCE_PATH} ${CMAKE_BINARY_DIR}/JUCE)
@@ -44,12 +52,36 @@ if(EXISTS "${CLAP_WRAPPER_PATH}/CMakeLists.txt")
 endif()
 
 # =============================================================================
+# macOS Icon - Check if .icns exists
+# =============================================================================
+set(MACOS_ICON_FILE "")
+if(PLATFORM_MAC)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
+        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
+        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
+        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
+        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
+    else()
+        message(STATUS "No macOS .icns icon found - the GitHub Actions workflow will convert icon.ico automatically")
+    endif()
+endif()
+
+# =============================================================================
 # Standalone Application Target
 # =============================================================================
 juce_add_gui_app(SubterraneumApp
     PRODUCT_NAME "Colosseum"
     COMPANY_NAME "Subcore"
     BUNDLE_ID "com.subcore.colosseum"
+    # macOS specific settings
+    ICON_BIG "${MACOS_ICON_FILE}"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Colosseum needs access to your microphone for audio input recording."
+    HARDENED_RUNTIME_ENABLED TRUE
+    HARDENED_RUNTIME_OPTIONS "com.apple.security.cs.allow-jit;com.apple.security.cs.allow-unsigned-executable-memory;com.apple.security.cs.disable-library-validation;com.apple.security.device.audio-input"
+    PLIST_TO_MERGE "${CMAKE_SOURCE_DIR}/src/Info.plist"
+    APP_SANDBOX_ENABLED FALSE
 )
 
 juce_generate_juce_header(SubterraneumApp)
@@ -69,16 +101,11 @@ target_sources(SubterraneumApp PRIVATE
     src/PluginProcessor_06_AudioAndPresets.cpp
 
     # -------------------------------------------------------------------------
-    # PluginManagerTab (simplified - VST3 only, crash-free scanning)
+    # PluginManagerTab (VST3 + AU scanning)
     # -------------------------------------------------------------------------
     src/PluginManagerTab_Main.cpp
     src/PluginManagerTab_Scanner.cpp
-    src/PluginManagerTab_FoldersPanel.cpp
-
-    # -------------------------------------------------------------------------
-    # VST3 Module Scanner (reads moduleinfo.json - no binary loading)
-    # -------------------------------------------------------------------------
-    src/VST3ModuleScanner.cpp
+    src/PluginManagerTab_Folders.cpp
 
     # -------------------------------------------------------------------------
     # GraphCanvas (split into 9 files)
@@ -124,6 +151,11 @@ target_sources(SubterraneumApp PRIVATE
     src/StereoMeterProcessor.cpp
     src/MidiMonitorProcessor.cpp
     src/RecorderProcessor.cpp
+    src/ManualSamplerProcessor.cpp
+    src/AutoSamplerProcessor.cpp
+    src/MidiPlayerProcessor.cpp
+    src/CCStepperProcessor.cpp
+    src/TransientSplitterProcessor.cpp
 
     # -------------------------------------------------------------------------
     # Core / Standalone
@@ -154,11 +186,9 @@ set(COMMON_DEFINITIONS
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
     JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_VST=0
 )
 
 if(PLATFORM_WINDOWS)
@@ -181,9 +211,19 @@ if(PLATFORM_LINUX)
 endif()
 
 # =============================================================================
-# VST2 Support - DISABLED for stability
+# VST2 Support - Manual loading (no background scanning)
+# Only enabled when VST2 SDK is available (Windows local builds)
 # =============================================================================
-message(STATUS "VST2 support disabled for stability (VST3 only)")
+set(VST2_SDK_PATH "D:/Workspace/vst2sdk" CACHE PATH "Path to VST2 SDK")
+
+if(EXISTS "${VST2_SDK_PATH}/pluginterfaces/vst2.x/aeffectx.h")
+    message(STATUS "VST2 SDK found - enabling VST2 hosting support")
+    target_include_directories(SubterraneumApp PRIVATE ${VST2_SDK_PATH})
+    target_compile_definitions(SubterraneumApp PRIVATE JUCE_PLUGINHOST_VST=1)
+else()
+    message(STATUS "VST2 SDK not found - VST2 hosting disabled")
+    target_compile_definitions(SubterraneumApp PRIVATE JUCE_PLUGINHOST_VST=0)
+endif()
 
 target_compile_definitions(SubterraneumApp PRIVATE ${COMMON_DEFINITIONS})
 
@@ -204,6 +244,9 @@ target_link_libraries(SubterraneumApp PRIVATE
     juce::juce_gui_extra
     juce::juce_dsp
     juce::juce_opengl
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags
 )
 
 # =============================================================================
@@ -235,4 +278,16 @@ endif()
 if(TARGET clap-wrapper)
     target_link_libraries(SubterraneumApp PRIVATE clap-wrapper)
     message(STATUS "CLAP wrapper enabled")
+endif()
+
+# =============================================================================
+# macOS Post-Build: Copy icon to bundle
+# =============================================================================
+if(PLATFORM_MAC AND MACOS_ICON_FILE)
+    add_custom_command(TARGET SubterraneumApp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MACOS_ICON_FILE}"
+            "$<TARGET_BUNDLE_DIR:SubterraneumApp>/Contents/Resources/Icon.icns"
+        COMMENT "Copying macOS icon to bundle"
+    )
 endif()

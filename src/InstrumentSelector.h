@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <JuceHeader.h>
@@ -11,8 +12,8 @@ class TableButtonLookAndFeel : public juce::LookAndFeel_V4 {
 public:
     void drawButtonBackground(juce::Graphics& g, juce::Button& button, 
                             const juce::Colour& backgroundColour,
-                            bool shouldDrawButtonAsHighlighted, 
-                            bool shouldDrawButtonAsDown) override {
+                            bool /*shouldDrawButtonAsHighlighted*/, 
+                            bool /*shouldDrawButtonAsDown*/) override {
         auto bounds = button.getLocalBounds().toFloat();
         
         // Draw flat rectangular button (no rounding)
@@ -51,3 +52,5 @@ private:
     // FIX #2: TooltipWindow to display button tooltips
     juce::TooltipWindow tooltipWindow { this, 700 };  // 700ms delay
 };
+
+

@@ -57,7 +57,9 @@ void GraphCanvas::createConnection(PinID start, PinID end)
 
 juce::AudioProcessorGraph::Connection GraphCanvas::getConnectionAt(juce::Point<float> pos)
 {
-    const float hitTolerance = 5.0f;
+    // FIX: Actual hit tolerance for distance from wire (in pixels)
+    // This is the maximum distance from the actual wire line, not bounding box
+    const float hitTolerance = 3.0f;
 
     auto connections = processor.mainGraph->getConnections();
     
@@ -87,16 +89,45 @@ juce::AudioProcessorGraph::Connection GraphCanvas::getConnectionAt(juce::Point<f
             p.startNewSubPath(start);
             p.cubicTo(start.x, start.y + 50, end.x, end.y - 50, end.x, end.y);
 
-            if (p.getBounds().expanded(hitTolerance).contains(pos))
+            // FIX: Use stroked path for accurate hit detection
+            // This checks actual distance to the curve, not just bounding box
+            juce::Path strokedPath;
+            juce::PathStrokeType stroke(hitTolerance * 2.0f);
+            stroke.createStrokedPath(strokedPath, p);
+            
+            if (strokedPath.contains(pos))
             {
-                // Calculate distance from click point to the wire path
-                // Use the midpoint of the wire as approximation
-                juce::Point<float> wireMidpoint((start.x + end.x) / 2.0f, (start.y + end.y) / 2.0f);
-                float distance = pos.getDistanceFrom(wireMidpoint);
-                
-                if (distance < closestDistance)
+                // Calculate minimum distance to the actual curve by sampling points
+                float minDistance = std::numeric_limits<float>::max();
+                const int numSamples = 20;
+                for (int i = 0; i <= numSamples; ++i)
                 {
-                    closestDistance = distance;
+                    float t = (float)i / (float)numSamples;
+                    // Cubic bezier formula
+                    float oneMinusT = 1.0f - t;
+                    float oneMinusT2 = oneMinusT * oneMinusT;
+                    float oneMinusT3 = oneMinusT2 * oneMinusT;
+                    float t2 = t * t;
+                    float t3 = t2 * t;
+                    
+                    // Control points for the bezier
+                    juce::Point<float> cp1(start.x, start.y + 50);
+                    juce::Point<float> cp2(end.x, end.y - 50);
+                    
+                    // Calculate point on curve
+                    float px = oneMinusT3 * start.x + 3.0f * oneMinusT2 * t * cp1.x + 
+                               3.0f * oneMinusT * t2 * cp2.x + t3 * end.x;
+                    float py = oneMinusT3 * start.y + 3.0f * oneMinusT2 * t * cp1.y + 
+                               3.0f * oneMinusT * t2 * cp2.y + t3 * end.y;
+                    
+                    float dist = pos.getDistanceFrom(juce::Point<float>(px, py));
+                    if (dist < minDistance)
+                        minDistance = dist;
+                }
+                
+                if (minDistance < closestDistance)
+                {
+                    closestDistance = minDistance;
                     closestConnection = connection;
                 }
             }

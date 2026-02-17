@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\TransientSplitterProcessor.h
 // TRANSIENT SPLITTER - Splits audio into transient (attack) and sustain (tonal) components
 // 2-in, 4-out: Transient L/R (ch 0-1), Sustain L/R (ch 2-3)
@@ -73,6 +74,9 @@ public:
 private:
     double currentSampleRate = 44100.0;
     
+    // FIX: Pre-allocated temp buffer — replaces 32KB stack allocation in processBlock
+    juce::AudioBuffer<float> tempBuffer;
+    
     // Envelope followers (per channel)
     float fastEnvL = 0.0f, fastEnvR = 0.0f;   // Fast attack envelope
     float slowEnvL = 0.0f, slowEnvR = 0.0f;   // Slow reference envelope
@@ -100,3 +104,4 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransientSplitterProcessor)
 };
+

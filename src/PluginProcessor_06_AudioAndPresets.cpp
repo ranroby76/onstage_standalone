@@ -1,4 +1,5 @@
 
+
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "RegistrationManager.h"
@@ -187,7 +188,7 @@ bool SubterraneumAudioProcessor::startRecording() {
         return false;
     }
     
-    auto* writer = wavFormat->createWriterFor(outputStream, sampleRate, 2, 24, {}, 0);
+    auto* writer = wavFormat->createWriterFor(outputStream, sampleRate, juce::AudioChannelSet::stereo(), 24, {}, 0);
     
     if (writer != nullptr) {
         backgroundWriter.reset(new juce::AudioFormatWriter::ThreadedWriter(writer, writerThread, 32768));
@@ -257,6 +258,7 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
     audioInputEnabled.store(xml->getBoolAttribute("audioInputEnabled", true));
     audioOutputEnabled.store(xml->getBoolAttribute("audioOutputEnabled", true));
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
+    rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
     
     for (auto* node : mainGraph->getNodes()) {
         if (node != audioInputNode.get() &&
@@ -455,6 +457,7 @@ void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
     root.setAttribute("audioInputEnabled", audioInputEnabled.load());
     root.setAttribute("audioOutputEnabled", audioOutputEnabled.load());
     root.setAttribute("midiInputEnabled", midiInputEnabled.load());
+    root.setAttribute("rackZoomLevel", (double)rackZoomLevel);
     
     auto* nodes = root.createNewChildElement("Nodes");
     for (auto* node : mainGraph->getNodes()) {
@@ -545,6 +548,7 @@ juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
     root.setAttribute("audioOutputEnabled", audioOutputEnabled.load());
     root.setAttribute("midiInputEnabled", midiInputEnabled.load());
     
+    root.setAttribute("rackZoomLevel", (double)rackZoomLevel);
     auto* nodes = root.createNewChildElement("Nodes");
     for (auto* node : mainGraph->getNodes())
     {
@@ -635,6 +639,7 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
     audioOutputEnabled.store(xml->getBoolAttribute("audioOutputEnabled", true));
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
     
+    rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
     // Remove all non-IO nodes
     for (auto* node : mainGraph->getNodes()) {
         if (node != audioInputNode.get() &&
@@ -962,6 +967,8 @@ void SubterraneumAudioProcessor::resetAllWorkspaces()
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
     return new SubterraneumAudioProcessor();
 }
+
+
 
 
 

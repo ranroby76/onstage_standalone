@@ -1,12 +1,19 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Layout.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
-// FIXED: Added RecorderProcessor size (4x width, 3x height)
+// FIXED: Recorder size changed to 2x width, 4x height (narrower & taller)
+// NEW: Added ManualSampler, AutoSampler, MidiPlayer custom sizes
 
 #include "GraphCanvas.h"
 #include "StereoMeterProcessor.h"
 #include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
+#include "ManualSamplerProcessor.h"
+#include "AutoSamplerProcessor.h"
+#include "MidiPlayerProcessor.h"
+#include "CCStepperProcessor.h"
+#include "TransientSplitterProcessor.h"
 
 void GraphCanvas::drawPin(juce::Graphics& g, juce::Point<float> pos, juce::Colour color, bool isHovered, bool isHighlighted)
 {
@@ -79,9 +86,39 @@ juce::Rectangle<float> GraphCanvas::getNodeBounds(juce::AudioProcessorGraph::Nod
     }
     else if (dynamic_cast<RecorderProcessor*>(proc))
     {
-        // Recorder: 3x taller (180px), 4x wider (480px)
-        nodeHeight = Style::nodeHeight * 3.0f;
-        nodeWidth = Style::minNodeWidth * 4.0f;
+        // Recorder: 4x taller, 2x wider
+        nodeHeight = Style::nodeHeight * 4.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
+    else if (dynamic_cast<ManualSamplerProcessor*>(proc))
+    {
+        // Manual Sampler: same as Recorder (4x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 4.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
+    else if (dynamic_cast<AutoSamplerProcessor*>(proc))
+    {
+        // Auto Sampler: same as Recorder (4x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 4.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
+    else if (dynamic_cast<MidiPlayerProcessor*>(proc))
+    {
+        // MIDI Player: same as Recorder (4x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 4.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
+    else if (dynamic_cast<CCStepperProcessor*>(proc))
+    {
+        // Step Seq: compact transport-only node (2x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 2.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
+    else if (dynamic_cast<TransientSplitterProcessor*>(proc))
+    {
+        // Transient Splitter: compact node with E + X (2x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 2.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
     }
 
     return { x, y, nodeWidth, nodeHeight };
@@ -111,7 +148,7 @@ juce::Colour GraphCanvas::getPinColor(const PinID& pinId, juce::AudioProcessorGr
             return Style::colPinSidechain; // Green
     }
 
-    return Style::colPinAudio; // Blue
+    return Style::colPinAudio;
 }
 
 GraphCanvas::PinID GraphCanvas::findPinAt(juce::Point<float> pos)
@@ -170,3 +207,5 @@ juce::AudioProcessorGraph::Node* GraphCanvas::findNodeAt(juce::Point<float> pos)
     }
     return nullptr;
 }
+
+

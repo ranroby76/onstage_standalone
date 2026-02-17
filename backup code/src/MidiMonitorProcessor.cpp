@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\MidiMonitorProcessor.cpp
 // MIDI Monitor - Real-time MIDI event display
 // FIX: Simple numeric format (144, 1, 60, 100) instead of text
@@ -29,32 +30,49 @@ void MidiMonitorProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     {
         auto message = metadata.getMessage();
         
-        // Only process Note On and Note Off messages
+        // Process Note On/Off and CC messages
         if (message.isNoteOn() || message.isNoteOff())
         {
             int channel = message.getChannel();  // 1-16
             int noteNumber = message.getNoteNumber();  // 0-127
             int velocity = message.getVelocity();  // 0-127
             
-            // JUCE's isNoteOff() returns true for both:
-            // - Real note-off messages (0x80)
-            // - Note-on with velocity=0 (0x90 with vel=0)
             bool isNoteOff = message.isNoteOff();
             
-            // Update the event slot for this channel
             juce::ScopedLock lock(midiEventsLock);
             
             if (channel >= 1 && channel <= 16)
             {
-                // FIX #4: Sample-and-hold - just update the slot, no fade-out
-                auto& event = midiEvents[channel - 1];  // 0-indexed array
+                auto& event = midiEvents[channel - 1];
                 event.isActive = true;
                 event.isNoteOn = !isNoteOff;
+                event.isCC = false;
                 event.channel = channel;
                 event.noteNumber = noteNumber;
                 event.velocity = velocity;
                 
-                anyChanges = true;  // Mark that we have new data
+                anyChanges = true;
+            }
+        }
+        else if (message.isController())
+        {
+            int channel = message.getChannel();
+            int ccNum = message.getControllerNumber();
+            int ccVal = message.getControllerValue();
+            
+            juce::ScopedLock lock(midiEventsLock);
+            
+            if (channel >= 1 && channel <= 16)
+            {
+                auto& event = midiEvents[channel - 1];
+                event.isActive = true;
+                event.isCC = true;
+                event.isNoteOn = false;
+                event.channel = channel;
+                event.ccNumber = ccNum;
+                event.ccValue = ccVal;
+                
+                anyChanges = true;
             }
         }
     }
@@ -96,3 +114,7 @@ void MidiMonitorProcessor::getStateInformation(juce::MemoryBlock& /*destData*/) 
 void MidiMonitorProcessor::setStateInformation(const void* /*data*/, int /*sizeInBytes*/) {
     // No state to load
 }
+
+
+
+

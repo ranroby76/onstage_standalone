@@ -1,3 +1,4 @@
+
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
 
@@ -80,18 +81,16 @@ void MixerView::updateInstrumentsRow() {
     if (!processor.mainGraph) return;
     
     // CPU OPTIMIZATION: Only iterate through graph nodes when graph structure changes
+    // FIX: Removed getConnections().size() — it copies the entire vector just to read the count.
+    // Node count alone is sufficient: adding/removing instruments always changes node count.
     size_t currentNodeCount = processor.mainGraph->getNumNodes();
-    size_t currentConnectionCount = processor.mainGraph->getConnections().size();
     
     // Skip expensive iteration if graph hasn't changed
-    if (currentNodeCount == lastGraphNodeCount && 
-        currentConnectionCount == lastGraphConnectionCount &&
-        lastInstrumentCount > 0) {
+    if (currentNodeCount == lastGraphNodeCount && lastInstrumentCount > 0) {
         return;
     }
     
     lastGraphNodeCount = currentNodeCount;
-    lastGraphConnectionCount = currentConnectionCount;
     
     // Count instruments
     std::vector<juce::AudioProcessorGraph::Node*> instruments;
@@ -147,3 +146,4 @@ void MixerView::onInstrumentGainChanged(int index, float gain) {
         }
     }
 }
+

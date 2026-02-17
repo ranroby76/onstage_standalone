@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas.h
 // FIX: Added dedicated 50ms timer for stereo meter (20fps refresh)
 // NEW: Drag and drop support for Plugin Browser Panel
@@ -79,9 +80,9 @@ public:
                 
                 if (editor)
                 {
-                    if (auto* processor = editor->getAudioProcessor())
+                    if (auto* proc = editor->getAudioProcessor())
                     {
-                        processor->editorBeingDeleted(editor);
+                        proc->editorBeingDeleted(editor);
                     }
                 }
                 
@@ -95,11 +96,22 @@ public:
     void markDirty() { needsRepaint = true; }
     void refreshCache() { rebuildNodeTypeCache(); }
     
+    void setZoomLevel(float zoom) 
+    { 
+        zoomLevel = juce::jlimit(0.25f, 1.0f, zoom);
+        setTransform(juce::AffineTransform::scale(zoomLevel));
+        repaint();
+        if (auto* parent = getParentComponent())
+            parent->repaint();
+    }
+    float getZoomLevel() const { return zoomLevel; }
+    
     std::map<juce::AudioProcessorGraph::NodeID, std::unique_ptr<juce::DocumentWindow>> activePluginWindows;
     
 private: 
     SubterraneumAudioProcessor& processor; 
     
+    float zoomLevel = 1.0f;
     juce::OpenGLContext openGLContext;
     
     struct PinID { 
@@ -145,6 +157,7 @@ private:
     };
     
     std::map<juce::AudioProcessorGraph::NodeID, NodeTypeCache> nodeTypeCache;
+    std::vector<juce::AudioProcessorGraph::Connection> cachedConnections;  // FIX: Cache connections to avoid vector copy in paint()
     size_t lastNodeCount = 0;
     size_t lastConnectionCount = 0;
     bool needsRepaint = true;

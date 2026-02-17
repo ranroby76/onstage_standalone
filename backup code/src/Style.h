@@ -21,7 +21,7 @@ namespace Style {
     const auto colBypass       = juce::Colour(0xffd63031);
     
     const float nodeHeight = 60.0f;
-    const float nodeWidth = 140.0f;
+    const float nodeWidth = 152.0f;     // FIX: wider to fit up to 6 buttons (VST2: E+M+P+T+L+X)
     const float nodeCornerSize = 5.0f;
     const float nodeRounding = 5.0f;  // Rounding radius for node corners
     const float nodeTitleHeight = 24.0f;
@@ -29,7 +29,7 @@ namespace Style {
     const float hookLength = 10.0f; 
     const float btnSize = 14.0f;
     const float pinSpacing = 14.0f;
-    const float minNodeWidth = 120.0f;
+    const float minNodeWidth = 156.0f;  // FIX: minimum with margin for 6 buttons
     const float minPinSpacing = 18.0f;
     
     const float bottomBtnWidth = 20.0f;

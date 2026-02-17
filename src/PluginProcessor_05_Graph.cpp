@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_05_Graph.cpp
 // Graph Management and Node Management
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
@@ -8,7 +9,7 @@
 // =============================================================================
 // Graph Management
 // =============================================================================
-bool SubterraneumAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
+bool SubterraneumAudioProcessor::isBusesLayoutSupported(const BusesLayout& /*layouts*/) const {
     return true; 
 }
 
@@ -153,3 +154,5 @@ void SubterraneumAudioProcessor::resetBlacklist() {
         userSettings->saveIfNeeded();
     }
 }
+
+

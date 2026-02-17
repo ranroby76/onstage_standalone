@@ -1,4 +1,5 @@
 
+
 // FIX: Plugin Browser Panel is now a fixed 240px panel on the right side of content
 // No toggle button - always visible on Rack tab, hidden on other tabs
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
@@ -94,13 +95,15 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     {
         workspaceButtons[i].setButtonText(audioProcessor.getWorkspaceName(i));
         workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(40, 40, 45));
-        workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(120, 120, 130));
+        workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(190, 190, 200));
         workspaceButtons[i].onClick = [this, i]() {
             if (!audioProcessor.isWorkspaceEnabled(i)) return;
             graphCanvas.closeAllPluginWindows();
             audioProcessor.switchWorkspace(i);
             graphCanvas.refreshCache();
             graphCanvas.repaint();
+            // Sync zoom to restored workspace value
+            zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
             updateWorkspaceButtonColors();
         };
         workspaceButtons[i].onStateChange = [this, i]() {
@@ -111,37 +114,80 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     }
     
     // Workspace label
-    workspacesLabel.setFont(juce::Font(9.0f, juce::Font::bold));
+    workspacesLabel.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     workspacesLabel.setJustificationType(juce::Justification::centredLeft);
-    workspacesLabel.setColour(juce::Label::textColourId, juce::Colour(100, 100, 120));
+    workspacesLabel.setColour(juce::Label::textColourId, juce::Colour(200, 200, 220));
     addAndMakeVisible(workspacesLabel);
     
     updateWorkspaceButtonColors();
     
     // ASIO LED and label
     addAndMakeVisible(asioLed);
-    asioLabel.setFont(juce::Font(10.0f, juce::Font::bold));
+    asioLabel.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     asioLabel.setJustificationType(juce::Justification::centred);
     asioLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(asioLabel);
     
     // Registration LED and label
     addAndMakeVisible(registrationLED);
-    regLabel.setFont(juce::Font(10.0f, juce::Font::bold));
+    regLabel.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     regLabel.setJustificationType(juce::Justification::centred);
     regLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(regLabel);
     
     // CPU and RAM labels
-    cpuLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    cpuLabel.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     cpuLabel.setJustificationType(juce::Justification::centredRight);
     cpuLabel.setColour(juce::Label::textColourId, juce::Colours::cyan);
     addAndMakeVisible(cpuLabel);
     
-    ramLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    ramLabel.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     ramLabel.setJustificationType(juce::Justification::centredRight);
     ramLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
     addAndMakeVisible(ramLabel);
+    
+    // Zoom slider for Rack tab
+    zoomSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    zoomSlider.setRange(0.25, 1.0, 0.75 / 75.0);  // 76 positions (25% to 100%), 75 steps
+    zoomSlider.setValue(1.0, juce::dontSendNotification);
+    zoomSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+    zoomSlider.setColour(juce::Slider::trackColourId, juce::Colour(80, 80, 90));
+    zoomSlider.setColour(juce::Slider::thumbColourId, juce::Colour(0xffFFD700));  // Start yellow at 100%
+    zoomSlider.setColour(juce::Slider::backgroundColourId, juce::Colour(40, 40, 48));
+    
+    auto updateZoomDisplay = [this]() {
+        float zoom = (float)zoomSlider.getValue();
+        graphCanvas.setZoomLevel(zoom);
+        audioProcessor.rackZoomLevel = zoom;
+        
+        // Update percentage label
+        int pct = juce::roundToInt(zoom * 100.0f);
+        zoomLabel.setText(juce::String(pct) + "%", juce::dontSendNotification);
+        
+        // Yellow thumb at 100%, white otherwise
+        bool atMiddle = std::abs(zoom - 1.0f) < 0.01f;
+        zoomSlider.setColour(juce::Slider::thumbColourId, 
+            atMiddle ? juce::Colour(0xffFFD700) : juce::Colours::white);
+    };
+    
+    zoomSlider.onValueChange = updateZoomDisplay;
+    zoomSlider.setDoubleClickReturnValue(true, 1.0);
+    zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::dontSendNotification);
+    graphCanvas.setZoomLevel(audioProcessor.rackZoomLevel);
+    // Init display
+    {
+        int pct = juce::roundToInt(audioProcessor.rackZoomLevel * 100.0f);
+        zoomLabel.setText(juce::String(pct) + "%", juce::dontSendNotification);
+        bool atMiddle = std::abs(audioProcessor.rackZoomLevel - 1.0f) < 0.01f;
+        zoomSlider.setColour(juce::Slider::thumbColourId, 
+            atMiddle ? juce::Colour(0xffFFD700) : juce::Colours::white);
+    }
+    addAndMakeVisible(zoomSlider);
+    
+    zoomLabel.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+    zoomLabel.setJustificationType(juce::Justification::centred);
+    zoomLabel.setColour(juce::Label::textColourId, juce::Colour(160, 160, 180));
+    addAndMakeVisible(zoomLabel);
     
     // Left green menu tab buttons - FIX: Only 6 buttons now (removed Studio)
     addAndMakeVisible(rackButton); rackButton.addListener(this);
@@ -301,16 +347,20 @@ void SubterraneumAudioProcessorEditor::updateInstrumentSelector() {
     resized();
 }
 
-bool SubterraneumAudioProcessorEditor::keyPressed(const juce::KeyPress& key) {
+bool SubterraneumAudioProcessorEditor::keyPressed(const juce::KeyPress& /*key*/) {
     // Keyboard shortcuts can be added here
     return false;
 }
 
 void SubterraneumAudioProcessorEditor::updatePluginBrowserVisibility() {
+    bool onRackTab = (tabs.getCurrentTabIndex() == 0);
     if (pluginBrowserPanel) {
         // Only visible on Rack tab (index 0)
-        pluginBrowserPanel->setVisible(tabs.getCurrentTabIndex() == 0);
+        pluginBrowserPanel->setVisible(onRackTab);
     }
+    // Zoom slider only relevant for Rack tab
+    zoomSlider.setVisible(onRackTab);
+    zoomLabel.setVisible(onRackTab);
 }
 
 // =============================================================================
@@ -377,6 +427,8 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
                 graphCanvas.closeAllPluginWindows();
                 audioProcessor.loadUserPreset(file); 
                 graphCanvas.refreshCache();
+                // Sync zoom to loaded preset value
+                zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
                 repaint(); 
                 updateInstrumentSelector(); 
                 updateWorkspaceButtonColors();
@@ -399,6 +451,9 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
                     graphCanvas.closeAllPluginWindows();
                     audioProcessor.resetAllWorkspaces(); 
                     graphCanvas.refreshCache();
+                    // Reset zoom to default
+                    audioProcessor.rackZoomLevel = 1.0f;
+                    zoomSlider.setValue(1.0, juce::sendNotificationSync);
                     updateInstrumentSelector(); 
                     updateWorkspaceButtonColors();
                     repaint(); 
@@ -560,6 +615,13 @@ void SubterraneumAudioProcessorEditor::resized() {
     int cpuX = ramX - meterWidth - meterSpacing;
     cpuLabel.setBounds(cpuX, headerCenterY - meterHeight / 2, meterWidth, meterHeight);
     
+    // Zoom slider - left of CPU label
+    int zoomSliderWidth = 90;
+    int zoomSliderHeight = 16;
+    int zoomX = cpuX - zoomSliderWidth - 10;
+    zoomSlider.setBounds(zoomX, headerCenterY - zoomSliderHeight / 2 + 4, zoomSliderWidth, zoomSliderHeight);
+    zoomLabel.setBounds(zoomX, headerCenterY - labelHeight - 2, zoomSliderWidth, labelHeight);
+    
     // Footer - instrument selector
     auto footer = area.removeFromBottom(Style::instrHeaderHeight);
     instrumentSelector.setBounds(footer);
@@ -617,19 +679,19 @@ void SubterraneumAudioProcessorEditor::updateWorkspaceButtonColors()
         workspaceButtons[i].setButtonText(audioProcessor.getWorkspaceName(i));
         
         if (!isEnabled) {
-            // Disabled — very dark, barely visible
+            // Disabled — dark, dimmer than others but still readable
             workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(28, 28, 30));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(55, 55, 60));
+            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(90, 90, 100));
         } else if (isActive) {
             workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(0, 120, 200));
             workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colours::white);
         } else if (isOccupied) {
             workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(60, 60, 70));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(200, 200, 210));
+            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(220, 220, 230));
         } else {
             // Enabled but empty
             workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(40, 40, 45));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(120, 120, 130));
+            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(190, 190, 200));
         }
     }
 }
@@ -784,5 +846,7 @@ SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::VirtualKeyboardWindow(S
 
 SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::~VirtualKeyboardWindow() {}
 void SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::closeButtonPressed() { setVisible(false); }
+
+
 
 

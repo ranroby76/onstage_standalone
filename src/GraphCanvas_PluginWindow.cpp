@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_PluginWindow.cpp
 // CRITICAL FIX: Proper editor lifecycle management for Flowstone and other plugins
 // FREEZE FIX: Add timeout protection for plugins that block during createEditor()
@@ -354,6 +355,7 @@ void GraphCanvas::openPluginWindow(juce::AudioProcessorGraph::Node* node)
                         state->cancelled = true;
                     }
                 } catch (const std::exception& e) {
+                    juce::ignoreUnused(e);
                     WLOG("    EXCEPTION during createEditor(): " + juce::String(e.what()));
                     state->cancelled = true;
                 } catch (...) {
@@ -453,5 +455,7 @@ void GraphCanvas::openPluginWindow(juce::AudioProcessorGraph::Node* node)
     
     WLOG("  Timer started - openPluginWindow() will complete async");
 }
+
+
 
 

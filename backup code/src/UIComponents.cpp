@@ -1,3 +1,4 @@
+
 #include "UIComponents.h"
 #include "PluginProcessor.h"
 
@@ -110,7 +111,7 @@ void StatusToolTip::resized() {
 // TreeLookAndFeel Implementation
 // ==============================================================================
 void TreeLookAndFeel::drawTreeviewPlusMinusBox(juce::Graphics& g, const juce::Rectangle<float>& area, 
-                                               juce::Colour backgroundColour, bool isOpen, bool isMouseOver) {
+                                               juce::Colour /*backgroundColour*/, bool isOpen, bool /*isMouseOver*/) {
     using namespace juce;
     Path p;
     p.addTriangle(0.0f, 0.0f, 0.8f, 0.5f, 0.0f, 1.0f); 
@@ -143,3 +144,5 @@ void ScanDialogWindow::closeButtonPressed() {
     if (closeCallback)
         closeCallback();
 }
+
+

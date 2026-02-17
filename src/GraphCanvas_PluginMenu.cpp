@@ -1,4 +1,5 @@
 
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_PluginMenu.cpp
 // Plugin menu implementation
 // FIXED: Added Recorder system tool
@@ -406,20 +407,15 @@ void GraphCanvas::showPluginMenu()
                     juce::String pluginName = instance->getName();
                     LOG("  - getName(): " + pluginName);
                     
-                    bool hasEditor = instance->hasEditor();
-                    LOG("  - hasEditor(): " + juce::String(hasEditor ? "YES" : "NO"));
+                    LOG("  - hasEditor(): " + juce::String(instance->hasEditor() ? "YES" : "NO"));
                     
-                    bool acceptsMidi = instance->acceptsMidi();
-                    LOG("  - acceptsMidi(): " + juce::String(acceptsMidi ? "YES" : "NO"));
+                    LOG("  - acceptsMidi(): " + juce::String(instance->acceptsMidi() ? "YES" : "NO"));
                     
-                    bool producesMidi = instance->producesMidi();
-                    LOG("  - producesMidi(): " + juce::String(producesMidi ? "YES" : "NO"));
+                    LOG("  - producesMidi(): " + juce::String(instance->producesMidi() ? "YES" : "NO"));
                     
-                    int numIns = instance->getTotalNumInputChannels();
-                    LOG("  - getTotalNumInputChannels(): " + juce::String(numIns));
+                    LOG("  - getTotalNumInputChannels(): " + juce::String(instance->getTotalNumInputChannels()));
                     
-                    int numOuts = instance->getTotalNumOutputChannels();
-                    LOG("  - getTotalNumOutputChannels(): " + juce::String(numOuts));
+                    LOG("  - getTotalNumOutputChannels(): " + juce::String(instance->getTotalNumOutputChannels()));
                     
                     endTime = juce::Time::getMillisecondCounterHiRes();
                     LOG("STEP 2 COMPLETE: Capability queries took " + juce::String((endTime - startTime) / 1000.0, 3) + " seconds");
@@ -474,6 +470,8 @@ void GraphCanvas::showPluginMenu()
     
     LOG("<<< showPluginMenu() complete");
 }
+
+
 
 
 

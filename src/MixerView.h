@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\MixerView.h
 
 #pragma once
@@ -36,7 +37,6 @@ private:
     
     // CPU OPTIMIZATION: Track graph changes to avoid expensive iteration
     size_t lastGraphNodeCount = 0;
-    size_t lastGraphConnectionCount = 0;
     
     // Callbacks for gain changes
     void onInputGainChanged(int channel, float gain);
@@ -46,4 +46,5 @@ private:
     // Store instrument node IDs for mapping
     std::vector<juce::AudioProcessorGraph::NodeID> instrumentNodeIDs;
 };
+
 

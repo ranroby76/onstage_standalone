@@ -1,6 +1,6 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_Folders.cpp
 // PluginFolderSection, PluginFolderRow, and PluginFoldersPanel implementations
-// NEW: Added VST2 folder support with default paths
+// FIX: Added Close button to PluginFoldersPanel
 
 #include "PluginManagerTab.h"
 
@@ -148,11 +148,11 @@ void PluginFolderSection::loadFolders() {
 }
 
 void PluginFolderSection::browseForFolder() {
-    auto chooser = std::make_shared<juce::FileChooser>(
+    fileChooser = std::make_unique<juce::FileChooser>(
         "Select " + formatName + " Plugin Folder",
         juce::File::getSpecialLocation(juce::File::userHomeDirectory), "*");
-    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-        [this, chooser](const juce::FileChooser& fc) {
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        [this](const juce::FileChooser& fc) {
             auto result = fc.getResult();
             if (result.exists() && result.isDirectory())
                 addFolder(result.getFullPathName());
@@ -160,7 +160,7 @@ void PluginFolderSection::browseForFolder() {
 }
 
 // =============================================================================
-// PluginFoldersPanel Implementation - NOW WITH VST2 SUPPORT
+// PluginFoldersPanel Implementation - FIX: Added Close button
 // =============================================================================
 PluginFoldersPanel::PluginFoldersPanel(SubterraneumAudioProcessor& p) : processor(p)
 {
@@ -185,8 +185,15 @@ PluginFoldersPanel::PluginFoldersPanel(SubterraneumAudioProcessor& p) : processo
     addDefaultsBtn.onClick = [this]() { addDefaultPaths(); };
     addAndMakeVisible(addDefaultsBtn);
     
+    // FIX: Close button
+    closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    closeBtn.onClick = [this]() {
+        if (onCloseRequest) onCloseRequest();
+    };
+    addAndMakeVisible(closeBtn);
+    
     // =========================================================================
-    // NEW: VST2 Section (Windows/Mac only, Linux uses different paths)
+    // VST2 Section (Windows/Mac only)
     // =========================================================================
     #if JUCE_PLUGINHOST_VST
     vst2Section = std::make_unique<PluginFolderSection>("VST2 Plugins", "VST2Folders", settings, onChanged);
@@ -236,7 +243,9 @@ void PluginFoldersPanel::paint(juce::Graphics& g) { g.fillAll(juce::Colour(0xFF1
 void PluginFoldersPanel::resized() {
     auto area = getLocalBounds().reduced(10);
     auto header = area.removeFromTop(30);
-    titleLabel.setBounds(header.removeFromLeft(200));
+    titleLabel.setBounds(header.removeFromLeft(150));
+    closeBtn.setBounds(header.removeFromRight(80));    // FIX: Close button on right
+    header.removeFromRight(10);
     addDefaultsBtn.setBounds(header.removeFromRight(100));
     header.removeFromRight(10);
     collapseAllBtn.setBounds(header.removeFromRight(90));
@@ -249,7 +258,6 @@ void PluginFoldersPanel::updateLayout() {
     int y = 0;
     int width = viewport.getWidth() - 20;
     
-    // NEW: VST2 section first (most common legacy format)
     if (vst2Section) { 
         vst2Section->setBounds(0, y, width, vst2Section->getPreferredHeight()); 
         y += vst2Section->getPreferredHeight() + 8; 
@@ -323,95 +331,47 @@ void PluginFoldersPanel::applyToFormatManager() {
 
 void PluginFoldersPanel::addDefaultPaths() {
     #if JUCE_WINDOWS
-    // =========================================================================
     // VST2 Default Paths (Windows)
-    // =========================================================================
     if (vst2Section) {
-        // Standard VST2 paths
         vst2Section->addFolder("C:\\Program Files\\VSTPlugins");
         vst2Section->addFolder("C:\\Program Files\\Steinberg\\VSTPlugins");
         vst2Section->addFolder("C:\\Program Files\\Common Files\\VST2");
         vst2Section->addFolder("C:\\Program Files (x86)\\VSTPlugins");
         vst2Section->addFolder("C:\\Program Files (x86)\\Steinberg\\VSTPlugins");
-        vst2Section->addFolder("C:\\Program Files (x86)\\Common Files\\VST2");
-        
-        // Waves-specific paths (shell plugins)
-        vst2Section->addFolder("C:\\Program Files\\Waves\\Plug-Ins V12");
-        vst2Section->addFolder("C:\\Program Files\\Waves\\Plug-Ins V13");
-        vst2Section->addFolder("C:\\Program Files\\Waves\\Plug-Ins V14");
-        vst2Section->addFolder("C:\\Program Files\\Waves\\Plug-Ins V15");
     }
     
-    // =========================================================================
     // VST3 Default Paths (Windows)
-    // =========================================================================
     if (vst3Section) {
         vst3Section->addFolder("C:\\Program Files\\Common Files\\VST3");
         vst3Section->addFolder("C:\\Program Files (x86)\\Common Files\\VST3");
     }
-    
-    if (clapSection) {
-        clapSection->addFolder("C:\\Program Files\\Common Files\\CLAP");
-    }
-    
     #elif JUCE_MAC
-    // =========================================================================
     // VST2 Default Paths (macOS)
-    // =========================================================================
     if (vst2Section) {
         vst2Section->addFolder("/Library/Audio/Plug-Ins/VST");
-        vst2Section->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile("Library/Audio/Plug-Ins/VST").getFullPathName());
+        vst2Section->addFolder("~/Library/Audio/Plug-Ins/VST");
     }
     
-    // =========================================================================
     // VST3 Default Paths (macOS)
-    // =========================================================================
     if (vst3Section) {
         vst3Section->addFolder("/Library/Audio/Plug-Ins/VST3");
-        vst3Section->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile("Library/Audio/Plug-Ins/VST3").getFullPathName());
+        vst3Section->addFolder("~/Library/Audio/Plug-Ins/VST3");
     }
     
+    // AU Default Paths (macOS)
     if (auSection) {
         auSection->addFolder("/Library/Audio/Plug-Ins/Components");
-        auSection->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile("Library/Audio/Plug-Ins/Components").getFullPathName());
+        auSection->addFolder("~/Library/Audio/Plug-Ins/Components");
     }
-    
-    if (clapSection) {
-        clapSection->addFolder("/Library/Audio/Plug-Ins/CLAP");
-        clapSection->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile("Library/Audio/Plug-Ins/CLAP").getFullPathName());
-    }
-    
     #elif JUCE_LINUX
-    // =========================================================================
-    // VST2 Default Paths (Linux)
-    // =========================================================================
-    if (vst2Section) {
-        vst2Section->addFolder("/usr/lib/vst");
-        vst2Section->addFolder("/usr/local/lib/vst");
-        vst2Section->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile(".vst").getFullPathName());
-    }
-    
-    // =========================================================================
     // VST3 Default Paths (Linux)
-    // =========================================================================
     if (vst3Section) {
         vst3Section->addFolder("/usr/lib/vst3");
         vst3Section->addFolder("/usr/local/lib/vst3");
-        vst3Section->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile(".vst3").getFullPathName());
+        vst3Section->addFolder("~/.vst3");
     }
     
-    if (clapSection) {
-        clapSection->addFolder("/usr/lib/clap");
-        clapSection->addFolder(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile(".clap").getFullPathName());
-    }
-    
+    // LADSPA Default Paths (Linux)
     if (ladspaSection) {
         ladspaSection->addFolder("/usr/lib/ladspa");
         ladspaSection->addFolder("/usr/local/lib/ladspa");
@@ -419,4 +379,5 @@ void PluginFoldersPanel::addDefaultPaths() {
     #endif
     
     updateLayout();
+    applyToFormatManager();
 }

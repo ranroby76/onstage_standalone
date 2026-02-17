@@ -1,4 +1,5 @@
 
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginBrowserPanel.cpp
 // FIX: Removed vendor from items, removed favorites, added title,
 // collapsible vendor/folder groups, custom drag image for visibility
@@ -56,7 +57,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     g.setColour(badgeColor);
     g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 36, 18, 3.0f);
     g.setColour(juce::Colours::white);
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.drawText(badge, (int)x, 0, 36, getHeight(), juce::Justification::centred);
     x += 42.0f;
     
@@ -66,7 +67,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
         g.setColour(isInstr ? juce::Colour(0xFFFFD700) : juce::Colour(0xFF87CEEB));
         g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 28, 18, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(9.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
         g.drawText(isInstr ? "INST" : "FX", (int)x, 0, 28, getHeight(), juce::Justification::centred);
         x += 34.0f;
     }
@@ -95,7 +96,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     g.drawText(name, (int)x, 0, getWidth() - (int)x - 8, getHeight(), juce::Justification::centredLeft, true);
 }
 
-void PluginBrowserItem::mouseDown(const juce::MouseEvent& e) {
+void PluginBrowserItem::mouseDown(const juce::MouseEvent& /*e*/) {
     // No favorites toggle anymore
 }
 
@@ -172,7 +173,7 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
             
             // Text
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
             g.drawText(displayName, 8, 0, imgWidth - 16, imgHeight, juce::Justification::centredLeft, true);
             
             container->startDragging(dragId, this, juce::ScaledImage(dragImage), true);
@@ -229,12 +230,12 @@ void PluginGroupHeader::paint(juce::Graphics& g) {
     
     // Group name
     g.setColour(juce::Colours::cyan);
-    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     g.drawText(groupName, 28, 0, getWidth() - 70, getHeight(), juce::Justification::centredLeft, true);
     
     // Plugin count
     g.setColour(juce::Colours::grey);
-    g.setFont(juce::Font(11.0f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("(" + juce::String(pluginCount) + ")", getWidth() - 45, 0, 40, getHeight(), juce::Justification::centredRight);
 }
 
@@ -362,7 +363,7 @@ void PluginBrowserList::setSystemTools() {
     
     auto* h = flatHeaders.add(new juce::Label());
     h->setText("System Tools", juce::dontSendNotification);
-    h->setFont(juce::Font(12.0f, juce::Font::bold));
+    h->setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     h->setColour(juce::Label::textColourId, juce::Colours::orange);
     h->setBounds(5, y, getWidth() - 10, 24);
     addAndMakeVisible(h);
@@ -437,7 +438,7 @@ void PluginBrowserList::setSystemTools() {
 // =============================================================================
 PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processor(p) {
     // Title label
-    titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    titleLabel.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
@@ -620,6 +621,8 @@ juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     }
     return result;
 }
+
+
 
 
 

@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Mouse.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
@@ -1457,7 +1458,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
     }
 }
 
-void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juce::Point<float> pos)
+void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juce::Point<float> /*pos*/)
 {
     auto* cache = getCachedNodeType(node->nodeID);
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(node->getProcessor());
@@ -1723,7 +1724,7 @@ void GraphCanvas::showMidiChannelFilter(juce::AudioProcessorGraph::Node* node) {
     }
     
     // CH button position in component coordinates
-    auto chButtonCenter = juce::Point<int>((int)btnX + Style::bottomBtnWidth / 2, (int)btnY + Style::bottomBtnHeight / 2);
+    auto chButtonCenter = juce::Point<int>((int)(btnX + Style::bottomBtnWidth / 2), (int)(btnY + Style::bottomBtnHeight / 2));
     
     // Use MessageManager::callAsync to ensure UI operations happen on message thread
     juce::MessageManager::callAsync([this, meteringProc, chButtonCenter]() {
@@ -1845,7 +1846,7 @@ void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
             g.fillRect(4, y, getWidth() - 8, headerH);
             
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText("M",          muteColX, y, muteColW, headerH, juce::Justification::centred);
             g.drawText("CH",         chX,  y, 32,  headerH, juce::Justification::centredLeft);
             g.drawText("PRG",        chX + 36, y, 40,  headerH, juce::Justification::centredLeft);
@@ -1858,7 +1859,7 @@ void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
             if (info.empty())
             {
                 g.setColour(juce::Colours::grey);
-                g.setFont(juce::Font(12.0f, juce::Font::italic));
+                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::italic)));
                 g.drawText("No instruments found", 0, y, getWidth(), 26, juce::Justification::centred);
                 return;
             }
@@ -1886,7 +1887,7 @@ void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
                 g.setColour(muted ? juce::Colour(180, 50, 50) : juce::Colour(50, 70, 50));
                 g.fillRoundedRectangle(muteRect.toFloat(), 3.0f);
                 g.setColour(muted ? juce::Colours::white : juce::Colour(80, 180, 80));
-                g.setFont(juce::Font(10.0f, juce::Font::bold));
+                g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
                 g.drawText(muted ? "M" : "", muteRect, juce::Justification::centred);
                 if (!muted) {
                     // Draw small speaker icon / active indicator
@@ -1898,12 +1899,12 @@ void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
                 // Channel number
                 bool isDrums = (ch.channel == 9);
                 g.setColour(muted ? juce::Colour(100, 60, 60) : (isDrums ? juce::Colour(255, 160, 40) : juce::Colour(80, 200, 120)));
-                g.setFont(juce::Font(12.0f, juce::Font::bold));
+                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
                 g.drawText(juce::String(ch.channel + 1), chX, y, 32, rowH, juce::Justification::centredLeft);
                 
                 // Program number
                 g.setColour(muted ? juce::Colour(100, 100, 110) : juce::Colour(180, 180, 200));
-                g.setFont(juce::Font(11.0f));
+                g.setFont(juce::Font(juce::FontOptions(11.0f)));
                 if (ch.program >= 0)
                     g.drawText(juce::String(ch.program), chX + 36, y, 40, rowH, juce::Justification::centredLeft);
                 else
@@ -1918,12 +1919,12 @@ void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
                 
                 // Instrument name
                 g.setColour(muted ? juce::Colour(120, 100, 100) : (isDrums ? juce::Colour(255, 200, 120) : juce::Colours::white));
-                g.setFont(juce::Font(11.0f));
+                g.setFont(juce::Font(juce::FontOptions(11.0f)));
                 g.drawText(ch.instrumentName, chX + 134, y, 160, rowH, juce::Justification::centredLeft, true);
                 
                 // Note count
                 g.setColour(muted ? juce::Colour(80, 80, 90) : juce::Colour(140, 140, 160));
-                g.setFont(juce::Font(10.0f));
+                g.setFont(juce::Font(juce::FontOptions(10.0f)));
                 g.drawText(juce::String(ch.noteCount), chX + 302, y, 50, rowH, juce::Justification::centredRight);
                 
                 y += rowH;
@@ -2225,3 +2226,5 @@ void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
         juce::Rectangle<int>(getScreenBounds().getCentreX(), getScreenBounds().getCentreY(), 1, 1),
         nullptr);
 }
+
+

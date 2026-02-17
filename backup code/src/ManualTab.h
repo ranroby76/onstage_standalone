@@ -23,17 +23,17 @@ private:
     SubterraneumAudioProcessor& processor;
     
     // Chapter navigation buttons
-    juce::TextButton btnIntro { "Introduction" };
-    juce::TextButton btnRack { "Rack View" };
+    juce::TextButton btnIntro { "Welcome" };
+    juce::TextButton btnRack { "Rack" };
+    juce::TextButton btnWorkspaces { "Workspaces" };
     juce::TextButton btnMixer { "Mixer" };
-    juce::TextButton btnStudio { "Studio" };
-    juce::TextButton btnAudioMidi { "Audio/MIDI" };
+    juce::TextButton btnSettings { "Settings" };
     juce::TextButton btnPlugins { "Plugins" };
     juce::TextButton btnSystemTools { "System Tools" };
-    juce::TextButton btnResourceMeters { "Resources" };
+    juce::TextButton btnSampling { "Sampling" };
     juce::TextButton btnShortcuts { "Shortcuts" };
-    juce::TextButton btnTroubleshooting { "Troubleshooting" };
-    juce::TextButton btnDemoLimitations { "Demo Limits" };
+    juce::TextButton btnTroubleshooting { "Troubleshoot" };
+    juce::TextButton btnDemo { "Demo / Register" };
     
     // Content display
     juce::TextEditor contentView;
@@ -42,12 +42,12 @@ private:
     enum Chapter {
         Introduction,
         RackView,
+        Workspaces,
         Mixer,
-        Studio,
-        AudioMidi,
+        Settings,
         Plugins,
         SystemTools,
-        ResourceMeters,
+        Sampling,
         Shortcuts,
         Troubleshooting,
         DemoLimitations

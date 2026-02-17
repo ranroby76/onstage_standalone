@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\CCStepperProcessor.cpp
 // CC STEP SEQUENCER - MIDI-only, 16-slot, phase-accumulator based
 
@@ -46,9 +47,9 @@ void CCStepperProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     int useTsNum = tsNumerator.load();
     int useTsDen = tsDenominator.load();
 
-    if (auto* playHead = getPlayHead())
+    if (auto* pHead = getPlayHead())
     {
-        auto posInfo = playHead->getPosition();
+        auto posInfo = pHead->getPosition();
         if (posInfo.hasValue())
         {
             if (syncToMasterBpm.load())
@@ -499,3 +500,5 @@ void CCStepperProcessor::setStateInformation(const void* data, int sizeInBytes)
         slot.resetPlayback();
     }
 }
+
+

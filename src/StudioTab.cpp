@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\StudioTab.cpp
 // CPU OPTIMIZATION: Changed timer from 50ms to 100ms (still responsive for recording time display)
 // FIX 2: Added recording folder selection and save file functionality
@@ -37,12 +38,12 @@ StudioTab::StudioTab(SubterraneumAudioProcessor& p) : processor(p) {
     recordingStatusLabel.setJustificationType(juce::Justification::centredLeft);
     
     addAndMakeVisible(recordingTimeLabel);
-    recordingTimeLabel.setFont(juce::Font(24.0f, juce::Font::bold));
+    recordingTimeLabel.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     recordingTimeLabel.setJustificationType(juce::Justification::centred);
     recordingTimeLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
     
     addAndMakeVisible(recordingFormatLabel);
-    recordingFormatLabel.setFont(juce::Font(11.0f));
+    recordingFormatLabel.setFont(juce::Font(juce::FontOptions(11.0f)));
     recordingFormatLabel.setJustificationType(juce::Justification::centred);
     recordingFormatLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
     
@@ -67,7 +68,7 @@ StudioTab::StudioTab(SubterraneumAudioProcessor& p) : processor(p) {
     tempoLabel.setJustificationType(juce::Justification::centredRight);
     
     addAndMakeVisible(tempoValueLabel);
-    tempoValueLabel.setFont(juce::Font(20.0f, juce::Font::bold));
+    tempoValueLabel.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
     tempoValueLabel.setJustificationType(juce::Justification::centred);
     tempoValueLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
     
@@ -87,7 +88,7 @@ StudioTab::StudioTab(SubterraneumAudioProcessor& p) : processor(p) {
     numeratorCombo.addListener(this);
     
     addAndMakeVisible(slashLabel);
-    slashLabel.setFont(juce::Font(20.0f, juce::Font::bold));
+    slashLabel.setFont(juce::Font(juce::FontOptions(20.0f, juce::Font::bold)));
     slashLabel.setJustificationType(juce::Justification::centred);
     
     addAndMakeVisible(denominatorCombo);
@@ -118,7 +119,7 @@ StudioTab::StudioTab(SubterraneumAudioProcessor& p) : processor(p) {
     // Info Label
     // ==========================================================================
     addAndMakeVisible(infoLabel);
-    infoLabel.setFont(juce::Font(11.0f));
+    infoLabel.setFont(juce::Font(juce::FontOptions(11.0f)));
     infoLabel.setJustificationType(juce::Justification::centred);
     infoLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
     infoLabel.setText("Recording captures master output at 24-bit/44.1kHz", juce::dontSendNotification);
@@ -321,9 +322,9 @@ void StudioTab::setRecordingFolder() {
         recordingFolder.exists() ? recordingFolder : juce::File::getSpecialLocation(juce::File::userMusicDirectory)
     );
     
-    auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+    auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
     
-    chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc) {
+    chooser->launchAsync(chooserFlags, [this, chooser](const juce::FileChooser& fc) {
         auto result = fc.getResult();
         if (result != juce::File{}) {
             recordingFolder = result;
@@ -357,9 +358,9 @@ void StudioTab::saveRecordingFile() {
     
     auto chooser = std::make_shared<juce::FileChooser>("Save Recording As", defaultFile, "*.wav");
     
-    auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting;
+    auto chooserFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting;
     
-    chooser->launchAsync(flags, [this, chooser, tempRecordingFile](const juce::FileChooser& fc) {
+    chooser->launchAsync(chooserFlags, [this, chooser, tempRecordingFile](const juce::FileChooser& fc) {
         auto destination = fc.getResult();
         if (destination != juce::File{}) {
             // Copy temporary recording to chosen location
@@ -460,4 +461,6 @@ void StudioTab::saveRecordingFolderPreference() {
         settings->saveIfNeeded();
     }
 }
+
+
 

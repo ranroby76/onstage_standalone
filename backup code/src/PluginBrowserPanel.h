@@ -1,6 +1,8 @@
+
 // Plugin Browser Panel - ALL plugin and tool selection happens here
 // Filters: All | Instruments | Effects | Tools (removed Favorites)
 // FIX: Collapsible vendor/folder groups, title header, no vendor in items
+// FIX: Added Recorder to SystemToolType
 
 #pragma once
 
@@ -11,13 +13,20 @@
 #include <map>
 
 // =============================================================================
-// System Tool Type
+// System Tool Type - FIXED: Added Recorder
 // =============================================================================
 enum class SystemToolType {
     None,
     Connector,
     StereoMeter,
-    MidiMonitor
+    MidiMonitor,
+    Recorder,
+    ManualSampler,
+    AutoSampler,
+    MidiPlayer,
+    StepSeq,
+    TransientSplitter,
+    VST2Plugin
 };
 
 // =============================================================================
@@ -168,3 +177,5 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginBrowserPanel)
 };
+
+

@@ -1,15 +1,24 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_Main.cpp
-// Simplified Plugin Manager - VST3 only
-// FIXED: getDragSourceDescription() returns createIdentifierString() for proper drag-drop
-// FIXED: Added checkForCrashedScan() and Reset Blacklist button
+// Main Plugin Manager Tab implementation
+// FIX: Added "Rescan Existing" button for plugin version updates
+// FIX: Folder dialog now closes properly with X button
+// FIX: checkForCrashedScan included
+// FIX: Rescan status label for visual feedback
+// FIX: Dark orange-purple button color
+// FIX: X button click detection - use e.x directly (already in item-local coordinates)
+// FIX: buildTree() preserves expand/collapse state across rebuilds
+// FIX: Darker folder/vendor header rectangles
+// NEW: Eye toggle - hide/show plugins from Add menus (persisted to settings)
 
 #include "PluginManagerTab.h"
-#include "UIComponents.h"
+#include "BackgroundPluginScanner.h"
 
 // =============================================================================
-// PluginManagerTab Implementation
+// PluginManagerTab Constructor
 // =============================================================================
-PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p) : processor(p) {
+PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
+    : processor(p)
+{
     addAndMakeVisible(sortLabel);
     addAndMakeVisible(sortCombo);
     sortCombo.addItem("Type", 1);
@@ -68,6 +77,12 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p) : processor(p)
         "1. Click 'Scan Plugins' button\n"
         "2. Wait for scan to complete\n"
         "3. Plugins appear in the list when done\n\n"
+        "RESCAN EXISTING\n"
+        "---------------------------------------------\n"
+        "Use when you've updated a plugin:\n"
+        "1. Click 'Rescan Existing' button\n"
+        "2. Plugins are re-scanned by file path\n"
+        "3. Duplicates are removed automatically\n\n"
         "CRASH DURING SCAN?\n"
         "---------------------------------------------\n"
         "If Colosseum crashes during a plugin scan:\n"
@@ -88,6 +103,12 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p) : processor(p)
         "- EFFECTS: Show only effect plugins\n"
         "- ALL: Show everything\n"
         "- Sort By: Organize by Type or Vendor\n\n"
+        "VISIBILITY (Eye Icon)\n"
+        "---------------------------------------------\n"
+        "Click the eye icon next to any plugin to\n"
+        "hide/show it in the Add Plugins menus.\n"
+        "Hidden plugins stay in your library but\n"
+        "won't appear in right-click or browser.\n\n"
         "USING PLUGINS\n"
         "---------------------------------------------\n"
         "1. Go to the Rack tab\n"
@@ -107,6 +128,20 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p) : processor(p)
     scanBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
     addAndMakeVisible(scanBtn);
     
+    // Rescan Existing button - dark orange-purple
+    rescanExistingBtn.addListener(this);
+    rescanExistingBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF6B3FA0));
+    rescanExistingBtn.setTooltip("Re-scan plugins already in list to detect version updates");
+    addAndMakeVisible(rescanExistingBtn);
+    
+    // Rescan status label (hidden by default)
+    rescanStatusLabel.setText("", juce::dontSendNotification);
+    rescanStatusLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    rescanStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    rescanStatusLabel.setJustificationType(juce::Justification::centred);
+    rescanStatusLabel.setVisible(false);
+    addAndMakeVisible(rescanStatusLabel);
+    
     foldersBtn.addListener(this);
     addAndMakeVisible(foldersBtn);
     
@@ -124,7 +159,7 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p) : processor(p)
     
     // Auto-scan on first run if no plugins found
     if (processor.knownPluginList.getNumTypes() == 0) {
-        startTimer(500);  // Small delay to let UI settle
+        startTimer(500);
     }
 }
 
@@ -162,13 +197,19 @@ void PluginManagerTab::resized() {
     
     // Bottom row - buttons
     auto bottomRow = area.removeFromBottom(35);
-    scanBtn.setBounds(bottomRow.removeFromLeft(120));
-    bottomRow.removeFromLeft(10);
+    scanBtn.setBounds(bottomRow.removeFromLeft(110));
+    bottomRow.removeFromLeft(8);
+    rescanExistingBtn.setBounds(bottomRow.removeFromLeft(120));
+    bottomRow.removeFromLeft(8);
     foldersBtn.setBounds(bottomRow.removeFromLeft(120));
-    bottomRow.removeFromLeft(10);
-    clearBtn.setBounds(bottomRow.removeFromLeft(100));
-    bottomRow.removeFromLeft(10);
+    bottomRow.removeFromLeft(8);
+    clearBtn.setBounds(bottomRow.removeFromLeft(90));
+    bottomRow.removeFromLeft(8);
     resetBlacklistBtn.setBounds(bottomRow.removeFromLeft(110));
+    
+    // Center the rescan status label in remaining space
+    if (bottomRow.getWidth() > 0)
+        rescanStatusLabel.setBounds(bottomRow);
     
     area.removeFromBottom(10);
     
@@ -205,6 +246,8 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
         collapseAllItems();
     } else if (b == &scanBtn) {
         showScanDialog();
+    } else if (b == &rescanExistingBtn) {
+        rescanExistingPlugins();
     } else if (b == &foldersBtn) {
         showFoldersDialog();
     } else if (b == &resetBlacklistBtn) {
@@ -227,14 +270,13 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
             juce::ModalCallbackFunction::create([this](int result) {
                 if (result == 1) {
                     processor.knownPluginList.clear();
-                    if (auto* settings = processor.appProperties.getUserSettings()) {
-                        settings->removeValue("KnownPlugins");
-                        settings->saveIfNeeded();
+                    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+                        userSettings->removeValue("KnownPlugins");
+                        userSettings->saveIfNeeded();
                     }
                     buildTree();
                 }
-            })
-        );
+            }));
     }
 }
 
@@ -242,58 +284,148 @@ void PluginManagerTab::changeListenerCallback(juce::ChangeBroadcaster*) {
     buildTree();
 }
 
-void PluginManagerTab::checkForCrashedScan() {
-    juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                              .getChildFile("Colosseum");
-    juce::File deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
+// =============================================================================
+// Rescan Existing Plugins - with visual feedback
+// =============================================================================
+void PluginManagerTab::rescanExistingPlugins() {
+    auto types = processor.knownPluginList.getTypes();
     
-    if (deadMansPedal.existsAsFile()) {
-        juce::String crashedPlugin = deadMansPedal.loadFileAsString().trim();
-        if (crashedPlugin.isNotEmpty()) {
-            juce::MessageManager::callAsync([this, crashedPlugin, deadMansPedal]() {
-                int result = juce::NativeMessageBox::showYesNoCancelBox(
-                    juce::MessageBoxIconType::WarningIcon,
-                    "Plugin Scan Crash Detected",
-                    "The app crashed while scanning:\n\n" + crashedPlugin + 
-                    "\n\nBlacklist this plugin?\n\nYes = Blacklist\nNo = Try again\nCancel = Skip",
-                    nullptr, nullptr);
-                
-                if (result == 1) {
-                    processor.knownPluginList.addToBlacklist(crashedPlugin);
-                    deadMansPedal.deleteFile();
-                    if (auto* userSettings = processor.appProperties.getUserSettings()) {
-                        if (auto xml = processor.knownPluginList.createXml())
-                            userSettings->setValue("KnownPlugins", xml.get());
-                        userSettings->saveIfNeeded();
+    if (types.isEmpty()) {
+        juce::NativeMessageBox::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "No Plugins",
+            "No plugins in list to rescan. Use 'Scan Plugins' first.");
+        return;
+    }
+    
+    // Show status label
+    rescanStatusLabel.setText("Rescanning plugins...", juce::dontSendNotification);
+    rescanStatusLabel.setVisible(true);
+    rescanExistingBtn.setEnabled(false);
+    repaint();
+    
+    // Use callAsync so the UI updates before the blocking scan
+    juce::MessageManager::callAsync([this]() {
+        auto types = processor.knownPluginList.getTypes();
+        
+        // Collect unique file paths
+        juce::StringArray filePaths;
+        for (const auto& desc : types) {
+            if (!filePaths.contains(desc.fileOrIdentifier)) {
+                filePaths.add(desc.fileOrIdentifier);
+            }
+        }
+        
+        // Clear the list
+        processor.knownPluginList.clear();
+        
+        // Re-scan each file path
+        juce::File deadMansPedal = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                                       .getChildFile("Colosseum")
+                                       .getChildFile("RescanDeadMan.txt");
+        
+        for (const auto& path : filePaths) {
+            juce::File pluginFile(path);
+            if (!pluginFile.exists()) continue;
+            
+            deadMansPedal.replaceWithText(path);
+            
+            for (int i = 0; i < processor.formatManager.getNumFormats(); ++i) {
+                auto* format = processor.formatManager.getFormat(i);
+                if (format->fileMightContainThisPluginType(path)) {
+                    juce::OwnedArray<juce::PluginDescription> results;
+                    format->findAllTypesForFile(results, path);
+                    
+                    for (auto* desc : results) {
+                        processor.knownPluginList.addType(*desc);
                     }
-                } else if (result == 2) {
-                    deadMansPedal.deleteFile();
+                    break;
                 }
-            });
+            }
+        }
+        
+        deadMansPedal.deleteFile();
+        
+        // Save the updated list
+        if (auto* userSettings = processor.appProperties.getUserSettings()) {
+            if (auto xml = processor.knownPluginList.createXml()) {
+                userSettings->setValue("KnownPlugins", xml.get());
+                userSettings->saveIfNeeded();
+            }
+        }
+        
+        buildTree();
+        
+        // Hide status label
+        rescanStatusLabel.setVisible(false);
+        rescanExistingBtn.setEnabled(true);
+        
+        int newCount = processor.knownPluginList.getNumTypes();
+        juce::NativeMessageBox::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Rescan Complete",
+            "Rescanned " + juce::String(filePaths.size()) + " plugin files.\n" +
+            "Found " + juce::String(newCount) + " plugins.");
+    });
+}
+
+// =============================================================================
+// FIX: Save/restore expanded state across tree rebuilds
+// =============================================================================
+void PluginManagerTab::saveExpandedState() {
+    expandedFolders.clear();
+    
+    if (auto* root = pluginTree.getRootItem()) {
+        for (int i = 0; i < root->getNumSubItems(); ++i) {
+            auto* sub = root->getSubItem(i);
+            if (sub && sub->isOpen()) {
+                if (auto* treeItem = dynamic_cast<PluginTreeItem*>(sub)) {
+                    expandedFolders.insert(treeItem->name);
+                }
+            }
         }
     }
 }
 
-void PluginManagerTab::buildTree() {
-    pluginTree.setRootItem(nullptr);
+void PluginManagerTab::restoreExpandedState() {
+    if (expandedFolders.empty()) return;
     
-    auto* root = new PluginTreeItem("Root", processor.sortPluginsByVendor);
+    if (auto* root = pluginTree.getRootItem()) {
+        for (int i = 0; i < root->getNumSubItems(); ++i) {
+            if (auto* treeItem = dynamic_cast<PluginTreeItem*>(root->getSubItem(i))) {
+                if (expandedFolders.count(treeItem->name) > 0) {
+                    treeItem->setOpen(true);
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Build Tree View - FIX: Preserves expand/collapse state, loads hidden state
+// =============================================================================
+void PluginManagerTab::buildTree() {
+    // FIX: Save which folders are expanded before destroying the tree
+    saveExpandedState();
+    
+    pluginTree.setRootItem(nullptr);
     
     auto types = processor.knownPluginList.getTypes();
     
-    // Filter by type
     juce::Array<juce::PluginDescription> filtered;
     for (const auto& p : types) {
-        // Only VST3
-        if (!p.pluginFormatName.containsIgnoreCase("VST3")) continue;
-        
         if (instBtn.getToggleState() && !p.isInstrument) continue;
         if (effectBtn.getToggleState() && p.isInstrument) continue;
         filtered.add(p);
     }
     
+    std::sort(filtered.begin(), filtered.end(), [](const auto& a, const auto& b) {
+        return a.name.compareIgnoreCase(b.name) < 0;
+    });
+    
+    auto* root = new PluginTreeItem("Root", processor.sortPluginsByVendor);
+    
     if (processor.sortPluginsByVendor) {
-        // Sort by vendor
         std::map<juce::String, juce::Array<juce::PluginDescription>> byVendor;
         for (const auto& p : filtered) {
             juce::String vendor = p.manufacturerName.isEmpty() ? "Unknown" : p.manufacturerName;
@@ -305,19 +437,18 @@ void PluginManagerTab::buildTree() {
                                                    true, true);
             vendorItem->parentTab = this;
             
-            // Sort plugins within vendor
             std::sort(pair.second.begin(), pair.second.end(), 
                 [](const auto& a, const auto& b) { return a.name.compareIgnoreCase(b.name) < 0; });
             
             for (const auto& p : pair.second) {
                 auto* item = new PluginTreeItem(p.name, p, true);
                 item->parentTab = this;
+                item->hiddenFromMenus = isPluginHidden(p);
                 vendorItem->addSubItem(item);
             }
             root->addSubItem(vendorItem);
         }
     } else {
-        // Sort by type (Instruments / Effects)
         auto* instrFolder = new PluginTreeItem("Instruments", false);
         auto* effectFolder = new PluginTreeItem("Effects", false);
         instrFolder->parentTab = this;
@@ -326,6 +457,7 @@ void PluginManagerTab::buildTree() {
         for (const auto& p : filtered) {
             auto* item = new PluginTreeItem(p.name, p, false);
             item->parentTab = this;
+            item->hiddenFromMenus = isPluginHidden(p);
             if (p.isInstrument)
                 instrFolder->addSubItem(item);
             else
@@ -340,6 +472,9 @@ void PluginManagerTab::buildTree() {
     }
     
     pluginTree.setRootItem(root);
+    
+    // FIX: Restore which folders were expanded
+    restoreExpandedState();
 }
 
 void PluginManagerTab::showScanDialog() {
@@ -363,19 +498,27 @@ void PluginManagerTab::showScanDialog() {
     panel->startScan();
 }
 
+// =============================================================================
+// FIX: Folder dialog now uses CloseableDialogWindow for proper close handling
+// =============================================================================
 void PluginManagerTab::showFoldersDialog() {
     auto* panel = new PluginFoldersPanel(processor);
     
-    foldersDialog = std::make_unique<juce::DialogWindow>(
-        "VST3 Plugin Folders",
+    foldersDialog = std::make_unique<CloseableDialogWindow>(
+        "Plugin Folders",
         juce::Colours::darkgrey,
-        true,
         true
     );
+    
+    panel->onCloseRequest = [this]() {
+        if (foldersDialog) {
+            foldersDialog->setVisible(false);
+        }
+    };
+    
     foldersDialog->setContentOwned(panel, true);
-    foldersDialog->setUsingNativeTitleBar(true);
     foldersDialog->setResizable(true, true);
-    foldersDialog->centreWithSize(500, 400);
+    foldersDialog->centreWithSize(550, 450);
     foldersDialog->setVisible(true);
 }
 
@@ -408,6 +551,127 @@ void PluginManagerTab::removePluginFromList(const juce::PluginDescription& desc)
 }
 
 // =============================================================================
+// NEW: Plugin Visibility (Eye Toggle) - Hide/show plugins from Add menus
+// =============================================================================
+juce::String PluginManagerTab::getPluginVisibilityKey(const juce::PluginDescription& desc) {
+    return "PluginHidden_" + desc.fileOrIdentifier.replaceCharacters(" :/\\.", "_____") 
+           + "_" + juce::String(desc.uniqueId);
+}
+
+bool PluginManagerTab::isPluginHidden(const juce::PluginDescription& desc) {
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        return userSettings->getBoolValue(getPluginVisibilityKey(desc), false);
+    }
+    return false;
+}
+
+void PluginManagerTab::setPluginHidden(const juce::PluginDescription& desc, bool hidden) {
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (hidden) {
+            userSettings->setValue(getPluginVisibilityKey(desc), true);
+        } else {
+            userSettings->removeValue(getPluginVisibilityKey(desc));
+        }
+        userSettings->saveIfNeeded();
+    }
+}
+
+void PluginManagerTab::togglePluginVisibility(const juce::PluginDescription& desc) {
+    bool currentlyHidden = isPluginHidden(desc);
+    setPluginHidden(desc, !currentlyHidden);
+    buildTree();
+}
+
+// =============================================================================
+// Check for crashed scan on startup
+// =============================================================================
+void PluginManagerTab::checkForCrashedScan() {
+    juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                              .getChildFile("Colosseum");
+    juce::File deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
+    
+    if (deadMansPedal.existsAsFile()) {
+        juce::String crashedPlugin = deadMansPedal.loadFileAsString().trim();
+        
+        if (crashedPlugin.isNotEmpty()) {
+            auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
+            
+            juce::MessageManager::callAsync([safeThis, crashedPlugin, deadMansPedal]() {
+                if (safeThis == nullptr) return;
+                
+                auto* alertWindow = new juce::AlertWindow(
+                    "Plugin Scan Crash Detected",
+                    "The last scan crashed while loading:\n\n" + crashedPlugin + 
+                    "\n\nWhat would you like to do?",
+                    juce::MessageBoxIconType::WarningIcon);
+                
+                alertWindow->addButton("Blacklist Plugin", 1);
+                alertWindow->addButton("Allow Anyway", 2);
+                alertWindow->addButton("Try Again", 3);
+                alertWindow->addButton("Ignore", 0);
+                
+                alertWindow->enterModalState(true,
+                    juce::ModalCallbackFunction::create([safeThis, crashedPlugin, deadMansPedal, alertWindow](int result) {
+                        if (safeThis == nullptr) { delete alertWindow; return; }
+                        
+                        switch (result) {
+                            case 1:  // Blacklist
+                            {
+                                safeThis->processor.knownPluginList.addToBlacklist(crashedPlugin);
+                                deadMansPedal.deleteFile();
+                                
+                                if (auto* settings = safeThis->processor.appProperties.getUserSettings()) {
+                                    if (auto xml = safeThis->processor.knownPluginList.createXml())
+                                        settings->setValue("KnownPlugins", xml.get());
+                                    settings->saveIfNeeded();
+                                }
+                                
+                                juce::NativeMessageBox::showMessageBoxAsync(
+                                    juce::MessageBoxIconType::InfoIcon,
+                                    "Plugin Blacklisted",
+                                    "The plugin has been blacklisted and will be skipped in future scans.");
+                                break;
+                            }
+                            
+                            case 2:  // Allow Anyway
+                            {
+                                deadMansPedal.deleteFile();
+                                
+                                auto* settings = safeThis->processor.appProperties.getUserSettings();
+                                if (settings) {
+                                    juce::String approved = settings->getValue("ApprovedPlugins", "");
+                                    if (approved.isNotEmpty()) approved += "|";
+                                    approved += crashedPlugin;
+                                    settings->setValue("ApprovedPlugins", approved);
+                                    settings->saveIfNeeded();
+                                }
+                                
+                                juce::NativeMessageBox::showMessageBoxAsync(
+                                    juce::MessageBoxIconType::InfoIcon,
+                                    "Plugin Approved",
+                                    "The plugin has been added to the approved list.");
+                                break;
+                            }
+                            
+                            case 3:  // Try Again
+                                deadMansPedal.deleteFile();
+                                break;
+                            
+                            case 0:  // Ignore
+                            default:
+                                break;
+                        }
+                        
+                        delete alertWindow;
+                    }), true);
+            });
+        } else {
+            deadMansPedal.deleteFile();
+        }
+    }
+}
+
+// =============================================================================
 // PluginTreeItem Implementation
 // =============================================================================
 juce::String PluginManagerTab::PluginTreeItem::getFormatBadge() const {
@@ -420,10 +684,15 @@ juce::Colour PluginManagerTab::PluginTreeItem::getFormatColor() const {
     return SubterraneumAudioProcessor::getFormatColor(description.pluginFormatName);
 }
 
+// FIX: Darker folder/vendor headers, eye toggle icon, dimmed text when hidden
 void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h) {
     if (!isPlugin) { 
-        g.setColour(juce::Colours::grey);
-        g.drawRect(0, 0, w, h, 1); 
+        // FIX: Darker folder/vendor header - subtle dark background instead of bright outline
+        g.setColour(juce::Colour(0xFF2A2A2A));
+        g.fillRect(0, 0, w, h);
+        g.setColour(juce::Colour(0xFF444444));
+        g.drawRect(0, 0, w, h, 1);
+        
         g.setColour(juce::Colours::white);
         g.setFont(juce::Font(14.0f, juce::Font::bold));
         g.drawText(name, 25, 0, w-25, h, juce::Justification::centredLeft);
@@ -431,10 +700,10 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         g.setColour(isSelected() ? juce::Colours::blue.withAlpha(0.3f) : juce::Colours::transparentBlack);
         g.fillRect(0, 0, w, h);
         
-        // Format badge
         juce::String formatBadge = getFormatBadge();
         juce::Colour formatColor = getFormatColor();
         
+        // Format badge (left side)
         int badgeWidth = 40;
         int badgeHeight = h - 4;
         int badgeX = 5;
@@ -447,7 +716,7 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         g.setFont(juce::Font(10.0f, juce::Font::bold));
         g.drawText(formatBadge, badgeX, badgeY, badgeWidth, badgeHeight, juce::Justification::centred);
         
-        // Delete button
+        // Delete X button (far right)
         int deleteBtnWidth = 20;
         int deleteBtnHeight = h - 6;
         int deleteBtnX = w - deleteBtnWidth - 5;
@@ -459,11 +728,33 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
         g.setFont(juce::Font(10.0f, juce::Font::bold));
         g.drawText("X", deleteBtnX, deleteBtnY, deleteBtnWidth, deleteBtnHeight, juce::Justification::centred);
         
-        // Plugin name
-        g.setColour(juce::Colours::lightgrey);
+        // NEW: Eye visibility toggle button (left of X button)
+        int eyeBtnWidth = 24;
+        int eyeBtnHeight = h - 6;
+        int eyeBtnX = deleteBtnX - eyeBtnWidth - 4;
+        int eyeBtnY = 3;
+        
+        if (hiddenFromMenus) {
+            // Hidden state - dim, dark background
+            g.setColour(juce::Colour(0xFF3A3A3A));
+            g.fillRoundedRectangle((float)eyeBtnX, (float)eyeBtnY, (float)eyeBtnWidth, (float)eyeBtnHeight, 3.0f);
+            g.setColour(juce::Colours::grey.darker());
+            g.setFont(juce::Font(13.0f));
+            g.drawText(juce::String::charToString(0x2014), eyeBtnX, eyeBtnY, eyeBtnWidth, eyeBtnHeight, juce::Justification::centred);
+        } else {
+            // Visible state - green background, bright icon
+            g.setColour(juce::Colour(0xFF2A4A2A));
+            g.fillRoundedRectangle((float)eyeBtnX, (float)eyeBtnY, (float)eyeBtnWidth, (float)eyeBtnHeight, 3.0f);
+            g.setColour(juce::Colours::lightgreen);
+            g.setFont(juce::Font(14.0f));
+            g.drawText(juce::String::charToString(0x25C9), eyeBtnX, eyeBtnY, eyeBtnWidth, eyeBtnHeight, juce::Justification::centred);
+        }
+        
+        // Plugin name text - dimmed if hidden
+        g.setColour(hiddenFromMenus ? juce::Colours::grey : juce::Colours::lightgrey);
         g.setFont(14.0f);
         int textStartX = badgeX + badgeWidth + 8;
-        int textEndX = deleteBtnX - 8;
+        int textEndX = eyeBtnX - 8;
         
         if (showColumns) {
             const int COL_NAME = 200, COL_VENDOR = 150, COL_CAT = 100, COL_VER = 80;
@@ -472,7 +763,7 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
             g.drawText(name, x, 0, COL_NAME - 5, h, juce::Justification::centredLeft);
             x += COL_NAME;
             
-            g.setColour(juce::Colours::grey);
+            g.setColour(hiddenFromMenus ? juce::Colours::grey.darker() : juce::Colours::grey);
             g.drawText(description.manufacturerName, x, 0, COL_VENDOR - 5, h, juce::Justification::centredLeft);
             x += COL_VENDOR;
             
@@ -490,6 +781,8 @@ void PluginManagerTab::PluginTreeItem::paintItem(juce::Graphics& g, int w, int h
     }
 }
 
+// FIX: e.x is already in item-local coordinates - no getEventRelativeTo needed
+// NEW: Added eye toggle click handling
 void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
     if (!isPlugin) {
         setOpen(!isOpen());
@@ -499,13 +792,19 @@ void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
     auto itemBounds = getItemPosition(true);
     int w = itemBounds.getWidth();
     
+    // FIX: e.x is already in item-local coordinates - no conversion needed
+    int clickX = e.x;
+    
+    // Delete X button bounds
     int deleteBtnWidth = 20;
     int deleteBtnX = w - deleteBtnWidth - 5;
     
-    auto localPos = e.getEventRelativeTo(getOwnerView()).getPosition();
-    localPos.x -= itemBounds.getX();
+    // Eye toggle button bounds
+    int eyeBtnWidth = 24;
+    int eyeBtnX = deleteBtnX - eyeBtnWidth - 4;
     
-    if (localPos.x >= deleteBtnX && localPos.x <= deleteBtnX + deleteBtnWidth) {
+    // Check X button click
+    if (clickX >= deleteBtnX && clickX <= deleteBtnX + deleteBtnWidth) {
         if (parentTab != nullptr) {
             juce::AlertWindow::showOkCancelBox(
                 juce::MessageBoxIconType::QuestionIcon,
@@ -518,17 +817,29 @@ void PluginManagerTab::PluginTreeItem::itemClicked(const juce::MouseEvent& e) {
                     if (result == 1 && parentTab != nullptr) {
                         parentTab->removePluginFromList(description);
                     }
-                })
-            );
+                }));
         }
+        return;
+    }
+    
+    // NEW: Check eye toggle button click
+    if (clickX >= eyeBtnX && clickX <= eyeBtnX + eyeBtnWidth) {
+        if (parentTab != nullptr) {
+            parentTab->togglePluginVisibility(description);
+        }
+        return;
     }
 }
 
-// FIXED: Return createIdentifierString() instead of fileOrIdentifier
-// This is required because itemDropped() in GraphCanvas compares with createIdentifierString()
-// The identifier string includes: format name, plugin name, file path hash, and uniqueId
-// This ensures the correct plugin is loaded when dropped onto the rack
 juce::var PluginManagerTab::PluginTreeItem::getDragSourceDescription() {
-    if (isPlugin) return description.createIdentifierString();
-    return {};
+    if (!isPlugin) return {};
+    
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty("pluginName", description.name);
+    obj->setProperty("pluginIdentifier", description.fileOrIdentifier);
+    obj->setProperty("pluginFormat", description.pluginFormatName);
+    obj->setProperty("uniqueId", description.uniqueId);
+    obj->setProperty("isInstrument", description.isInstrument);
+    
+    return juce::var(obj.get());
 }

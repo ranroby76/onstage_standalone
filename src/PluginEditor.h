@@ -1,3 +1,4 @@
+
 // FIX: Plugin Browser Panel is now a fixed panel (288px) to the left of yellow menu
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
 // FIX: Added MIDI Panic button under Keys button
@@ -77,6 +78,21 @@ private:
     juce::Label cpuLabel { "cpuLbl", "CPU: 0%" };
     juce::Label ramLabel { "ramLbl", "RAM: 0MB" };
     
+    // Zoom slider for Rack tab (right-click resets to 100%)
+    class ZoomSlider : public juce::Slider {
+    public:
+        ZoomSlider() { setMouseClickGrabsKeyboardFocus(false); }
+        void mouseDown(const juce::MouseEvent& e) override {
+            if (e.mods.isPopupMenu()) {
+                setValue(1.0, juce::sendNotificationSync);
+                return;
+            }
+            juce::Slider::mouseDown(e);
+        }
+    };
+    ZoomSlider zoomSlider;
+    juce::Label zoomLabel { "zoomLbl", "100%" };
+    
     GraphCanvas graphCanvas; 
     MixerView mixerView;
     AudioSettingsTab audioSettingsTab;  // Now includes tempo/metronome
@@ -122,6 +138,8 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessorEditor) 
 };
+
+
 
 
 

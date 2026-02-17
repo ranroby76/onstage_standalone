@@ -1,5 +1,10 @@
+
+
+// #D:\Workspace\Subterraneum_plugins_daw\src\PluginBrowserPanel.cpp
 // FIX: Removed vendor from items, removed favorites, added title,
 // collapsible vendor/folder groups, custom drag image for visibility
+// FIX: Added Recorder to System Tools
+// NEW: Hidden plugins (eye toggle) are filtered out
 
 #include "PluginBrowserPanel.h"
 
@@ -52,7 +57,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     g.setColour(badgeColor);
     g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 36, 18, 3.0f);
     g.setColour(juce::Colours::white);
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.drawText(badge, (int)x, 0, 36, getHeight(), juce::Justification::centred);
     x += 42.0f;
     
@@ -62,7 +67,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
         g.setColour(isInstr ? juce::Colour(0xFFFFD700) : juce::Colour(0xFF87CEEB));
         g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 28, 18, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(9.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
         g.drawText(isInstr ? "INST" : "FX", (int)x, 0, 28, getHeight(), juce::Justification::centred);
         x += 34.0f;
     }
@@ -76,6 +81,13 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
             case SystemToolType::Connector:   name = "Connector"; break;
             case SystemToolType::StereoMeter: name = "Stereo Meter"; break;
             case SystemToolType::MidiMonitor: name = "MIDI Monitor"; break;
+            case SystemToolType::Recorder:       name = "Recorder"; break;
+            case SystemToolType::ManualSampler:  name = "Manual Sampling"; break;
+            case SystemToolType::AutoSampler:    name = "Auto Sampling"; break;
+            case SystemToolType::MidiPlayer:     name = "MIDI Player"; break;
+            case SystemToolType::StepSeq:        name = "Step Seq"; break;
+            case SystemToolType::TransientSplitter: name = "Transient Splitter"; break;
+            case SystemToolType::VST2Plugin:     name = "VST2 Plugin..."; break;
             default: name = "Unknown";
         }
     } else {
@@ -84,7 +96,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     g.drawText(name, (int)x, 0, getWidth() - (int)x - 8, getHeight(), juce::Justification::centredLeft, true);
 }
 
-void PluginBrowserItem::mouseDown(const juce::MouseEvent& e) {
+void PluginBrowserItem::mouseDown(const juce::MouseEvent& /*e*/) {
     // No favorites toggle anymore
 }
 
@@ -107,6 +119,34 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
                     case SystemToolType::MidiMonitor: 
                         dragId = "TOOL:MidiMonitor"; 
                         displayName = "MIDI Monitor";
+                        break;
+                    case SystemToolType::Recorder:
+                        dragId = "TOOL:Recorder"; 
+                        displayName = "Recorder";
+                        break;
+                    case SystemToolType::ManualSampler:
+                        dragId = "TOOL:ManualSampler"; 
+                        displayName = "Manual Sampling";
+                        break;
+                    case SystemToolType::AutoSampler:
+                        dragId = "TOOL:AutoSampler"; 
+                        displayName = "Auto Sampling";
+                        break;
+                    case SystemToolType::MidiPlayer:
+                        dragId = "TOOL:MidiPlayer"; 
+                        displayName = "MIDI Player";
+                        break;
+                    case SystemToolType::StepSeq:
+                        dragId = "TOOL:StepSeq"; 
+                        displayName = "Step Seq";
+                        break;
+                    case SystemToolType::TransientSplitter:
+                        dragId = "TOOL:TransientSplitter"; 
+                        displayName = "Transient Splitter";
+                        break;
+                    case SystemToolType::VST2Plugin:
+                        dragId = "TOOL:VST2Plugin"; 
+                        displayName = "VST2 Plugin...";
                         break;
                     default: 
                         dragId = "TOOL:Unknown";
@@ -133,7 +173,7 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
             
             // Text
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
             g.drawText(displayName, 8, 0, imgWidth - 16, imgHeight, juce::Justification::centredLeft, true);
             
             container->startDragging(dragId, this, juce::ScaledImage(dragImage), true);
@@ -190,18 +230,16 @@ void PluginGroupHeader::paint(juce::Graphics& g) {
     
     // Group name
     g.setColour(juce::Colours::cyan);
-    g.setFont(juce::Font(12.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     g.drawText(groupName, 28, 0, getWidth() - 70, getHeight(), juce::Justification::centredLeft, true);
     
     // Plugin count
     g.setColour(juce::Colours::grey);
-    g.setFont(juce::Font(11.0f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("(" + juce::String(pluginCount) + ")", getWidth() - 45, 0, 40, getHeight(), juce::Justification::centredRight);
 }
 
 void PluginGroupHeader::mouseDown(const juce::MouseEvent&) {
-    expanded = !expanded;
-    repaint();
     if (onToggle) onToggle(groupName);
 }
 
@@ -209,127 +247,106 @@ void PluginGroupHeader::mouseDown(const juce::MouseEvent&) {
 // PluginBrowserList
 // =============================================================================
 void PluginBrowserList::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colour(0xFF1E1E1E));
+    g.fillAll(juce::Colour(0xFF252525));
 }
 
 void PluginBrowserList::toggleGroup(const juce::String& groupName) {
-    if (expandedGroups.count(groupName)) {
+    if (expandedGroups.count(groupName))
         expandedGroups.erase(groupName);
-    } else {
+    else
         expandedGroups.insert(groupName);
-    }
     rebuildLayout();
 }
 
+void PluginBrowserList::rebuildLayout() {
+    // Clear items only
+    items.clear();
+    
+    int y = 5;
+    
+    // Rebuild based on current grouping and expanded state
+    for (auto* header : headers) {
+        header->setBounds(0, y, getWidth(), 28);
+        header->setExpanded(expandedGroups.count(header->getName()) > 0);
+        y += 30;
+        
+        // Add items only if expanded
+        if (header->isExpanded() && groupedPlugins.count(header->getName())) {
+            for (const auto& desc : groupedPlugins[header->getName()]) {
+                auto* item = items.add(new PluginBrowserItem(desc));
+                item->setBounds(0, y, getWidth(), 32);
+                item->onPluginDoubleClick = onPluginDoubleClick;
+                addAndMakeVisible(item);
+                y += 34;
+            }
+        }
+    }
+    
+    setSize(getWidth(), y + 10);
+}
+
 void PluginBrowserList::setPlugins(const juce::Array<juce::PluginDescription>& plugins,
-                                    bool byVendor, bool byFolder, bool byFormat) {
+                                    bool groupByVendor, bool groupByFolder, bool groupByFormat) {
     items.clear();
     headers.clear();
     flatHeaders.clear();
     groupedPlugins.clear();
     
-    currentGroupByVendor = byVendor;
-    currentGroupByFolder = byFolder;
-    currentGroupByFormat = byFormat;
-    
-    if (plugins.isEmpty()) {
-        setSize(getWidth(), 50);
-        return;
-    }
-    
-    // Sort plugins
-    juce::Array<juce::PluginDescription> sorted = plugins;
-    if (byVendor) {
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
-            juce::String va = a.manufacturerName.isEmpty() ? "Unknown" : a.manufacturerName;
-            juce::String vb = b.manufacturerName.isEmpty() ? "Unknown" : b.manufacturerName;
-            return va.compareIgnoreCase(vb) < 0 || (va.equalsIgnoreCase(vb) && a.name.compareIgnoreCase(b.name) < 0);
-        });
-    } else if (byFolder) {
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
-            juce::String fa = juce::File(a.fileOrIdentifier).getParentDirectory().getFileName();
-            juce::String fb = juce::File(b.fileOrIdentifier).getParentDirectory().getFileName();
-            return fa.compareIgnoreCase(fb) < 0 || (fa.equalsIgnoreCase(fb) && a.name.compareIgnoreCase(b.name) < 0);
-        });
-    } else if (byFormat) {
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
-            return a.pluginFormatName.compareIgnoreCase(b.pluginFormatName) < 0 ||
-                (a.pluginFormatName.equalsIgnoreCase(b.pluginFormatName) && a.name.compareIgnoreCase(b.name) < 0);
-        });
-    } else {
-        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
-            return a.name.compareIgnoreCase(b.name) < 0;
-        });
-    }
-    
-    // Group plugins if needed
-    if (byVendor || byFolder || byFormat) {
-        for (const auto& p : sorted) {
-            juce::String group;
-            if (byVendor) group = p.manufacturerName.isEmpty() ? "Unknown" : p.manufacturerName;
-            else if (byFolder) group = juce::File(p.fileOrIdentifier).getParentDirectory().getFileName();
-            else if (byFormat) group = p.pluginFormatName;
-            
-            groupedPlugins[group.toStdString()].add(p);
-        }
-    } else {
-        // Flat mode - just store all
-        groupedPlugins["all"] = sorted;
-    }
-    
-    rebuildLayout();
-}
-
-void PluginBrowserList::rebuildLayout() {
-    items.clear();
-    headers.clear();
-    flatHeaders.clear();
+    currentGroupByVendor = groupByVendor;
+    currentGroupByFolder = groupByFolder;
+    currentGroupByFormat = groupByFormat;
     
     int y = 5;
-    bool isGrouped = currentGroupByVendor || currentGroupByFolder || currentGroupByFormat;
     
-    if (isGrouped) {
-        // Collapsible groups mode
-        // Sort group names
-        std::vector<juce::String> groupNames;
-        for (const auto& pair : groupedPlugins) {
-            groupNames.push_back(juce::String(pair.first));
+    if (!groupByVendor && !groupByFolder && !groupByFormat) {
+        // FLAT MODE - Simple A-Z list
+        for (const auto& desc : plugins) {
+            auto* item = items.add(new PluginBrowserItem(desc));
+            item->setBounds(0, y, getWidth(), 32);
+            item->onPluginDoubleClick = onPluginDoubleClick;
+            addAndMakeVisible(item);
+            y += 34;
         }
-        std::sort(groupNames.begin(), groupNames.end(), [](const auto& a, const auto& b) {
-            return a.compareIgnoreCase(b) < 0;
-        });
+    } else {
+        // GROUPED MODE - By vendor, folder, or format
+        std::map<juce::String, juce::Array<juce::PluginDescription>> groups;
         
-        for (const auto& groupName : groupNames) {
-            const auto& pluginsInGroup = groupedPlugins[groupName.toStdString()];
-            
-            // Add header
-            auto* header = headers.add(new PluginGroupHeader(groupName, pluginsInGroup.size()));
+        for (const auto& desc : plugins) {
+            juce::String groupKey;
+            if (groupByVendor) {
+                groupKey = desc.manufacturerName.isEmpty() ? "Unknown" : desc.manufacturerName;
+            } else if (groupByFolder) {
+                juce::File f(desc.fileOrIdentifier);
+                groupKey = f.getParentDirectory().getFileName();
+                if (groupKey.isEmpty()) groupKey = "Root";
+            } else if (groupByFormat) {
+                groupKey = desc.pluginFormatName;
+            }
+            groups[groupKey].add(desc);
+        }
+        
+        // Store for rebuild
+        groupedPlugins = groups;
+        
+        // Create headers and items
+        for (auto& [groupName, groupPlugins] : groups) {
+            auto* header = headers.add(new PluginGroupHeader(groupName, groupPlugins.size()));
             header->setBounds(0, y, getWidth(), 28);
-            header->setExpanded(expandedGroups.count(groupName.toStdString()) > 0);
             header->onToggle = [this](const juce::String& name) { toggleGroup(name); };
+            header->setExpanded(expandedGroups.count(groupName) > 0);
             addAndMakeVisible(header);
             y += 30;
             
-            // Add items only if expanded
-            if (expandedGroups.count(groupName.toStdString()) > 0) {
-                for (const auto& p : pluginsInGroup) {
-                    auto* item = items.add(new PluginBrowserItem(p));
-                    item->setBounds(10, y, getWidth() - 20, 32);  // Indent items
+            // Only show items if expanded
+            if (header->isExpanded()) {
+                for (const auto& desc : groupPlugins) {
+                    auto* item = items.add(new PluginBrowserItem(desc));
+                    item->setBounds(0, y, getWidth(), 32);
                     item->onPluginDoubleClick = onPluginDoubleClick;
                     addAndMakeVisible(item);
                     y += 34;
                 }
             }
-        }
-    } else {
-        // Flat A-Z mode
-        const auto& allPlugins = groupedPlugins["all"];
-        for (const auto& p : allPlugins) {
-            auto* item = items.add(new PluginBrowserItem(p));
-            item->setBounds(0, y, getWidth(), 32);
-            item->onPluginDoubleClick = onPluginDoubleClick;
-            addAndMakeVisible(item);
-            y += 34;
         }
     }
     
@@ -341,13 +358,12 @@ void PluginBrowserList::setSystemTools() {
     headers.clear();
     flatHeaders.clear();
     groupedPlugins.clear();
-    expandedGroups.clear();
     
     int y = 5;
     
     auto* h = flatHeaders.add(new juce::Label());
     h->setText("System Tools", juce::dontSendNotification);
-    h->setFont(juce::Font(12.0f, juce::Font::bold));
+    h->setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     h->setColour(juce::Label::textColourId, juce::Colours::orange);
     h->setBounds(5, y, getWidth() - 10, 24);
     addAndMakeVisible(h);
@@ -371,6 +387,49 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(m);
     y += 34;
     
+    // NEW: Add Recorder
+    auto* r = items.add(new PluginBrowserItem(SystemToolType::Recorder));
+    r->setBounds(0, y, getWidth(), 32);
+    r->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(r);
+    y += 34;
+    
+    auto* ms = items.add(new PluginBrowserItem(SystemToolType::ManualSampler));
+    ms->setBounds(0, y, getWidth(), 32);
+    ms->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ms);
+    y += 34;
+    
+    auto* as = items.add(new PluginBrowserItem(SystemToolType::AutoSampler));
+    as->setBounds(0, y, getWidth(), 32);
+    as->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(as);
+    y += 34;
+    
+    auto* mp = items.add(new PluginBrowserItem(SystemToolType::MidiPlayer));
+    mp->setBounds(0, y, getWidth(), 32);
+    mp->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(mp);
+    y += 34;
+    
+    auto* ss = items.add(new PluginBrowserItem(SystemToolType::StepSeq));
+    ss->setBounds(0, y, getWidth(), 32);
+    ss->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ss);
+    y += 34;
+    
+    auto* ts = items.add(new PluginBrowserItem(SystemToolType::TransientSplitter));
+    ts->setBounds(0, y, getWidth(), 32);
+    ts->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(ts);
+    y += 34;
+    
+    auto* v2 = items.add(new PluginBrowserItem(SystemToolType::VST2Plugin));
+    v2->setBounds(0, y, getWidth(), 32);
+    v2->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(v2);
+    y += 34;
+    
     setSize(getWidth(), y + 10);
 }
 
@@ -379,7 +438,7 @@ void PluginBrowserList::setSystemTools() {
 // =============================================================================
 PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processor(p) {
     // Title label
-    titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+    titleLabel.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
@@ -497,9 +556,18 @@ void PluginBrowserPanel::textEditorTextChanged(juce::TextEditor&) {
     applyFilters();
 }
 
-void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) { applyFilters(); }
+void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) {
+    applyFilters();
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+    viewport.setViewPosition(0, 0);
+    repaint();
+}
 
-void PluginBrowserPanel::refresh() { updateButtons(); applyFilters(); }
+void PluginBrowserPanel::refresh() {
+    updateButtons();
+    applyFilters();
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+}
 
 void PluginBrowserPanel::updateButtons() {
     allBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::All ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
@@ -516,7 +584,7 @@ void PluginBrowserPanel::updateButtons() {
 void PluginBrowserPanel::applyFilters() {
     if (typeFilter == TypeFilter::Tools) {
         pluginList->setSystemTools();
-        countLabel.setText("3 tools", juce::dontSendNotification);
+        countLabel.setText("4 tools", juce::dontSendNotification);
         return;
     }
     
@@ -526,13 +594,23 @@ void PluginBrowserPanel::applyFilters() {
     countLabel.setText(juce::String(filtered.size()) + " plugin" + (filtered.size() != 1 ? "s" : ""), juce::dontSendNotification);
 }
 
+// NEW: Filters out hidden plugins (eye toggle in Plugin Manager tab)
 juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     auto all = processor.knownPluginList.getTypes();
     juce::Array<juce::PluginDescription> result;
     
+    auto* userSettings = processor.appProperties.getUserSettings();
+    
     for (const auto& p : all) {
         if (typeFilter == TypeFilter::Instruments && !p.isInstrument) continue;
         if (typeFilter == TypeFilter::Effects && p.isInstrument) continue;
+        
+        // NEW: Skip hidden plugins (eye toggle)
+        if (userSettings) {
+            juce::String key = "PluginHidden_" + p.fileOrIdentifier.replaceCharacters(" :/\\.", "_____")
+                               + "_" + juce::String(p.uniqueId);
+            if (userSettings->getBoolValue(key, false)) continue;
+        }
         
         if (searchText.isNotEmpty()) {
             juce::String s = searchText.toLowerCase();
@@ -543,3 +621,8 @@ juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     }
     return result;
 }
+
+
+
+
+

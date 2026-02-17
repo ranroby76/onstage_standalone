@@ -1,4 +1,5 @@
 
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Paint.cpp
 // FIXED: Added RecorderProcessor visualization
 // FIX: Added folder button to recorder, fixed layout
@@ -28,14 +29,16 @@ void GraphCanvas::paint(juce::Graphics& g)
         g.drawHorizontalLine(y, 0.0f, (float)getWidth());
 
     if (!processor.mainGraph) return;
-    verifyPositions();
+    // FIX: verifyPositions() moved to rebuildNodeTypeCache() — runs once per structure change,
+    // not 20 times/sec during meter animation
 
     // Ensure cache is valid
     if (nodeTypeCache.empty() && processor.mainGraph->getNumNodes() > 0)
         const_cast<GraphCanvas*>(this)->rebuildNodeTypeCache();
 
-    // Draw connections
-    for (auto& connection : processor.mainGraph->getConnections())
+    // FIX: Use cached connections instead of getConnections() which copies
+    // the entire std::vector on every call — saves heap allocation churn at 20fps
+    for (auto& connection : cachedConnections)
     {
         auto* srcNode = processor.mainGraph->getNodeForId(connection.source.nodeID);
         auto* dstNode = processor.mainGraph->getNodeForId(connection.destination.nodeID);
@@ -134,9 +137,6 @@ void GraphCanvas::paint(juce::Graphics& g)
         bool selected = false;
 
         auto* cache = getCachedNodeType(node->nodeID);
-        MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(node->getProcessor());
-        // FIX: NEVER call getPluginDescription() - it freezes some plugins
-        bool isInstrument = cache && cache->isInstrument;
 
         bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
         bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
@@ -162,7 +162,7 @@ void GraphCanvas::paint(juce::Graphics& g)
 
         // Title text
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(12.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
         
         // FREEZE FIX: Use cached name - some plugins freeze when getName() is called!
         juce::String title = cache ? cache->pluginName : "Unknown";
@@ -264,7 +264,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.drawRect(rightBarBounds, 1.0f);
             
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(10.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
             g.drawText("L", leftBarBounds.removeFromBottom(12), juce::Justification::centred);
             g.drawText("R", rightBarBounds.removeFromBottom(12), juce::Justification::centred);
             
@@ -294,7 +294,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             auto events = midiMonitor->getMidiEvents();
             auto displayArea = bounds.reduced(6, 4);
             
-            g.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.0f, juce::Font::plain));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::plain).withName(juce::Font::getDefaultMonospacedFontName())));
             float lineHeight = 16.0f;
             float yPos = displayArea.getY();
             
@@ -336,7 +336,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             if (!anyActivity)
             {
                 g.setColour(juce::Colours::grey);
-                g.setFont(juce::Font(12.0f, juce::Font::italic));
+                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::italic)));
                 g.drawText("Waiting for MIDI...", displayArea, juce::Justification::centred);
             }
         }
@@ -362,7 +362,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.drawRoundedRectangle(nameBoxArea, 4.0f, 1.0f);
             
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(12.0f));
+            g.setFont(juce::Font(juce::FontOptions(12.0f)));
             juce::String displayName = recorder->getRecorderName();
             if (displayName.length() > 22) displayName = displayName.substring(0, 19) + "...";
             g.drawText(displayName, nameBoxArea.reduced(6, 0), juce::Justification::centredLeft);
@@ -468,7 +468,7 @@ void GraphCanvas::paint(juce::Graphics& g)
                 : juce::String::formatted("%02d:%02d.%d", minutes, seconds, tenths);
             
             g.setColour(isRecording ? juce::Colours::lightgreen : juce::Colour(150, 150, 150));
-            g.setFont(juce::Font(22.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(22.0f, juce::Font::bold)));
             g.drawText(timeStr, timeRow, juce::Justification::centred);
             
             contentArea.removeFromTop(4);
@@ -480,7 +480,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(syncMode ? juce::Colour(0, 180, 180) : juce::Colour(80, 80, 80));
             g.fillRoundedRectangle(syncArea, 4.0f);
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText(syncMode ? "SYNC" : "INDEPENDENT", syncArea, juce::Justification::centred);
             
             contentArea.removeFromBottom(4);
@@ -533,7 +533,7 @@ void GraphCanvas::paint(juce::Graphics& g)
                 juce::String fname = recorder->getLastRecordingFile().getFileName();
                 if (fname.length() > 28) fname = "..." + fname.substring(fname.length() - 25);
                 g.setColour(juce::Colours::grey.withAlpha(0.7f));
-                g.setFont(juce::Font(9.0f));
+                g.setFont(juce::Font(juce::FontOptions(9.0f)));
                 g.drawText(fname, waveformArea.reduced(4, 0).removeFromBottom(12), juce::Justification::centredLeft);
             }
         }
@@ -561,11 +561,11 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(juce::Colours::grey);
             g.drawRoundedRectangle(nameBoxArea, 4.0f, 1.0f);
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(12.0f));
+            g.setFont(juce::Font(juce::FontOptions(12.0f)));
             g.drawText(manualSampler->getFamilyName(), nameBoxArea.reduced(6, 0), juce::Justification::centredLeft);
             
             g.setColour(juce::Colour(120, 120, 140));
-            g.setFont(juce::Font(10.0f));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)));
             g.drawText(juce::String(manualSampler->getTotalFilesRecorded()) + " files", countArea, juce::Justification::centredRight);
             
             contentArea.removeFromTop(4);
@@ -589,7 +589,7 @@ void GraphCanvas::paint(juce::Graphics& g)
                 g.fillEllipse(circleArea.expanded(4));
             } else {
                 g.setColour(armed ? juce::Colours::orange : juce::Colour(100, 100, 120));
-                g.setFont(juce::Font(10.0f, juce::Font::bold));
+                g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
                 g.drawText("ARM", armBtnArea, juce::Justification::centred);
             }
             
@@ -602,15 +602,15 @@ void GraphCanvas::paint(juce::Graphics& g)
             
             if (recording) {
                 g.setColour(juce::Colours::lightgreen);
-                g.setFont(juce::Font(18.0f, juce::Font::bold));
+                g.setFont(juce::Font(juce::FontOptions(18.0f, juce::Font::bold)));
                 g.drawText(ManualSamplerProcessor::midiNoteToName(manualSampler->getLastRecordedNote()), noteArea, juce::Justification::centred);
             } else if (armed) {
                 g.setColour(juce::Colours::orange.withAlpha(0.6f));
-                g.setFont(juce::Font(11.0f, juce::Font::italic));
+                g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::italic)));
                 g.drawText("Waiting...", noteArea, juce::Justification::centred);
             } else {
                 g.setColour(juce::Colour(80, 80, 100));
-                g.setFont(juce::Font(11.0f));
+                g.setFont(juce::Font(juce::FontOptions(11.0f)));
                 g.drawText("--", noteArea, juce::Justification::centred);
             }
             
@@ -679,11 +679,11 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(juce::Colours::grey);
             g.drawRoundedRectangle(nameBoxArea, 4.0f, 1.0f);
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(12.0f));
+            g.setFont(juce::Font(juce::FontOptions(12.0f)));
             g.drawText(autoSampler->getFamilyName(), nameBoxArea.reduced(6, 0), juce::Justification::centredLeft);
             
             g.setColour(running ? juce::Colours::lightgreen : juce::Colour(120, 120, 140));
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText(juce::String(autoSampler->getCurrentNoteIndex()) + " / " + juce::String(autoSampler->getTotalNotes()),
                        progressArea, juce::Justification::centredRight);
             
@@ -725,11 +725,11 @@ void GraphCanvas::paint(juce::Graphics& g)
             
             if (running) {
                 g.setColour(juce::Colours::lightgreen);
-                g.setFont(juce::Font(16.0f, juce::Font::bold));
+                g.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
                 g.drawText(AutoSamplerProcessor::midiNoteToName(autoSampler->getCurrentNote()), noteArea, juce::Justification::centred);
             } else {
                 g.setColour(juce::Colour(80, 80, 100));
-                g.setFont(juce::Font(11.0f));
+                g.setFont(juce::Font(juce::FontOptions(11.0f)));
                 int total = autoSampler->getTotalNotes();
                 g.drawText(total > 0 ? juce::String(total) + " notes" : "No notes", noteArea, juce::Justification::centred);
             }
@@ -772,12 +772,12 @@ void GraphCanvas::paint(juce::Graphics& g)
             // Show instructions when idle
             if (!running && autoSampler->getTotalNotes() == 0) {
                 g.setColour(juce::Colour(90, 90, 110));
-                g.setFont(juce::Font(10.0f));
+                g.setFont(juce::Font(juce::FontOptions(10.0f)));
                 g.drawText("1. Connect MIDI out to VSTi chain",
                            waveformArea.reduced(8, 0).removeFromTop(waveformArea.getHeight() / 3 + 4),
                            juce::Justification::centredLeft);
                 g.drawText("2. Press E to configure notes",
-                           waveformArea.reduced(8, 0).withTrimmedTop((int)(waveformArea.getHeight() / 3)),
+                           waveformArea.reduced(8, 0).withTrimmedTop(waveformArea.getHeight() / 3.0f),
                            juce::Justification::centredLeft);
                 g.drawText("3. Press Play to auto-sample",
                            waveformArea.reduced(8, 0).removeFromBottom(waveformArea.getHeight() / 3 + 4),
@@ -824,13 +824,13 @@ void GraphCanvas::paint(juce::Graphics& g)
             
             if (hasFile) {
                 g.setColour(juce::Colours::white);
-                g.setFont(juce::Font(13.0f));
+                g.setFont(juce::Font(juce::FontOptions(13.0f)));
                 juce::String fname = midiPlayer->getFileName();
                 if (fname.length() > 35) fname = fname.substring(0, 32) + "...";
                 g.drawText(fname, fileArea.reduced(8, 0), juce::Justification::centredLeft);
             } else {
                 g.setColour(juce::Colour(100, 100, 120));
-                g.setFont(juce::Font(12.0f, juce::Font::italic));
+                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::italic)));
                 g.drawText("No file loaded", fileArea.reduced(8, 0), juce::Justification::centredLeft);
             }
             
@@ -840,7 +840,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(juce::Colour(80, 130, 200));
             g.drawRoundedRectangle(loadBtnArea, 5.0f, 1.0f);
             g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText("LOAD", loadBtnArea, juce::Justification::centred);
             
             // E button (editor - channel mute table)
@@ -849,7 +849,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(hasFile ? juce::Colour(60, 180, 200) : juce::Colour(70, 70, 80));
             g.drawRoundedRectangle(infoBtnArea, 5.0f, 1.0f);
             g.setColour(hasFile ? juce::Colours::black : juce::Colours::grey);
-            g.setFont(juce::Font(13.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
             g.drawText("E", infoBtnArea, juce::Justification::centred);
             
             contentArea.removeFromTop(6);
@@ -909,7 +909,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(looping ? juce::Colour(0, 180, 220) : juce::Colour(80, 80, 90));
             g.drawRoundedRectangle(loopBtnArea, 8.0f, 1.5f);
             g.setColour(looping ? juce::Colour(0, 220, 255) : juce::Colour(100, 100, 120));
-            g.setFont(juce::Font(11.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText("LOOP", loopBtnArea, juce::Justification::centred);
             
             controlRow.removeFromLeft(10);
@@ -925,10 +925,10 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.drawRoundedRectangle(bpmArea, 4.0f, 1.0f);
             
             g.setColour(synced ? juce::Colour(200, 200, 220) : juce::Colours::orange);
-            g.setFont(juce::Font(16.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
             g.drawText(juce::String(bpm, 1), bpmArea.reduced(4, 0), juce::Justification::centred);
             g.setColour(juce::Colour(120, 120, 140));
-            g.setFont(juce::Font(8.0f));
+            g.setFont(juce::Font(juce::FontOptions(8.0f)));
             g.drawText("BPM", bpmArea.reduced(2, 1), juce::Justification::bottomRight);
             
             // Up/down arrows to hint draggable
@@ -950,7 +950,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(synced ? juce::Colour(0, 180, 220) : juce::Colour(80, 80, 90));
             g.drawRoundedRectangle(syncBtnArea, 4.0f, 1.0f);
             g.setColour(synced ? juce::Colour(0, 220, 255) : juce::Colour(100, 100, 120));
-            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(8.0f, juce::Font::bold)));
             g.drawText("SYNC", syncBtnArea, juce::Justification::centred);
             
             controlRow.removeFromLeft(6);
@@ -1009,11 +1009,11 @@ void GraphCanvas::paint(juce::Graphics& g)
             int totMin = (int)(totalSec / 60.0), totSec2 = (int)totalSec % 60;
             
             g.setColour(playing ? juce::Colours::lightgreen : juce::Colour(180, 180, 200));
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
             g.drawText(juce::String::formatted("%d:%02d", curMin, curSec2),
                        timeRow.removeFromLeft(45), juce::Justification::centredLeft);
             g.setColour(juce::Colour(100, 100, 120));
-            g.setFont(juce::Font(11.0f));
+            g.setFont(juce::Font(juce::FontOptions(11.0f)));
             g.drawText(juce::String::formatted("/ %d:%02d", totMin, totSec2),
                        timeRow.removeFromLeft(55), juce::Justification::centredLeft);
             
@@ -1027,7 +1027,7 @@ void GraphCanvas::paint(juce::Graphics& g)
                 }
                 if (currentSection.isNotEmpty()) {
                     g.setColour(juce::Colour(150, 180, 220));
-                    g.setFont(juce::Font(10.0f));
+                    g.setFont(juce::Font(juce::FontOptions(10.0f)));
                     g.drawText(currentSection, timeRow, juce::Justification::centredRight);
                 }
             }
@@ -1143,10 +1143,10 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.drawRoundedRectangle(bpmArea, 4.0f, 1.0f);
 
             g.setColour(juce::Colour(200, 200, 220));
-            g.setFont(juce::Font(14.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
             g.drawText(juce::String(bpmVal, 1), bpmArea.reduced(4, 0), juce::Justification::centredLeft);
             g.setColour(juce::Colour(120, 120, 140));
-            g.setFont(juce::Font(8.0f));
+            g.setFont(juce::Font(juce::FontOptions(8.0f)));
             g.drawText("BPM", bpmArea.reduced(4, 2), juce::Justification::bottomRight);
 
             topRow.removeFromLeft(4);
@@ -1159,7 +1159,7 @@ void GraphCanvas::paint(juce::Graphics& g)
             g.setColour(synced ? juce::Colours::limegreen.darker() : juce::Colour(80, 80, 90));
             g.drawRoundedRectangle(syncBtnArea, 4.0f, 1.0f);
             g.setColour(synced ? juce::Colours::limegreen : juce::Colour(120, 120, 140));
-            g.setFont(juce::Font(8.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(8.0f, juce::Font::bold)));
             g.drawText("SYN", syncBtnArea, juce::Justification::centred);
 
             topRow.removeFromLeft(6);
@@ -1170,7 +1170,7 @@ void GraphCanvas::paint(juce::Graphics& g)
                 if (ccStepper->getSlot(si).enabled) enabledCount++;
 
             g.setColour(juce::Colour(140, 140, 160));
-            g.setFont(juce::Font(11.0f));
+            g.setFont(juce::Font(juce::FontOptions(11.0f)));
             g.drawText(juce::String(enabledCount) + "/16",
                        topRow, juce::Justification::centredRight);
         }
@@ -1413,7 +1413,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(simpleConnector->isMuted() ? juce::Colours::red : juce::Colours::lightgreen);
         g.fillRoundedRectangle(muteRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("M", muteRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
         
@@ -1421,7 +1421,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1436,7 +1436,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1453,7 +1453,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colour(60, 60, 65));
         g.fillRoundedRectangle(folderRect, 3.0f);
         g.setColour(juce::Colour(200, 180, 100));
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("F", folderRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
         
@@ -1461,7 +1461,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1478,7 +1478,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::cyan.darker());
         g.fillRoundedRectangle(editRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("E", editRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
         
@@ -1487,7 +1487,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colour(60, 60, 65));
         g.fillRoundedRectangle(folderRect, 3.0f);
         g.setColour(juce::Colour(200, 180, 100));
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("F", folderRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
         
@@ -1495,7 +1495,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1512,7 +1512,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::cyan.darker());
         g.fillRoundedRectangle(editRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("E", editRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
         
@@ -1520,7 +1520,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1537,7 +1537,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::cyan.darker());
         g.fillRoundedRectangle(editRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("E", editRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
 
@@ -1545,7 +1545,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect, juce::Justification::centred);
         return;
     }
@@ -1562,7 +1562,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::cyan.darker());
         g.fillRoundedRectangle(editRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("E", editRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
 
@@ -1570,7 +1570,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::darkred);
         g.fillRoundedRectangle(deleteRect2, 3.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("X", deleteRect2, juce::Justification::centred);
         return;
     }
@@ -1588,7 +1588,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::cyan.darker());
         g.fillRoundedRectangle(editRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("E", editRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
@@ -1599,7 +1599,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colours::orange.darker());
         g.fillRoundedRectangle(chRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         
         int mask = meteringProc->getMidiChannelMask();
         juce::String text = "CH";
@@ -1620,7 +1620,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     g.setColour(node->isBypassed() ? juce::Colours::red : juce::Colours::lightgreen);
     g.fillRoundedRectangle(muteRect, 3.0f);
     g.setColour(juce::Colours::black);
-    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.drawText("M", muteRect, juce::Justification::centred);
     btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
 
@@ -1631,7 +1631,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(passThrough ? juce::Colours::yellow : juce::Colours::grey.darker());
         g.fillRoundedRectangle(passRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("P", passRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
@@ -1644,7 +1644,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(synced ? juce::Colours::yellow.darker(0.4f) : juce::Colours::yellow);
         g.fillRoundedRectangle(transportRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("T", transportRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
@@ -1656,7 +1656,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         g.setColour(juce::Colour(0xFF4DA6FF));  // Blue for VST2
         g.fillRoundedRectangle(loadRect, 3.0f);
         g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("L", loadRect, juce::Justification::centred);
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
@@ -1665,7 +1665,7 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     g.setColour(juce::Colours::darkred);
     g.fillRoundedRectangle(deleteRect, 3.0f);
     g.setColour(juce::Colours::white);
-    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.drawText("X", deleteRect, juce::Justification::centred);
 }
 
@@ -1681,9 +1681,10 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.fillRoundedRectangle(toggleRect, 3.0f);
     
     g.setColour(juce::Colours::white);
-    g.setFont(juce::Font(9.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
 }
+
 
 
 

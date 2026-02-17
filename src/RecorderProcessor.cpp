@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\RecorderProcessor.cpp
 // RECORDER SYSTEM TOOL - Implementation
 // Streams audio directly to disk with ThreadedWriter for glitch-free recording
@@ -247,7 +248,7 @@ bool RecorderProcessor::startRecording() {
     auto* writer = wavFormat->createWriterFor(
         outputStream.release(),
         sampleRate,
-        2,      // stereo
+        juce::AudioChannelSet::stereo(),
         24,     // 24-bit
         {},     // no metadata
         0);
@@ -311,7 +312,7 @@ void RecorderProcessor::triggerSyncedRecording() {
     if (outputStream->failedToOpen()) return;
     
     auto* writer = wavFormat->createWriterFor(
-        outputStream.release(), sampleRate, 2, 24, {}, 0);
+        outputStream.release(), sampleRate, juce::AudioChannelSet::stereo(), 24, {}, 0);
     
     if (writer == nullptr) return;
     
@@ -369,6 +370,8 @@ void RecorderProcessor::setStateInformation(const void* data, int sizeInBytes) {
         }
     }
 }
+
+
 
 
 

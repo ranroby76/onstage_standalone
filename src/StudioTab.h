@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\StudioTab.h
 
 #pragma once
@@ -20,13 +21,13 @@ public:
     }
     
     void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
-                         float sliderPos, float minSliderPos, float maxSliderPos,
-                         const juce::Slider::SliderStyle style, juce::Slider& slider) override
+                         float sliderPos, float /*minSliderPos*/, float /*maxSliderPos*/,
+                         const juce::Slider::SliderStyle /*style*/, juce::Slider& /*slider*/) override
     {
         auto trackWidth = juce::jmin(6.0f, (float)height * 0.25f);
         
-        auto trackBounds = juce::Rectangle<float>(x, y + height * 0.5f - trackWidth * 0.5f,
-                                                   width, trackWidth);
+        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + (float)height * 0.5f - trackWidth * 0.5f,
+                                                   (float)width, trackWidth);
         
         // Draw "off" rail (dark gold)
         g.setColour(darkGoldColor);
@@ -208,3 +209,5 @@ private:
     // FIX #3: Custom gold look and feel for sliders
     GoldSliderLookAndFeel goldSliderLookAndFeel;
 };
+
+

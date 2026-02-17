@@ -1,3 +1,4 @@
+
 #include "MidiSelectors.h"
 
 // ==============================================================================
@@ -8,7 +9,7 @@ MidiInputChannelSelector::MidiInputChannelSelector(const juce::String& deviceNam
 {
     titleLabel.setText("MIDI Routing: " + deviceName, juce::dontSendNotification);
     titleLabel.setJustificationType(juce::Justification::centred); 
-    titleLabel.setFont(juce::Font(14.0f, juce::Font::bold)); 
+    titleLabel.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold))); 
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(titleLabel);
     
@@ -112,7 +113,7 @@ MidiChannelSelector::MidiChannelSelector(MeteringProcessor* processor, std::func
 {
     titleLabel.setText("Select MIDI Input Channel", juce::dontSendNotification);
     titleLabel.setJustificationType(juce::Justification::centred); 
-    titleLabel.setFont(juce::Font(14.0f, juce::Font::bold)); 
+    titleLabel.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold))); 
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(titleLabel);
     
@@ -194,7 +195,6 @@ void MidiChannelSelector::buttonClicked(juce::Button* b) {
         for (int i = 0; i < 16; ++i) {
             if (channelButtons[i] == b) {
                 // Set single channel (convert channel number to mask with only that bit set)
-                int selectedChannel = i + 1;
                 int mask = (1 << i); // Single bit set for this channel
                 meteringProc->setMidiChannelMask(mask);
                 
@@ -217,3 +217,5 @@ void MidiChannelSelector::buttonClicked(juce::Button* b) {
         }
     } 
 }
+
+

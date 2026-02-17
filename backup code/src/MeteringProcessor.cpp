@@ -29,6 +29,12 @@ void MeteringProcessor::sendAllNotesOffToPlugin() {
 void MeteringProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     if (innerPlugin) {
         // =========================================================================
+        // Per-Plugin Transport: Capture parent playhead, set custom one on inner plugin
+        // =========================================================================
+        parentPlayHead = getPlayHead();
+        innerPlugin->setPlayHead(&pluginTransportPlayHead);
+        
+        // =========================================================================
         // CRITICAL FIX: Use cachedIsInstrument instead of getPluginDescription()
         // getPluginDescription() freezes some plugins when called!
         // =========================================================================
@@ -68,6 +74,11 @@ void MeteringProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sentPanicWhenFrozen = false;
     midiInActiveAtomic.store(false);
     midiOutActiveAtomic.store(false);
+    
+    // Size tap buffer for Auto Sampling
+    tapBuffer.setSize(2, samplesPerBlock);
+    tapBuffer.clear();
+    tapSamplesReady.store(0);
 }
 
 void MeteringProcessor::releaseResources() {
@@ -83,6 +94,13 @@ void MeteringProcessor::releaseResources() {
 
 void MeteringProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages) {
     if (buffer.getNumSamples() == 0) return;
+    
+    // =========================================================================
+    // Per-Plugin Transport: Keep parent playhead reference current
+    // =========================================================================
+    auto* currentHead = getPlayHead();
+    if (currentHead != nullptr && currentHead != &pluginTransportPlayHead)
+        parentPlayHead = currentHead;
     
     // =========================================================================
     // CRITICAL FIX: Use cachedIsInstrument instead of getPluginDescription()
@@ -293,6 +311,19 @@ void MeteringProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mid
         float g = gain.load();
         if (g != 1.0f) {
             buffer.applyGain(g);
+        }
+    }
+
+    // =========================================================================
+    // Audio Tap: Copy output to tap buffer for Auto Sampling
+    // =========================================================================
+    if (audioTapEnabled.load()) {
+        int numSamp = buffer.getNumSamples();
+        int tapChans = juce::jmin(2, buffer.getNumChannels());
+        if (tapBuffer.getNumSamples() >= numSamp) {
+            for (int ch = 0; ch < tapChans; ++ch)
+                tapBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamp);
+            tapSamplesReady.store(numSamp);
         }
     }
 

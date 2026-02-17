@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\TransientSplitterEditorComponent.h
 // TRANSIENT SPLITTER EDITOR - Popup for E button
 // All parameters, meters, and mode toggles
@@ -16,7 +17,7 @@ public:
         
         // Title
         titleLabel.setText("Transient Splitter", juce::dontSendNotification);
-        titleLabel.setFont(juce::Font(16.0f, juce::Font::bold));
+        titleLabel.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
         titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
         titleLabel.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(titleLabel);
@@ -163,8 +164,8 @@ public:
         g.drawEllipse(ledX, ledY, ledSize, ledSize, 1.0f);
         
         g.setColour(juce::Colour(160, 160, 180));
-        g.setFont(juce::Font(10.0f));
-        g.drawText("TRANSIENT", ledX + ledSize + 4, ledY - 1, 70, 14, juce::Justification::centredLeft);
+        g.setFont(juce::Font(juce::FontOptions(10.0f)));
+        g.drawText("TRANSIENT", (int)(ledX + ledSize + 4), (int)(ledY - 1), 70, 14, juce::Justification::centredLeft);
         
         // Meter bars
         float meterX = area.getX();
@@ -210,7 +211,7 @@ private:
     void addSection(const juce::String& text, juce::Label& label)
     {
         label.setText(text, juce::dontSendNotification);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, juce::Colour(120, 180, 255));
         label.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(label);
@@ -220,7 +221,7 @@ private:
                    double min, double max, double step, double value)
     {
         label.setText(name, juce::dontSendNotification);
-        label.setFont(juce::Font(11.0f));
+        label.setFont(juce::Font(juce::FontOptions(11.0f)));
         label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(label);
         
@@ -259,9 +260,11 @@ private:
         
         // Label
         g.setColour(juce::Colour(180, 180, 190));
-        g.setFont(juce::Font(9.0f));
+        g.setFont(juce::Font(juce::FontOptions(9.0f)));
         g.drawText(label, (int)x + 3, (int)y, 24, (int)h, juce::Justification::centredLeft);
     }
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransientSplitterEditorComponent)
 };
+
+

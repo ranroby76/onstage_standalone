@@ -1,3 +1,4 @@
+
 #include "RegistrationTab.h"
 #include "PluginProcessor.h"
 
@@ -152,8 +153,11 @@ void RegistrationTab::buttonClicked(juce::Button* b) {
 }
 
 void RegistrationTab::timerCallback() {
-    // Update demo mode timing
-    RegistrationManager::getInstance().updateDemoMode();
+    // FIX: Skip all work when tab is hidden — no point updating invisible labels every second
+    if (!isShowing()) return;
+    
+    // FIX: Removed duplicate updateDemoMode() call — already called by
+    // PluginEditor::timerCallback() at 500ms. No need to call it twice.
     
     // Update status display
     updateStatus();

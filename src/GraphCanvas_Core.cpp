@@ -1,4 +1,5 @@
 
+
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Core.cpp
 // CRITICAL FIX: Use MeteringProcessor::isInstrument() instead of getPluginDescription()
 // getPluginDescription() freezes some plugins!
@@ -183,7 +184,6 @@ void GraphCanvas::updateParentSelector()
 void GraphCanvas::rebuildNodeTypeCache()
 {
     LOG(">>> rebuildNodeTypeCache() START");
-    auto startTime = juce::Time::getMillisecondCounterHiRes();
     
     nodeTypeCache.clear();
     hasStereoMeter = false;
@@ -194,6 +194,7 @@ void GraphCanvas::rebuildNodeTypeCache()
     
     if (!processor.mainGraph) {
         LOG("  mainGraph is null, returning");
+        cachedConnections.clear();
         return;
     }
     
@@ -311,7 +312,14 @@ void GraphCanvas::rebuildNodeTypeCache()
     }
     
     lastNodeCount = processor.mainGraph->getNumNodes();
-    lastConnectionCount = processor.mainGraph->getConnections().size();
+    
+    // FIX: Cache connections vector here (once per structure change)
+    // instead of copying it every paint() call at 20fps
+    cachedConnections = processor.mainGraph->getConnections();
+    lastConnectionCount = cachedConnections.size();
+    
+    // FIX: Moved from paint() — only needs to run when graph structure changes
+    verifyPositions();
     
     // =========================================================================
     // Mark nodes in AutoSampler recording chains
@@ -321,9 +329,9 @@ void GraphCanvas::rebuildNodeTypeCache()
     {
         if (!cache.autoSampler) continue;
         
-        // Find our MIDI output target
+        // Find our MIDI output target (use cached connections)
         juce::AudioProcessorGraph::NodeID midiTargetID;
-        for (auto& conn : processor.mainGraph->getConnections())
+        for (auto& conn : cachedConnections)
         {
             if (conn.source.nodeID == nodeID &&
                 conn.source.channelIndex == juce::AudioProcessorGraph::midiChannelIndex)
@@ -354,9 +362,9 @@ void GraphCanvas::rebuildNodeTypeCache()
             if (cacheIt != nodeTypeCache.end())
                 cacheIt->second.inSamplingChain = true;
             
-            // Follow first audio output connection
+            // Follow first audio output connection (use cached connections)
             juce::AudioProcessorGraph::NodeID nextID;
-            for (auto& conn : processor.mainGraph->getConnections())
+            for (auto& conn : cachedConnections)
             {
                 if (conn.source.nodeID == currentID && conn.source.channelIndex == 0)
                 {
@@ -371,8 +379,7 @@ void GraphCanvas::rebuildNodeTypeCache()
         }
     }
     
-    auto endTime = juce::Time::getMillisecondCounterHiRes();
-    LOG("<<< rebuildNodeTypeCache() COMPLETE - took " + juce::String((endTime - startTime) / 1000.0, 3) + " seconds");
+    LOG("<<< rebuildNodeTypeCache() COMPLETE");
 }
 
 const GraphCanvas::NodeTypeCache* GraphCanvas::getCachedNodeType(juce::AudioProcessorGraph::NodeID nodeID)
@@ -503,32 +510,11 @@ bool GraphCanvas::isAsioActive() const
     return false;
 }
 
-// FIX: Show MIDI Input and MIDI Output nodes! Original logic restored.
-// FIXED: Added RecorderProcessor, ManualSamplerProcessor, AutoSamplerProcessor
+// FIX: All branches returned true — removed 8 dead dynamic_cast RTTI lookups
+// that were firing ~12,800 times/sec (80 calls/repaint × 20fps stereo meter timer)
 bool GraphCanvas::shouldShowNode(juce::AudioProcessorGraph::Node* node) const
 {
-    if (!node) return false;
-    auto* proc = node->getProcessor();
-    if (!proc) return false;
-    
-    // Always show Audio I/O and MIDI I/O nodes
-    if (node == processor.audioInputNode.get()) return true;
-    if (node == processor.audioOutputNode.get()) return true;
-    if (node == processor.midiInputNode.get()) return true;
-    if (node == processor.midiOutputNode.get()) return true;
-    
-    // Show system tools (Simple Connector, Stereo Meter, MIDI Monitor, Recorder, Samplers)
-    // These are user-accessible utility plugins, not invisible helpers
-    if (dynamic_cast<SimpleConnectorProcessor*>(proc)) return true;
-    if (dynamic_cast<StereoMeterProcessor*>(proc)) return true;
-    if (dynamic_cast<MidiMonitorProcessor*>(proc)) return true;
-    if (dynamic_cast<RecorderProcessor*>(proc)) return true;
-    if (dynamic_cast<ManualSamplerProcessor*>(proc)) return true;
-    if (dynamic_cast<AutoSamplerProcessor*>(proc)) return true;
-    if (dynamic_cast<MidiPlayerProcessor*>(proc)) return true;
-    if (dynamic_cast<CCStepperProcessor*>(proc)) return true;
-    
-    return true;
+    return (node != nullptr && node->getProcessor() != nullptr);
 }
 
 void GraphCanvas::scanPlugins() {}
@@ -541,6 +527,7 @@ void GraphCanvas::verifyPositions()
         if (!node->properties.contains("y")) node->properties.set("y", 100.0);
     }
 }
+
 
 
 

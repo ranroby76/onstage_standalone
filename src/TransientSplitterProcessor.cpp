@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\TransientSplitterProcessor.cpp
 // TRANSIENT SPLITTER - Implementation
 // Zero-latency envelope follower transient detection with 4-output split
@@ -11,9 +12,13 @@ TransientSplitterProcessor::TransientSplitterProcessor()
 {
 }
 
-void TransientSplitterProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/)
+void TransientSplitterProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     currentSampleRate = sampleRate;
+    
+    // FIX: Pre-allocate temp buffer — replaces 32KB stack arrays in processBlock.
+    // Removes silent truncation at 4096 samples and moves allocation off the audio thread.
+    tempBuffer.setSize(2, samplesPerBlock, false, false, true);
     
     // Reset envelope states
     fastEnvL = fastEnvR = 0.0f;
@@ -25,7 +30,7 @@ void TransientSplitterProcessor::prepareToPlay(double sampleRate, int /*samplesP
     // Prepare detection filters
     juce::dsp::ProcessSpec spec;
     spec.sampleRate = sampleRate;
-    spec.maximumBlockSize = 512;
+    spec.maximumBlockSize = (juce::uint32)samplesPerBlock;
     spec.numChannels = 1;
     
     detHPFilterL.prepare(spec);  detHPFilterR.prepare(spec);
@@ -123,12 +128,18 @@ void TransientSplitterProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
     }
     
     // Read pointers (input is on channels 0,1; we'll write outputs to 0,1,2,3)
-    // First copy input to temp since we'll overwrite
-    float tempL[4096], tempR[4096];
-    const int safeSamples = juce::jmin(numSamples, 4096);
+    // FIX: Use pre-allocated member buffer instead of 32KB stack arrays (float[4096] × 2).
+    // Also removes silent truncation at 4096 samples — now handles any buffer size.
+    if (tempBuffer.getNumSamples() < numSamples)
+        tempBuffer.setSize(2, numSamples, false, false, true);
     
-    juce::FloatVectorOperations::copy(tempL, buffer.getReadPointer(0), safeSamples);
-    juce::FloatVectorOperations::copy(tempR, buffer.getReadPointer(1), safeSamples);
+    const int safeSamples = numSamples;
+    
+    juce::FloatVectorOperations::copy(tempBuffer.getWritePointer(0), buffer.getReadPointer(0), safeSamples);
+    juce::FloatVectorOperations::copy(tempBuffer.getWritePointer(1), buffer.getReadPointer(1), safeSamples);
+    
+    const float* tempL = tempBuffer.getReadPointer(0);
+    const float* tempR = tempBuffer.getReadPointer(1);
     
     // Get write pointers for all 4 output channels
     float* outTransL = buffer.getWritePointer(0);
@@ -318,3 +329,4 @@ void TransientSplitterProcessor::setStateInformation(const void* data, int sizeI
     gateMode.store(xml->getBoolAttribute("gateMode", false));
     invertMode.store(xml->getBoolAttribute("invertMode", false));
 }
+

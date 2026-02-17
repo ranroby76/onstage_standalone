@@ -1,4 +1,6 @@
+// #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_02_CtorDtor.cpp
 // Constructor / Destructor
+// FIX: Destructor now stops recording and writer thread before clearing graph
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -40,6 +42,11 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
 
     updateGraph();
     
+    // Initialize workspace names to "1", "2", ..., "16"
+    for (int i = 0; i < maxWorkspaces; ++i)
+        workspaceNames[i] = juce::String(i + 1);
+    workspaceEnabled[0] = true; // Only workspace 1 enabled on fresh start
+    
     // FIX #1: Delay MIDI channel mask initialization until device manager is ready
     // This ensures the MIDI settings are properly applied on startup
     juce::MessageManager::callAsync([this]() {
@@ -48,9 +55,17 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
 }
 
 SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
+    // CRITICAL: Stop any active recording first
+    stopRecording();
+    backgroundWriter.reset();
+    writerThread.stopThread(5000);
+    
     knownPluginList.removeChangeListener(this);
     if (standaloneDeviceManager)
         standaloneDeviceManager->removeChangeListener(this);
+
+    // Suspend processing before tearing down graph
+    suspendProcessing(true);
 
     audioInputNode = nullptr;
     audioOutputNode = nullptr;
@@ -67,3 +82,6 @@ SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
         userSettings->setValue("KnownPlugins", xml.get());
     userSettings->saveIfNeeded();
 }
+
+
+

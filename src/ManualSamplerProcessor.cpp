@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\ManualSamplerProcessor.cpp
 // MANUAL SAMPLER - Implementation
 // Armed mode: waits for MIDI note-on, records audio, stops on silence
@@ -248,7 +249,7 @@ bool ManualSamplerProcessor::startNewRecording(int note, int velocity)
         return false;
     
     auto* writer = wavFormat->createWriterFor(
-        outputStream.release(), sampleRate, 2, 24, {}, 0);
+        outputStream.release(), sampleRate, juce::AudioChannelSet::stereo(), 24, {}, 0);
     
     if (writer == nullptr)
         return false;
@@ -317,6 +318,8 @@ void ManualSamplerProcessor::setStateInformation(const void* data, int sizeInByt
         silenceDurationMs.store((float)(double)vt.getProperty("silenceDurationMs", 500.0));
     }
 }
+
+
 
 
 

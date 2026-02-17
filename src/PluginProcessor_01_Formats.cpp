@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_01_Formats.cpp
 // Plugin Format Initialization - VST3 + VST2 (manual load) + AU + LADSPA
 
@@ -14,7 +15,7 @@ void SubterraneumAudioProcessor::initializePluginFormats()
     // VST3 Format - Primary format, uses moduleinfo.json for safe scanning
     // =========================================================================
     #if JUCE_PLUGINHOST_VST3
-    formatManager.addFormat(new juce::VST3PluginFormat());
+    formatManager.addFormat(std::make_unique<juce::VST3PluginFormat>());
     #endif
     
     // =========================================================================
@@ -22,21 +23,21 @@ void SubterraneumAudioProcessor::initializePluginFormats()
     // Users load VST2 plugins via the "VST2 Plugin..." menu or L button
     // =========================================================================
     #if JUCE_PLUGINHOST_VST
-    formatManager.addFormat(new juce::VSTPluginFormat());
+    formatManager.addFormat(std::make_unique<juce::VSTPluginFormat>());
     #endif
     
     // =========================================================================
     // Audio Units (macOS only)
     // =========================================================================
     #if JUCE_PLUGINHOST_AU && JUCE_MAC
-    formatManager.addFormat(new juce::AudioUnitPluginFormat());
+    formatManager.addFormat(std::make_unique<juce::AudioUnitPluginFormat>());
     #endif
     
     // =========================================================================
     // LADSPA (Linux only)
     // =========================================================================
     #if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
-    formatManager.addFormat(new juce::LADSPAPluginFormat());
+    formatManager.addFormat(std::make_unique<juce::LADSPAPluginFormat>());
     #endif
 }
 
@@ -80,3 +81,5 @@ juce::Colour SubterraneumAudioProcessor::getFormatColor(const juce::String& full
         return juce::Colour(0xFF9B59B6);  // Purple
     return juce::Colours::grey;
 }
+
+

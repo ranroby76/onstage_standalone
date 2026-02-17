@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\AutoSamplerProcessor.cpp
 // AUTO SAMPLING - Implementation
 // Architecture: MIDI-only node. Taps audio from end of connected plugin chain.
@@ -482,10 +483,10 @@ void AutoSamplerProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                         // Use shared alive flag to prevent use-after-free
                         if (createSfz.load())
                         {
-                            auto aliveFlag = this->aliveFlag;
+                            auto aliveFlagCopy = this->aliveFlag;
                             auto* self = this;
-                            juce::MessageManager::callAsync([aliveFlag, self]() {
-                                if (aliveFlag && aliveFlag->load())
+                            juce::MessageManager::callAsync([aliveFlagCopy, self]() {
+                                if (aliveFlagCopy && aliveFlagCopy->load())
                                     self->generateSfzFile();
                             });
                         }
@@ -624,7 +625,7 @@ bool AutoSamplerProcessor::startNewRecording(int note, int velocity)
         return false;
     
     auto* writer = wavFormat->createWriterFor(
-        outputStream.release(), sampleRate, 2, 24, {}, 0);
+        outputStream.release(), sampleRate, juce::AudioChannelSet::stereo(), 24, {}, 0);
     
     if (writer == nullptr)
         return false;
@@ -820,5 +821,7 @@ void AutoSamplerProcessor::setStateInformation(const void* data, int sizeInBytes
         fillGap.store((bool)vt.getProperty("fillGap", false));
     }
 }
+
+
 
 

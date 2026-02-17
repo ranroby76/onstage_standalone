@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
@@ -34,6 +35,56 @@ public:
         juce::String format;
         int uniqueId = 0;
     };
+    
+    // =========================================================================
+    // Per-Plugin Transport Override
+    // When not synced to master, this playhead feeds custom tempo/time-sig
+    // to the inner plugin (affects tempo-synced effects like delay, gate, etc.)
+    // =========================================================================
+    class PluginTransportPlayHead : public juce::AudioPlayHead {
+    public:
+        PluginTransportPlayHead(MeteringProcessor& owner) : owner(owner) {}
+        
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            // If synced to master, pass through the parent playhead
+            if (owner.transportSyncedToMaster.load())
+            {
+                if (auto* parentHead = owner.parentPlayHead)
+                    return parentHead->getPosition();
+                
+                // Fallback: return basic position with master defaults
+                PositionInfo info;
+                info.setBpm(120.0);
+                info.setTimeSignature(juce::AudioPlayHead::TimeSignature { 4, 4 });
+                info.setIsPlaying(false);
+                return info;
+            }
+            
+            // Custom transport: use per-plugin override values
+            PositionInfo info;
+            
+            // Get base info from parent if available (for position, playing state, etc.)
+            if (auto* parentHead = owner.parentPlayHead)
+            {
+                auto parentPos = parentHead->getPosition();
+                if (parentPos.hasValue())
+                    info = *parentPos;
+            }
+            
+            // Override tempo and time signature with custom values
+            info.setBpm(owner.customTempo.load());
+            info.setTimeSignature(juce::AudioPlayHead::TimeSignature { owner.customTimeSigNum.load(), 
+                                     owner.customTimeSigDen.load() });
+            
+            return info;
+        }
+        
+    private:
+        MeteringProcessor& owner;
+    };
+    
+    friend class PluginTransportPlayHead;
     
     // =========================================================================
     // CRITICAL FIX: Static helper queries isInstrument ONCE before construction
@@ -113,6 +164,7 @@ public:
     // CRITICAL: Public getters for cached values - use these EVERYWHERE
     // =========================================================================
     bool isInstrument() const { return cachedIsInstrument; }
+    bool isVST2() const { return cachedDesc.format.equalsIgnoreCase("VST"); }
     const juce::String& getCachedName() const { return cachedPluginName; }
     const CachedPluginDescription& getCachedDescription() const { return cachedDesc; }
 
@@ -271,6 +323,36 @@ public:
     }
     bool isFrozen() const { return frozen.load(); }
 
+    // =========================================================================
+    // Per-Plugin Transport Override API
+    // =========================================================================
+    bool isTransportSynced() const { return transportSyncedToMaster.load(); }
+    void setTransportSynced(bool synced) { transportSyncedToMaster.store(synced); }
+    
+    double getCustomTempo() const { return customTempo.load(); }
+    void setCustomTempo(double bpm) { customTempo.store(juce::jlimit(20.0, 999.0, bpm)); }
+    
+    int getCustomTimeSigNumerator() const { return customTimeSigNum.load(); }
+    int getCustomTimeSigDenominator() const { return customTimeSigDen.load(); }
+    void setCustomTimeSignature(int num, int den) { 
+        customTimeSigNum.store(num); 
+        customTimeSigDen.store(den); 
+    }
+    
+    // Called by the host graph to give us the parent playhead reference
+    void setParentPlayHead(juce::AudioPlayHead* head) { parentPlayHead = head; }
+
+    // =========================================================================
+    // Audio Tap for Auto Sampling
+    // When enabled, processBlock copies output to tapBuffer for external reading
+    // =========================================================================
+    void enableAudioTap() { audioTapEnabled.store(true); }
+    void disableAudioTap() { audioTapEnabled.store(false); tapSamplesReady.store(0); }
+    bool isAudioTapEnabled() const { return audioTapEnabled.load(); }
+    const juce::AudioBuffer<float>& getTapBuffer() const { return tapBuffer; }
+    int getTapSamplesReady() const { return tapSamplesReady.load(); }
+    void consumeTapSamples() { tapSamplesReady.store(0); }
+
 private:
     // CRITICAL FIX: Use cached value instead of getPluginDescription()
     void detectSidechainCapability() {
@@ -394,6 +476,21 @@ private:
     std::atomic<bool> passThrough { false };
     std::atomic<bool> frozen { false };
     juce::AudioBuffer<float> internalBuffer;
+    
+    // =========================================================================
+    // Per-Plugin Transport Override state
+    // =========================================================================
+    std::atomic<bool> transportSyncedToMaster { true };
+    std::atomic<double> customTempo { 120.0 };
+    std::atomic<int> customTimeSigNum { 4 };
+    std::atomic<int> customTimeSigDen { 4 };
+    juce::AudioPlayHead* parentPlayHead = nullptr;
+    PluginTransportPlayHead pluginTransportPlayHead { *this };
+
+    // Audio tap buffer (for Auto Sampling)
+    std::atomic<bool> audioTapEnabled { false };
+    juce::AudioBuffer<float> tapBuffer;
+    std::atomic<int> tapSamplesReady { 0 };
 };
 
 // ==============================================================================
@@ -437,6 +534,23 @@ public:
     void storeMultiStates();
     void restoreMultiStates();
     void resetBlacklist();
+    
+    // =========================================================================
+    // Workspace System — 16 switchable sessions
+    // =========================================================================
+    static constexpr int maxWorkspaces = 16;
+    int getActiveWorkspace() const { return activeWorkspace; }
+    bool isWorkspaceOccupied(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceOccupied[i] : false; }
+    bool isWorkspaceEnabled(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceEnabled[i] : false; }
+    juce::String getWorkspaceName(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceNames[i] : juce::String(); }
+    void setWorkspaceName(int i, const juce::String& name) { if (i >= 0 && i < maxWorkspaces) workspaceNames[i] = name; }
+    void setWorkspaceEnabled(int i, bool enabled) { if (i >= 0 && i < maxWorkspaces) workspaceEnabled[i] = enabled; }
+    void switchWorkspace(int targetIndex);
+    void clearWorkspace(int index);
+    void duplicateWorkspace(int srcIndex, int dstIndex);
+    void resetAllWorkspaces();
+    juce::String serializeGraphToXml() const;
+    void restoreGraphFromXml(const juce::String& xmlStr);
     
     juce::StringArray getSupportedFormatNames() const;
     
@@ -506,6 +620,7 @@ public:
     
     bool sortPluginsByVendor = true;
     bool instrumentSelectorMultiMode = true;  // FIX #2: Multi-mode is now default
+    float rackZoomLevel = 1.0f;  // Zoom level for Rack tab (0.25 - 2.0)
     
     static juce::AudioDeviceManager* standaloneDeviceManager;
     
@@ -525,6 +640,13 @@ private:
     juce::TimeSliceThread writerThread { "Audio Recorder Thread" };
     juce::File lastRecordingFile;
     
+    // Workspace storage
+    int activeWorkspace = 0;
+    juce::String workspaceData[maxWorkspaces];
+    bool workspaceOccupied[maxWorkspaces] = {};
+    bool workspaceEnabled[maxWorkspaces] = { true }; // Only workspace 0 enabled by default
+    juce::String workspaceNames[maxWorkspaces];
+    
     int meterUpdateCounter = 0;
     static constexpr int meterUpdateInterval = 8;
     
@@ -539,3 +661,6 @@ private:
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
+
+
+

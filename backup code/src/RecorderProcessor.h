@@ -1,6 +1,7 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\RecorderProcessor.h
 // RECORDER SYSTEM TOOL - Independent stereo recording with sync capability
 // Streams directly to disk, GL-powered waveform visualization
+// FIX: Added global default recording folder setting
 
 #pragma once
 
@@ -64,10 +65,20 @@ public:
     juce::String getRecorderName() const { return recorderName; }
     
     // =========================================================================
-    // Recording Folder
+    // Recording Folder (per-instance)
     // =========================================================================
     void setRecordingFolder(const juce::File& folder) { recordingFolder = folder; }
     juce::File getRecordingFolder() const { return recordingFolder; }
+    
+    // =========================================================================
+    // Global Default Recording Folder (shared across all recorders)
+    // =========================================================================
+    static void setGlobalDefaultFolder(const juce::File& folder);
+    static juce::File getGlobalDefaultFolder();
+    static juce::File getEffectiveDefaultFolder();  // Returns user-set folder or app default
+    
+    // Open the recording folder in system file explorer
+    void openRecordingFolder() const;
     
     // =========================================================================
     // Recording Info
@@ -138,6 +149,10 @@ private:
     // Static sync registry
     static juce::Array<RecorderProcessor*> syncedRecorders;
     static juce::SpinLock registryLock;
+    
+    // Static global default folder
+    static juce::File globalDefaultFolder;
+    static juce::SpinLock folderLock;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RecorderProcessor)
 };
