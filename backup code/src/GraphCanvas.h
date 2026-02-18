@@ -98,7 +98,7 @@ public:
     
     void setZoomLevel(float zoom) 
     { 
-        zoomLevel = juce::jlimit(0.25f, 2.0f, zoom);
+        zoomLevel = juce::jlimit(0.25f, 1.0f, zoom);
         setTransform(juce::AffineTransform::scale(zoomLevel));
         repaint();
         if (auto* parent = getParentComponent())

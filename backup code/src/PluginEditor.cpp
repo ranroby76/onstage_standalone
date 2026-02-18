@@ -148,7 +148,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     
     // Zoom slider for Rack tab
     zoomSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    zoomSlider.setRange(0.25, 2.0, (2.0 - 0.25) / 200.0);  // 201 steps
+    zoomSlider.setRange(0.25, 1.0, 0.75 / 75.0);  // 76 positions (25% to 100%), 75 steps
     zoomSlider.setValue(1.0, juce::dontSendNotification);
     zoomSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     zoomSlider.setColour(juce::Slider::trackColourId, juce::Colour(80, 80, 90));

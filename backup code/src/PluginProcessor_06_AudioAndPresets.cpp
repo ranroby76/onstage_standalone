@@ -258,7 +258,7 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
     audioInputEnabled.store(xml->getBoolAttribute("audioInputEnabled", true));
     audioOutputEnabled.store(xml->getBoolAttribute("audioOutputEnabled", true));
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
-    rackZoomLevel = (float)xml->getDoubleAttribute("rackZoomLevel", 1.0);
+    rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
     
     for (auto* node : mainGraph->getNodes()) {
         if (node != audioInputNode.get() &&
@@ -639,7 +639,7 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
     audioOutputEnabled.store(xml->getBoolAttribute("audioOutputEnabled", true));
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
     
-    rackZoomLevel = (float)xml->getDoubleAttribute("rackZoomLevel", 1.0);
+    rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
     // Remove all non-IO nodes
     for (auto* node : mainGraph->getNodes()) {
         if (node != audioInputNode.get() &&

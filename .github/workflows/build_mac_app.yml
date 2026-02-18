@@ -114,7 +114,7 @@ jobs:
           cmake -B ${{ env.BUILD_DIR }} -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DJUCE_PATH="${{ github.workspace }}/JUCE" \
-            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
             -DCMAKE_C_COMPILER_LAUNCHER=sccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
@@ -174,13 +174,10 @@ jobs:
           EOF
           echo "Created entitlements.plist"
 
-      - name: Sign & Notarize
+      - name: Sign App
         if: ${{ env.SIGNING_ENABLED != '' }}
         env:
           APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
-          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
-          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
-          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
           KEYCHAIN_PASSWORD: "actions-keychain-pw"
         run: |
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -204,7 +201,7 @@ jobs:
           find "$APP_PATH" -type d -name "*.framework" \
             -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
 
-          # Sign the main app bundle
+          # Sign the main app bundle LAST
           codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist "$APP_PATH"
 
           echo "=== Verifying signature ==="
@@ -213,22 +210,45 @@ jobs:
           echo "=== Entitlements ==="
           codesign -d --entitlements :- "$APP_PATH"
 
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Notarization.zip"
+      # =================================================================
+      # FIX: Create .dmg FIRST, then notarize the .dmg, then staple .dmg
+      # Old flow: zip → notarize zip → staple .app → re-zip
+      #   Problem: .zip CANNOT be stapled, so the downloaded zip has no ticket
+      #   On Apple Silicon + latest macOS, Gatekeeper silently blocks it
+      # New flow: sign .app → create .dmg → notarize .dmg → staple .dmg
+      #   .dmg CAN be stapled — notarization ticket embedded in the download
+      # =================================================================
+      - name: Create DMG
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
+        run: |
+          hdiutil create -volname "Colosseum" \
+            -srcfolder "$APP_PATH" \
+            -ov -format UDZO \
+            "Colosseum_Mac_Universal.dmg"
+          echo "Created Colosseum_Mac_Universal.dmg"
 
-          echo "=== Submitting for notarization ==="
-          xcrun notarytool submit "Colosseum_Notarization.zip" \
+      - name: Notarize DMG
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+        run: |
+          echo "=== Submitting DMG for notarization ==="
+          xcrun notarytool submit "Colosseum_Mac_Universal.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait
 
-          echo "=== Stapling ticket ==="
-          xcrun stapler staple "$APP_PATH"
+          echo "=== Stapling notarization ticket to DMG ==="
+          xcrun stapler staple "Colosseum_Mac_Universal.dmg"
 
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Signed.zip"
-
-          echo "=== Final verification ==="
-          codesign --verify --strict --verbose=2 "$APP_PATH"
+          echo "=== Verifying staple ==="
+          xcrun stapler validate "Colosseum_Mac_Universal.dmg"
+          echo "DMG is signed, notarized, and stapled"
 
       - name: Package Unsigned App
         if: ${{ env.SIGNING_ENABLED == '' }}
@@ -238,12 +258,12 @@ jobs:
           echo "Creating unsigned package from $APP_PATH"
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Unsigned.zip"
 
-      - name: Upload Signed App
+      - name: Upload Signed DMG
         if: ${{ env.SIGNING_ENABLED != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: Colosseum-Mac-App-Signed
-          path: Colosseum_Mac_Signed.zip
+          path: Colosseum_Mac_Universal.dmg
 
       - name: Upload Unsigned App
         if: ${{ env.SIGNING_ENABLED == '' }}

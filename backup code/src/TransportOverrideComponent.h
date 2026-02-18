@@ -1,3 +1,4 @@
+
 // D:\Workspace\Subterraneum_plugins_daw\src\TransportOverrideComponent.h
 // Per-Plugin Transport Override popup
 // Shown when user clicks "T" button on a plugin node
@@ -22,7 +23,7 @@ public:
         // Title
         // =====================================================================
         titleLabel.setText("Plugin's Transport", juce::dontSendNotification);
-        titleLabel.setFont(juce::Font(14.0f, juce::Font::bold));
+        titleLabel.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
         titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
         titleLabel.setJustificationType(juce::Justification::centred);
         addAndMakeVisible(titleLabel);
@@ -31,7 +32,7 @@ public:
         // Sync question + Yes/No toggle buttons
         // =====================================================================
         syncLabel.setText("Synced to master transport?", juce::dontSendNotification);
-        syncLabel.setFont(juce::Font(12.0f));
+        syncLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         syncLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(syncLabel);
         
@@ -59,7 +60,7 @@ public:
         // Time Signature dropdown
         // =====================================================================
         timeSigLabel.setText("Time Signature:", juce::dontSendNotification);
-        timeSigLabel.setFont(juce::Font(12.0f));
+        timeSigLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         timeSigLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(timeSigLabel);
         
@@ -81,7 +82,7 @@ public:
         // Tempo slider
         // =====================================================================
         tempoLabel.setText("Tempo:", juce::dontSendNotification);
-        tempoLabel.setFont(juce::Font(12.0f));
+        tempoLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         tempoLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         addAndMakeVisible(tempoLabel);
         
@@ -245,3 +246,5 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TransportOverrideComponent)
 };
+
+

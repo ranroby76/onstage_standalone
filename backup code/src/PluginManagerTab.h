@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab.h
 // Plugin Manager Tab with scanning, tree view, and plugin info
 // FIX: buildTree() preserves expand/collapse state
@@ -16,11 +17,11 @@ class AutoPluginScanner;
 
 class PluginFolderRow : public juce::Component {
 public:
-    PluginFolderRow(const juce::String& path, std::function<void()> removeCallback) 
-        : folderPath(path), removeCallback(removeCallback)
+    PluginFolderRow(const juce::String& path, std::function<void()> onRemove) 
+        : folderPath(path), removeCallback(std::move(onRemove))
     {
         pathLabel.setText(path, juce::dontSendNotification);
-        pathLabel.setFont(juce::Font(12.0f));
+        pathLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
         pathLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         pathLabel.setTooltip(path);
         addAndMakeVisible(pathLabel);
@@ -272,10 +273,10 @@ private:
 
     class PluginTreeItem : public juce::TreeViewItem {
     public:
-        PluginTreeItem(const juce::String& name, bool isSortByVendor, bool isVendorFolder = false) 
-            : name(name), isPlugin(false), showColumns(!isSortByVendor), isVendor(isVendorFolder) {}
-        PluginTreeItem(const juce::String& name, const juce::PluginDescription& desc, bool isSortByVendor) 
-            : name(name), description(desc), isPlugin(true), showColumns(!isSortByVendor), isVendor(false) {}
+        PluginTreeItem(const juce::String& itemName, bool isSortByVendor, bool isVendorFolder = false) 
+            : name(itemName), isPlugin(false), showColumns(!isSortByVendor), isVendor(isVendorFolder) {}
+        PluginTreeItem(const juce::String& itemName, const juce::PluginDescription& desc, bool isSortByVendor) 
+            : name(itemName), description(desc), isPlugin(true), showColumns(!isSortByVendor), isVendor(false) {}
         
         bool mightContainSubItems() override { return !isPlugin; }
         void paintItem(juce::Graphics& g, int w, int h) override;
@@ -297,3 +298,5 @@ private:
         PluginManagerTab* parentTab = nullptr;
     };
 };
+
+

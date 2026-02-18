@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_02_CtorDtor.cpp
 // Constructor / Destructor
 // FIX: Destructor now stops recording and writer thread before clearing graph
@@ -15,17 +16,17 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
 {
     initializePluginFormats();
     
-    options.applicationName = "Subterraneum";
+    options.applicationName = "Colosseum";
     options.filenameSuffix = ".settings";
     options.osxLibrarySubFolder = "Application Support";
-    options.folderName = "Subterraneum";
+    options.folderName = "Fanan";
     options.commonToAllUsers = false;
     options.ignoreCaseOfKeyNames = false;
     options.storageFormat = juce::PropertiesFile::storeAsXML;
     appProperties.setStorageParameters(options);
     
     auto* userSettings = appProperties.getUserSettings();
-    if (auto xml = userSettings->getXmlValue("KnownPlugins"))
+    if (auto xml = userSettings->getXmlValue("KnownPluginsV2"))
         knownPluginList.recreateFromXml(*xml);
 
     loadAudioSettings();
@@ -79,9 +80,12 @@ SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
 
     auto* userSettings = appProperties.getUserSettings();
     if (auto xml = knownPluginList.createXml())
-        userSettings->setValue("KnownPlugins", xml.get());
+        userSettings->setValue("KnownPluginsV2", xml.get());
     userSettings->saveIfNeeded();
 }
+
+
+
 
 
 

@@ -1,12 +1,20 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_AutoScanner.cpp
-// FIXED: Always use proper JUCE PluginDirectoryScanner for correct metadata
-// Trust All mode now just skips problematic vendor checks instead of broken enumeration
+// 3-PHASE OUT-OF-PROCESS SCANNER — ZERO FREEZES, CONTINUOUS FEEDBACK
+//
+// UI runs on message thread with 50ms timer reading atomics from background thread.
+// Background thread (OutOfProcessScanner) does all heavy lifting:
+//   Phase 1: Skip known plugins (instant)
+//   Phase 2: Read moduleinfo.json (instant)
+//   Phase 3: Spawn child process per plugin (crash-safe)
+//
+// If child crashes → main app is fine, plugin passes with filename info.
+// NO blacklisting, NO vendor blocking, EVERY plugin passes.
 
 #include "PluginManagerTab.h"
-#include "BackgroundPluginScanner.h"
+#include "OutOfProcessScanner.h"
 
 // =============================================================================
-// AutoPluginScanner Implementation
+// AutoPluginScanner — UI Component with timer-based visual feedback
 // =============================================================================
 AutoPluginScanner::AutoPluginScanner(SubterraneumAudioProcessor& p, std::function<void()> onComplete)
     : processor(p), onCompleteCallback(onComplete)
@@ -16,10 +24,10 @@ AutoPluginScanner::AutoPluginScanner(SubterraneumAudioProcessor& p, std::functio
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
     
-    formatLabel.setFont(juce::Font(13.0f));
-    formatLabel.setColour(juce::Label::textColourId, juce::Colours::cyan);
-    formatLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(formatLabel);
+    phaseLabel.setFont(juce::Font(13.0f, juce::Font::bold));
+    phaseLabel.setColour(juce::Label::textColourId, juce::Colours::cyan);
+    phaseLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(phaseLabel);
     
     statusLabel.setFont(juce::Font(12.0f));
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
@@ -31,34 +39,22 @@ AutoPluginScanner::AutoPluginScanner(SubterraneumAudioProcessor& p, std::functio
     pluginLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(pluginLabel);
     
+    statsLabel.setFont(juce::Font(10.0f));
+    statsLabel.setColour(juce::Label::textColourId, juce::Colours::grey.darker());
+    statsLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(statsLabel);
+    
     addAndMakeVisible(progressBar);
     
-    // Setup dead mans pedal
-    juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                              .getChildFile("Colosseum");
-    if (!dataDir.exists()) dataDir.createDirectory();
-    deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
-    
-    // Build format list based on platform
-    #if JUCE_PLUGINHOST_VST
-    formatNames.add("VST");
-    #endif
-    #if JUCE_PLUGINHOST_VST3
-    formatNames.add("VST3");
-    #endif
-    #if JUCE_PLUGINHOST_AU && JUCE_MAC
-    formatNames.add("AudioUnit");
-    #endif
-    #if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
-    formatNames.add("LADSPA");
-    #endif
-    
-    setSize(450, 200);
+    setSize(500, 240);
 }
 
 AutoPluginScanner::~AutoPluginScanner() {
     stopTimer();
-    scanner = nullptr;
+    if (oopScanner) {
+        oopScanner->stopScanning();
+        oopScanner = nullptr;
+    }
 }
 
 void AutoPluginScanner::paint(juce::Graphics& g) {
@@ -69,27 +65,23 @@ void AutoPluginScanner::paint(juce::Graphics& g) {
 
 void AutoPluginScanner::resized() {
     auto area = getLocalBounds().reduced(20);
-    titleLabel.setBounds(area.removeFromTop(30));
-    area.removeFromTop(10);
-    formatLabel.setBounds(area.removeFromTop(25));
+    titleLabel.setBounds(area.removeFromTop(28));
+    area.removeFromTop(8);
+    phaseLabel.setBounds(area.removeFromTop(22));
     area.removeFromTop(5);
     statusLabel.setBounds(area.removeFromTop(20));
-    area.removeFromTop(5);
+    area.removeFromTop(3);
     pluginLabel.setBounds(area.removeFromTop(18));
-    area.removeFromTop(15);
+    area.removeFromTop(12);
     progressBar.setBounds(area.removeFromTop(20).reduced(20, 0));
+    area.removeFromTop(8);
+    statsLabel.setBounds(area.removeFromTop(16));
 }
 
+// =============================================================================
+// Start the scan — collect files, launch background scanner, start UI timer
+// =============================================================================
 void AutoPluginScanner::startScan() {
-    currentFormatIndex = 0;
-    totalPluginsFound = 0;
-    progress = 0.0;
-    
-    // Clear dead man's pedal at start
-    if (deadMansPedal.existsAsFile()) {
-        deadMansPedal.deleteFile();
-    }
-    
     juce::String platformInfo;
     #if JUCE_WINDOWS
         #if defined(_M_ARM64) || defined(__aarch64__)
@@ -107,140 +99,243 @@ void AutoPluginScanner::startScan() {
     platformInfo = "Linux";
     #endif
     
-    // FIXED: Always use proper JUCE scanning - Trust All just skips vendor checks
-    titleLabel.setText("Scanning Plugins (" + platformInfo + ")", juce::dontSendNotification);
-    statusLabel.setText("Formats: " + formatNames.joinIntoString(", "), juce::dontSendNotification);
+    titleLabel.setText("Safe Scan (" + platformInfo + ")", juce::dontSendNotification);
+    phaseLabel.setText("Collecting plugin files...", juce::dontSendNotification);
+    statusLabel.setText("", juce::dontSendNotification);
+    pluginLabel.setText("", juce::dontSendNotification);
+    progress = 0.0;
     
-    if (!trustAllMode) {
-        loadProblematicVendorsList();
-    }
-    
-    scanNextFormat();
+    // Collect all plugin files from all formats
+    collectPluginFiles();
 }
 
 // =============================================================================
-// Scan next format using JUCE's proper scanner
+// Collect plugin files from disk, then start background scanner
 // =============================================================================
-void AutoPluginScanner::scanNextFormat() {
-    scanner = nullptr;
+void AutoPluginScanner::collectPluginFiles() {
+    juce::Array<OutOfProcessScanner::PluginToScan> allPlugins;
     
-    if (currentFormatIndex >= formatNames.size()) {
-        finishScan();
-        return;
-    }
+    // Build format list
+    juce::StringArray formatNames;
+    #if JUCE_PLUGINHOST_VST
+    formatNames.add("VST");
+    #endif
+    #if JUCE_PLUGINHOST_VST3
+    formatNames.add("VST3");
+    #endif
+    #if JUCE_PLUGINHOST_AU && JUCE_MAC
+    formatNames.add("AudioUnit");
+    #endif
+    #if JUCE_PLUGINHOST_LADSPA && JUCE_LINUX
+    formatNames.add("LADSPA");
+    #endif
     
-    juce::String formatName = formatNames[currentFormatIndex];
-    
-    if (formatName == "VST") {
-        formatLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF4A90D9));
-        formatLabel.setText("Scanning: VST2", juce::dontSendNotification);
-    } else if (formatName == "VST3") {
-        formatLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF50C878));
-        formatLabel.setText("Scanning: VST3", juce::dontSendNotification);
-    } else {
-        formatLabel.setColour(juce::Label::textColourId, juce::Colours::cyan);
-        formatLabel.setText("Scanning: " + formatName, juce::dontSendNotification);
-    }
-    
-    juce::AudioPluginFormat* format = nullptr;
-    for (int i = 0; i < processor.formatManager.getNumFormats(); ++i) {
-        if (processor.formatManager.getFormat(i)->getName() == formatName) {
-            format = processor.formatManager.getFormat(i);
-            break;
+    for (const auto& formatName : formatNames) {
+        juce::FileSearchPath searchPath = getSearchPathForFormat(formatName);
+        
+        if (formatName == "VST3") {
+            for (int i = 0; i < searchPath.getNumPaths(); ++i) {
+                juce::File folder = searchPath[i];
+                if (!folder.exists()) continue;
+                
+                juce::Array<juce::File> found;
+                folder.findChildFiles(found, juce::File::findFilesAndDirectories, true, "*.vst3");
+                
+                juce::StringArray addedPaths;
+                for (const auto& f : found) {
+                    bool isNested = false;
+                    for (const auto& existing : addedPaths) {
+                        if (f.isAChildOf(juce::File(existing))) {
+                            isNested = true;
+                            break;
+                        }
+                    }
+                    if (!isNested && !addedPaths.contains(f.getFullPathName())) {
+                        addedPaths.add(f.getFullPathName());
+                        allPlugins.add({ f.getFullPathName(), "VST3" });
+                    }
+                }
+            }
+        }
+        else if (formatName == "VST") {
+            for (int i = 0; i < searchPath.getNumPaths(); ++i) {
+                juce::File folder = searchPath[i];
+                if (!folder.exists()) continue;
+                
+                juce::Array<juce::File> found;
+                #if JUCE_WINDOWS
+                folder.findChildFiles(found, juce::File::findFiles, true, "*.dll");
+                #elif JUCE_MAC
+                folder.findChildFiles(found, juce::File::findFilesAndDirectories, true, "*.vst");
+                #elif JUCE_LINUX
+                folder.findChildFiles(found, juce::File::findFiles, true, "*.so");
+                #endif
+                
+                for (const auto& f : found) {
+                    allPlugins.add({ f.getFullPathName(), "VST" });
+                }
+            }
+        }
+        else if (formatName == "AudioUnit") {
+            juce::AudioPluginFormat* format = nullptr;
+            for (int i = 0; i < processor.formatManager.getNumFormats(); ++i) {
+                if (processor.formatManager.getFormat(i)->getName() == "AudioUnit") {
+                    format = processor.formatManager.getFormat(i);
+                    break;
+                }
+            }
+            if (format != nullptr) {
+                auto auPaths = format->searchPathsForPlugins(searchPath, true);
+                for (const auto& path : auPaths) {
+                    allPlugins.add({ path, "AudioUnit" });
+                }
+            }
+        }
+        else if (formatName == "LADSPA") {
+            for (int i = 0; i < searchPath.getNumPaths(); ++i) {
+                juce::File folder = searchPath[i];
+                if (!folder.exists()) continue;
+                
+                juce::Array<juce::File> found;
+                folder.findChildFiles(found, juce::File::findFiles, true, "*.so");
+                
+                for (const auto& f : found) {
+                    allPlugins.add({ f.getFullPathName(), "LADSPA" });
+                }
+            }
         }
     }
     
-    if (format == nullptr) {
-        currentFormatIndex++;
-        juce::Component::SafePointer<AutoPluginScanner> safeThis(this);
-        juce::MessageManager::callAsync([safeThis]() {
-            if (safeThis != nullptr) safeThis->scanNextFormat();
-        });
-        return;
-    }
+    statusLabel.setText("Found " + juce::String(allPlugins.size()) + " plugin files", juce::dontSendNotification);
     
-    juce::FileSearchPath searchPath = getSearchPathForFormat(formatName);
+    // Create and start the background scanner
+    oopScanner = std::make_unique<OutOfProcessScanner>(processor);
+    oopScanner->setPluginsToScan(allPlugins);
+    oopScanner->startScanning();
     
-    scanner = std::make_unique<juce::PluginDirectoryScanner>(
-        processor.knownPluginList,
-        *format,
-        searchPath,
-        true,
-        deadMansPedal,
-        false
-    );
-    
-    startTimer(16);
+    // Start UI timer — 50ms = 20fps visual feedback, NEVER blocks
+    startTimer(50);
 }
 
 // =============================================================================
-// Timer callback - scan plugins one by one
+// Timer callback — reads atomics from background thread, updates UI labels
+// This runs on the MESSAGE THREAD and NEVER does anything blocking
 // =============================================================================
 void AutoPluginScanner::timerCallback() {
-    if (!scanner) {
+    if (!oopScanner) return;
+    
+    // Read all atomics (lock-free, instant)
+    float scanProgress = oopScanner->progress.load();
+    int currentPhase = oopScanner->phase.load();
+    int skipped = oopScanner->skippedKnown.load();
+    int byJson = oopScanner->resolvedByJson.load();
+    int byOOP = oopScanner->resolvedByOOP.load();
+    int failed = oopScanner->failedOOP.load();
+    bool finished = oopScanner->scanFinished.load();
+    
+    // Update progress bar
+    progress = (double)scanProgress;
+    
+    // Update phase label with color
+    juce::String phaseText = oopScanner->getCurrentPhaseText();
+    switch (currentPhase) {
+        case 1:
+            phaseLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF50C878));
+            break;
+        case 2:
+            phaseLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF4A90D9));
+            break;
+        case 3:
+            phaseLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+            break;
+    }
+    phaseLabel.setText(phaseText, juce::dontSendNotification);
+    
+    // Update current plugin name
+    juce::String currentPlugin = oopScanner->getCurrentPlugin();
+    if (currentPlugin.length() > 50)
+        currentPlugin = currentPlugin.substring(0, 47) + "...";
+    pluginLabel.setText(currentPlugin, juce::dontSendNotification);
+    
+    // Update status
+    int totalFound = processor.knownPluginList.getNumTypes();
+    statusLabel.setText("Found " + juce::String(totalFound) + " plugins", juce::dontSendNotification);
+    
+    // Update stats line
+    juce::String stats;
+    if (skipped > 0) stats += "Known: " + juce::String(skipped);
+    if (byJson > 0) stats += (stats.isEmpty() ? "" : " | ") + juce::String("JSON: ") + juce::String(byJson);
+    if (byOOP > 0) stats += (stats.isEmpty() ? "" : " | ") + juce::String("Deep: ") + juce::String(byOOP);
+    if (failed > 0) stats += (stats.isEmpty() ? "" : " | ") + juce::String("Timeout: ") + juce::String(failed);
+    statsLabel.setText(stats, juce::dontSendNotification);
+    
+    // Check if scan is complete
+    if (finished) {
         stopTimer();
-        return;
+        finishScan();
+    }
+}
+
+// =============================================================================
+// Scan complete — save, clean up, notify
+// =============================================================================
+void AutoPluginScanner::finishScan() {
+    if (oopScanner) {
+        oopScanner->stopScanning();
     }
     
-    juce::String pluginBeingScanned;
+    removeDuplicatePlugins();
     
-    // Check for plugins to skip BEFORE scanning (only in non-Trust-All mode)
-    juce::String nextPlugin = scanner->getNextPluginFileThatWillBeScanned();
-    bool shouldSkip = false;
-    juce::String skipReason;
+    int totalFound = processor.knownPluginList.getNumTypes();
+    int failed = oopScanner ? (int)oopScanner->failedOOP.load() : 0;
     
-    if (!trustAllMode) {
-        // Check for VST2 shell plugins
-        #if JUCE_PLUGINHOST_VST
-        if (skipVST2Shells && formatNames[currentFormatIndex] == "VST") {
-            if (isShellPlugin(nextPlugin)) {
-                shouldSkip = true;
-                skipReason = "shell plugin";
-            }
-        }
-        #endif
-        
-        // Check for problematic plugins
-        if (!shouldSkip && skipProblematicPlugins) {
-            if (isProblematicPlugin(nextPlugin)) {
-                shouldSkip = true;
-                skipReason = "problematic vendor";
-            }
-        }
+    // Save the plugin list
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (auto xml = processor.knownPluginList.createXml())
+            userSettings->setValue("KnownPluginsV2", xml.get());
+        userSettings->saveIfNeeded();
     }
     
-    if (shouldSkip) {
-        juce::String filename = juce::File(nextPlugin).getFileName();
-        pluginLabel.setText("Skipping (" + skipReason + "): " + filename, juce::dontSendNotification);
-        scanner->skipNextFile();
-        
-        float formatProgress = scanner->getProgress();
-        float overallProgress = ((float)currentFormatIndex + formatProgress) / (float)formatNames.size();
-        progress = overallProgress;
-        return;
-    }
+    processor.knownPluginList.sendChangeMessage();
     
-    // Normal scanning - JUCE properly extracts all plugin metadata
-    if (scanner->scanNextFile(true, pluginBeingScanned)) {
-        pluginLabel.setText(pluginBeingScanned, juce::dontSendNotification);
-        
-        float formatProgress = scanner->getProgress();
-        float overallProgress = ((float)currentFormatIndex + formatProgress) / (float)formatNames.size();
-        progress = overallProgress;
-        
-        statusLabel.setText("Found " + juce::String(processor.knownPluginList.getNumTypes()) + " plugins", 
-                           juce::dontSendNotification);
-    } else {
-        // This format is done
-        stopTimer();
-        currentFormatIndex++;
-        
-        juce::Component::SafePointer<AutoPluginScanner> safeThis(this);
-        juce::Timer::callAfterDelay(50, [safeThis]() {
-            if (safeThis != nullptr) {
-                safeThis->scanNextFormat();
-            }
+    progress = 1.0;
+    phaseLabel.setText("Scan Complete!", juce::dontSendNotification);
+    phaseLabel.setColour(juce::Label::textColourId, juce::Colours::lime);
+    statusLabel.setText("Found " + juce::String(totalFound) + " plugins", juce::dontSendNotification);
+    
+    juce::String completionMsg = "All plugins accepted";
+    if (failed > 0)
+        completionMsg += " (" + juce::String(failed) + " needed filename-based info)";
+    pluginLabel.setText(completionMsg, juce::dontSendNotification);
+    
+    oopScanner = nullptr;
+    
+    if (onCompleteCallback) {
+        auto callback = onCompleteCallback;
+        juce::MessageManager::callAsync([callback]() {
+            if (callback) callback();
         });
+    }
+}
+
+void AutoPluginScanner::removeDuplicatePlugins() {
+    auto types = processor.knownPluginList.getTypes();
+    
+    std::set<juce::String> seenPaths;
+    std::vector<juce::PluginDescription> toRemove;
+    
+    for (const auto& plugin : types) {
+        juce::String pathKey = plugin.fileOrIdentifier.toLowerCase() + "|" + plugin.pluginFormatName;
+        
+        if (seenPaths.count(pathKey) > 0) {
+            toRemove.push_back(plugin);
+        } else {
+            seenPaths.insert(pathKey);
+        }
+    }
+    
+    for (const auto& plugin : toRemove) {
+        processor.knownPluginList.removeType(plugin);
     }
 }
 
@@ -249,7 +344,6 @@ void AutoPluginScanner::timerCallback() {
 // =============================================================================
 juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::String& formatName) {
     juce::FileSearchPath path;
-    
     auto* settings = processor.appProperties.getUserSettings();
     
     #if JUCE_WINDOWS
@@ -258,12 +352,10 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
             juce::String savedPaths = settings->getValue("VST2Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("C:\\Program Files\\VSTPlugins"));
             path.add(juce::File("C:\\Program Files\\Steinberg\\VSTPlugins"));
@@ -282,30 +374,25 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
             juce::String savedPaths = settings->getValue("VST3Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("C:\\Program Files\\Common Files\\VST3"));
             path.add(juce::File("C:\\Program Files (x86)\\Common Files\\VST3"));
         }
     }
-    
     #elif JUCE_MAC
     if (formatName == "VST") {
         if (settings) {
             juce::String savedPaths = settings->getValue("VST2Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("/Library/Audio/Plug-Ins/VST"));
             path.add(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
@@ -317,12 +404,10 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
             juce::String savedPaths = settings->getValue("VST3Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("/Library/Audio/Plug-Ins/VST3"));
             path.add(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
@@ -334,19 +419,16 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
         path.add(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
             .getChildFile("Library/Audio/Plug-Ins/Components"));
     }
-    
     #elif JUCE_LINUX
     if (formatName == "VST") {
         if (settings) {
             juce::String savedPaths = settings->getValue("VST2Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("/usr/lib/vst"));
             path.add(juce::File("/usr/local/lib/vst"));
@@ -358,12 +440,10 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
             juce::String savedPaths = settings->getValue("VST3Folders", "");
             if (savedPaths.isNotEmpty()) {
                 auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
-                for (const auto& folder : folders) {
+                for (const auto& folder : folders)
                     if (folder.isNotEmpty()) path.add(juce::File(folder));
-                }
             }
         }
-        
         if (path.getNumPaths() == 0) {
             path.add(juce::File("/usr/lib/vst3"));
             path.add(juce::File("/usr/local/lib/vst3"));
@@ -380,267 +460,33 @@ juce::FileSearchPath AutoPluginScanner::getSearchPathForFormat(const juce::Strin
 }
 
 // =============================================================================
-// Shell plugin detection
-// =============================================================================
-bool AutoPluginScanner::isShellPlugin(const juce::String& pluginPath) {
-    juce::String pathLower = pluginPath.toLowerCase();
-    
-    if (pathLower.contains("waveshell") ||
-        (pathLower.contains("waves") && pathLower.contains("shell")) ||
-        pathLower.contains("uad-2") ||
-        pathLower.contains("uad shell")) {
-        return true;
-    }
-    
-    return false;
-}
-
-// =============================================================================
-// Problematic vendor detection
-// =============================================================================
-void AutoPluginScanner::loadProblematicVendorsList() {
-    problematicVendors.clear();
-    
-    auto* settings = processor.appProperties.getUserSettings();
-    if (!settings) {
-        problematicVendors.add("ujam");
-        problematicVendors.add("arturia");
-        problematicVendors.add("east west");
-        problematicVendors.add("best service");
-        problematicVendors.add("output");
-        problematicVendors.add("spitfire audio");
-        return;
-    }
-    
-    juce::String defaultList = "UJAM\nArturia\nEast West\nBest Service\nOutput\nSpitfire Audio";
-    juce::String vendorList = settings->getValue("ProblematicVendorsList", defaultList);
-    
-    juce::StringArray lines = juce::StringArray::fromLines(vendorList);
-    for (const auto& line : lines) {
-        juce::String trimmed = line.trim().toLowerCase();
-        if (trimmed.isNotEmpty()) {
-            problematicVendors.add(trimmed);
-        }
-    }
-}
-
-bool AutoPluginScanner::isProblematicPlugin(const juce::String& pluginPath) {
-    juce::String pathLower = pluginPath.toLowerCase();
-    
-    // Check approved list
-    auto* settings = processor.appProperties.getUserSettings();
-    if (settings) {
-        juce::String approvedPlugins = settings->getValue("ApprovedPlugins", "");
-        if (approvedPlugins.isNotEmpty()) {
-            juce::StringArray approved = juce::StringArray::fromTokens(approvedPlugins, "|", "");
-            for (const auto& approvedPath : approved) {
-                if (approvedPath.equalsIgnoreCase(pluginPath)) {
-                    return false;
-                }
-            }
-        }
-    }
-    
-    for (const auto& vendor : problematicVendors) {
-        if (pathLower.contains(vendor)) {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-// =============================================================================
-// Finish scan
-// =============================================================================
-void AutoPluginScanner::finishScan() {
-    progress = 1.0;
-    
-    removeDuplicatePlugins();
-    
-    totalPluginsFound = processor.knownPluginList.getNumTypes();
-    
-    // Save the plugin list
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
-        if (auto xml = processor.knownPluginList.createXml())
-            userSettings->setValue("KnownPlugins", xml.get());
-        userSettings->saveIfNeeded();
-    }
-    
-    // Delete dead man's pedal
-    if (deadMansPedal.existsAsFile()) {
-        deadMansPedal.deleteFile();
-    }
-    
-    processor.knownPluginList.sendChangeMessage();
-    
-    formatLabel.setText("Scan Complete!", juce::dontSendNotification);
-    statusLabel.setText("Found " + juce::String(totalPluginsFound) + " plugins", juce::dontSendNotification);
-    pluginLabel.setText("", juce::dontSendNotification);
-    
-    if (onCompleteCallback) {
-        auto callback = onCompleteCallback;
-        juce::MessageManager::callAsync([callback]() {
-            if (callback) callback();
-        });
-    }
-}
-
-// =============================================================================
-// Handle background scanner progress updates
-// =============================================================================
-void AutoPluginScanner::changeListenerCallback(juce::ChangeBroadcaster* source) {
-    if (source == backgroundScanner.get()) {
-        float bgProgress = backgroundScanner->getProgress();
-        int scanned = backgroundScanner->getScannedCount();
-        int total = backgroundScanner->getTotalCount();
-        juce::String current = backgroundScanner->getCurrentPlugin();
-        
-        progress = bgProgress;
-        
-        if (bgProgress >= 1.0f || (scanned >= total && total > 0)) {
-            formatLabel.setText("Scan Complete!", juce::dontSendNotification);
-            statusLabel.setText("Found " + juce::String(total) + " plugins with metadata", juce::dontSendNotification);
-            pluginLabel.setText("", juce::dontSendNotification);
-            progress = 1.0;
-            
-            if (auto* userSettings = processor.appProperties.getUserSettings()) {
-                if (auto xml = processor.knownPluginList.createXml())
-                    userSettings->setValue("KnownPlugins", xml.get());
-                userSettings->saveIfNeeded();
-            }
-            
-            processor.knownPluginList.sendChangeMessage();
-            
-            if (onCompleteCallback) {
-                auto callback = onCompleteCallback;
-                juce::MessageManager::callAsync([callback]() {
-                    if (callback) callback();
-                });
-            }
-        } else {
-            formatLabel.setText("Gathering Metadata: " + juce::String((int)(bgProgress * 100)) + "%", juce::dontSendNotification);
-            statusLabel.setText(juce::String(scanned) + " / " + juce::String(total), juce::dontSendNotification);
-            
-            if (current.isNotEmpty()) {
-                if (current.length() > 40)
-                    current = current.substring(0, 37) + "...";
-                pluginLabel.setText(current, juce::dontSendNotification);
-            }
-        }
-        
-        repaint();
-    }
-}
-
-void AutoPluginScanner::removeDuplicatePlugins() {
-    auto types = processor.knownPluginList.getTypes();
-    
-    std::set<juce::String> seenPaths;
-    std::vector<juce::PluginDescription> toRemove;
-    
-    for (const auto& plugin : types) {
-        juce::String pathKey = plugin.fileOrIdentifier.toLowerCase();
-        
-        if (seenPaths.count(pathKey) > 0) {
-            toRemove.push_back(plugin);
-        } else {
-            seenPaths.insert(pathKey);
-        }
-    }
-    
-    for (const auto& plugin : toRemove) {
-        processor.knownPluginList.removeType(plugin);
-    }
-}
-
-// =============================================================================
-// checkForCrashedScan - Called from PluginManagerTab
+// checkForCrashedScan — Clean up old dead man's pedal, NO blacklisting
 // =============================================================================
 void PluginManagerTab::checkForCrashedScan() {
     juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                               .getChildFile("Colosseum");
+    
+    // Clean up any leftover files from old scan system
     juce::File deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
+    juce::File rescanDeadMan = dataDir.getChildFile("RescanDeadMan.txt");
     
     if (deadMansPedal.existsAsFile()) {
         juce::String crashedPlugin = deadMansPedal.loadFileAsString().trim();
+        deadMansPedal.deleteFile();
+        
         if (crashedPlugin.isNotEmpty()) {
-            juce::Component::SafePointer<PluginManagerTab> safeThis(this);
-            
-            juce::MessageManager::callAsync([safeThis, crashedPlugin, deadMansPedal]() {
-                if (safeThis == nullptr) return;
-                
-                auto* alertWindow = new juce::AlertWindow(
-                    "Plugin Scan Issue Detected",
-                    "A previous scan had trouble with this plugin:\n\n" + crashedPlugin + 
-                    "\n\nWhat would you like to do?",
-                    juce::MessageBoxIconType::WarningIcon);
-                
-                alertWindow->addButton("Blacklist", 1);
-                alertWindow->addButton("Allow Anyway", 2);
-                alertWindow->addButton("Try Again", 3);
-                alertWindow->addButton("Ignore", 0);
-                
-                alertWindow->enterModalState(true, juce::ModalCallbackFunction::create(
-                    [safeThis, crashedPlugin, deadMansPedal, alertWindow](int result) {
-                        if (safeThis == nullptr) {
-                            delete alertWindow;
-                            return;
-                        }
-                        
-                        switch (result) {
-                            case 1:  // Blacklist
-                            {
-                                safeThis->processor.knownPluginList.addToBlacklist(crashedPlugin);
-                                deadMansPedal.deleteFile();
-                                
-                                if (auto* userSettings = safeThis->processor.appProperties.getUserSettings()) {
-                                    if (auto xml = safeThis->processor.knownPluginList.createXml())
-                                        userSettings->setValue("KnownPlugins", xml.get());
-                                    userSettings->saveIfNeeded();
-                                }
-                                
-                                juce::NativeMessageBox::showMessageBoxAsync(
-                                    juce::MessageBoxIconType::InfoIcon,
-                                    "Plugin Blacklisted",
-                                    "The plugin has been blacklisted and will be skipped in future scans.");
-                                break;
-                            }
-                            
-                            case 2:  // Allow Anyway
-                            {
-                                deadMansPedal.deleteFile();
-                                
-                                auto* settings = safeThis->processor.appProperties.getUserSettings();
-                                if (settings) {
-                                    juce::String approved = settings->getValue("ApprovedPlugins", "");
-                                    if (approved.isNotEmpty()) approved += "|";
-                                    approved += crashedPlugin;
-                                    settings->setValue("ApprovedPlugins", approved);
-                                    settings->saveIfNeeded();
-                                }
-                                
-                                juce::NativeMessageBox::showMessageBoxAsync(
-                                    juce::MessageBoxIconType::InfoIcon,
-                                    "Plugin Approved",
-                                    "The plugin has been added to the approved list.");
-                                break;
-                            }
-                            
-                            case 3:  // Try Again
-                                deadMansPedal.deleteFile();
-                                break;
-                            
-                            case 0:  // Ignore
-                            default:
-                                break;
-                        }
-                        
-                        delete alertWindow;
-                    }), true);
+            juce::MessageManager::callAsync([crashedPlugin]() {
+                juce::NativeMessageBox::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    "Previous Scan Note",
+                    "A previous scan was interrupted while processing:\n\n" + crashedPlugin +
+                    "\n\nThe new scanner uses out-of-process scanning, "
+                    "so this plugin cannot crash Colosseum.\n\n"
+                    "The plugin has NOT been blacklisted and is available for use.");
             });
-        } else {
-            deadMansPedal.deleteFile();
         }
     }
+    
+    if (rescanDeadMan.existsAsFile())
+        rescanDeadMan.deleteFile();
 }

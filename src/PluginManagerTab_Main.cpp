@@ -2,16 +2,18 @@
 // Main Plugin Manager Tab implementation
 // FIX: Added "Rescan Existing" button for plugin version updates
 // FIX: Folder dialog now closes properly with X button
-// FIX: checkForCrashedScan included
+// FIX: checkForCrashedScan — no more blacklist prompts, just cleanup
 // FIX: Rescan status label for visual feedback
 // FIX: Dark orange-purple button color
 // FIX: X button click detection - use e.x directly (already in item-local coordinates)
 // FIX: buildTree() preserves expand/collapse state across rebuilds
 // FIX: Darker folder/vendor header rectangles
 // NEW: Eye toggle - hide/show plugins from Add menus (persisted to settings)
+// NEW: rescanExistingPlugins uses safe OOP scanner (no more message-thread freezes)
 
 #include "PluginManagerTab.h"
 #include "BackgroundPluginScanner.h"
+#include "OutOfProcessScanner.h"
 
 // =============================================================================
 // PluginManagerTab Constructor
@@ -75,23 +77,20 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
         "SCANNING FOR PLUGINS\n"
         "---------------------------------------------\n"
         "1. Click 'Scan Plugins' button\n"
-        "2. Wait for scan to complete\n"
-        "3. Plugins appear in the list when done\n\n"
+        "2. Plugins are scanned in a safe child process\n"
+        "3. If a plugin crashes, only the child dies\n"
+        "4. Colosseum stays running — zero freezes!\n\n"
+        "3-PHASE SAFE SCAN\n"
+        "---------------------------------------------\n"
+        "Phase 1: Skip already-known plugins\n"
+        "Phase 2: Read metadata from JSON files\n"
+        "Phase 3: Deep scan via child process\n\n"
         "RESCAN EXISTING\n"
         "---------------------------------------------\n"
         "Use when you've updated a plugin:\n"
         "1. Click 'Rescan Existing' button\n"
-        "2. Plugins are re-scanned by file path\n"
-        "3. Duplicates are removed automatically\n\n"
-        "CRASH DURING SCAN?\n"
-        "---------------------------------------------\n"
-        "If Colosseum crashes during a plugin scan:\n"
-        "1. Restart Colosseum\n"
-        "2. You'll be prompted to blacklist the\n"
-        "   problematic plugin\n"
-        "3. Click 'Yes' to blacklist it\n"
-        "4. Run the scan again\n"
-        "5. The crashed plugin will be skipped\n\n"
+        "2. Plugins are safely re-scanned\n"
+        "3. Fresh metadata is collected\n\n"
         "PLUGIN FOLDERS\n"
         "---------------------------------------------\n"
         "Click 'Plugin Folders...' to configure:\n"
@@ -114,11 +113,7 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
         "1. Go to the Rack tab\n"
         "2. Use the Add Plugins panel on the right\n"
         "3. Drag a plugin onto the rack\n"
-        "4. Connect it with audio/MIDI cables\n\n"
-        "RESET BLACKLIST\n"
-        "---------------------------------------------\n"
-        "Use if you've fixed a previously problematic\n"
-        "plugin or want to try scanning it again.\n";
+        "4. Connect it with audio/MIDI cables\n";
     
     infoPanel.setText(infoText);
     addAndMakeVisible(infoPanel);
@@ -254,7 +249,7 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
         processor.knownPluginList.clearBlacklistedFiles();
         if (auto* userSettings = processor.appProperties.getUserSettings()) {
             if (auto xml = processor.knownPluginList.createXml())
-                userSettings->setValue("KnownPlugins", xml.get());
+                userSettings->setValue("KnownPluginsV2", xml.get());
             userSettings->saveIfNeeded();
         }
         juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
@@ -271,7 +266,7 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
                 if (result == 1) {
                     processor.knownPluginList.clear();
                     if (auto* userSettings = processor.appProperties.getUserSettings()) {
-                        userSettings->removeValue("KnownPlugins");
+                        userSettings->removeValue("KnownPluginsV2");
                         userSettings->saveIfNeeded();
                     }
                     buildTree();
@@ -285,7 +280,7 @@ void PluginManagerTab::changeListenerCallback(juce::ChangeBroadcaster*) {
 }
 
 // =============================================================================
-// Rescan Existing Plugins - with visual feedback
+// FIX: Rescan Existing — uses safe OOP scanner instead of blocking findAllTypesForFile
 // =============================================================================
 void PluginManagerTab::rescanExistingPlugins() {
     auto types = processor.knownPluginList.getTypes();
@@ -298,75 +293,43 @@ void PluginManagerTab::rescanExistingPlugins() {
         return;
     }
     
-    // Show status label
-    rescanStatusLabel.setText("Rescanning plugins...", juce::dontSendNotification);
-    rescanStatusLabel.setVisible(true);
-    rescanExistingBtn.setEnabled(false);
-    repaint();
+    // Clear existing list so rescan gets fresh metadata
+    processor.knownPluginList.clear();
     
-    // Use callAsync so the UI updates before the blocking scan
-    juce::MessageManager::callAsync([this]() {
-        auto types = processor.knownPluginList.getTypes();
-        
-        // Collect unique file paths
-        juce::StringArray filePaths;
-        for (const auto& desc : types) {
-            if (!filePaths.contains(desc.fileOrIdentifier)) {
-                filePaths.add(desc.fileOrIdentifier);
-            }
-        }
-        
-        // Clear the list
-        processor.knownPluginList.clear();
-        
-        // Re-scan each file path
-        juce::File deadMansPedal = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                                       .getChildFile("Colosseum")
-                                       .getChildFile("RescanDeadMan.txt");
-        
-        for (const auto& path : filePaths) {
-            juce::File pluginFile(path);
-            if (!pluginFile.exists()) continue;
+    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (auto xml = processor.knownPluginList.createXml())
+            userSettings->setValue("KnownPluginsV2", xml.get());
+        userSettings->saveIfNeeded();
+    }
+    
+    // Launch the safe OOP scanner dialog (scans all formats from disk)
+    auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
+    
+    auto* scanner = new AutoPluginScanner(processor, [safeThis]() {
+        if (safeThis) {
+            safeThis->buildTree();
             
-            deadMansPedal.replaceWithText(path);
-            
-            for (int i = 0; i < processor.formatManager.getNumFormats(); ++i) {
-                auto* format = processor.formatManager.getFormat(i);
-                if (format->fileMightContainThisPluginType(path)) {
-                    juce::OwnedArray<juce::PluginDescription> results;
-                    format->findAllTypesForFile(results, path);
-                    
-                    for (auto* desc : results) {
-                        processor.knownPluginList.addType(*desc);
-                    }
-                    break;
-                }
-            }
+            int newCount = safeThis->processor.knownPluginList.getNumTypes();
+            juce::NativeMessageBox::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Rescan Complete",
+                "Found " + juce::String(newCount) + " plugins.");
         }
-        
-        deadMansPedal.deleteFile();
-        
-        // Save the updated list
-        if (auto* userSettings = processor.appProperties.getUserSettings()) {
-            if (auto xml = processor.knownPluginList.createXml()) {
-                userSettings->setValue("KnownPlugins", xml.get());
-                userSettings->saveIfNeeded();
-            }
-        }
-        
-        buildTree();
-        
-        // Hide status label
-        rescanStatusLabel.setVisible(false);
-        rescanExistingBtn.setEnabled(true);
-        
-        int newCount = processor.knownPluginList.getNumTypes();
-        juce::NativeMessageBox::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Rescan Complete",
-            "Rescanned " + juce::String(filePaths.size()) + " plugin files.\n" +
-            "Found " + juce::String(newCount) + " plugins.");
     });
+    
+    scanDialog = std::make_unique<juce::DialogWindow>(
+        "Rescanning Plugins...",
+        juce::Colour(0xFF1E1E1E),
+        true,
+        true
+    );
+    scanDialog->setContentOwned(scanner, true);
+    scanDialog->setUsingNativeTitleBar(true);
+    scanDialog->setResizable(false, false);
+    scanDialog->centreWithSize(500, 240);
+    scanDialog->setVisible(true);
+    
+    scanner->startScan();
 }
 
 // =============================================================================
@@ -543,7 +506,7 @@ void PluginManagerTab::removePluginFromList(const juce::PluginDescription& desc)
     
     if (auto* userSettings = processor.appProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
-            userSettings->setValue("KnownPlugins", xml.get());
+            userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
     }
     
@@ -583,93 +546,11 @@ void PluginManagerTab::togglePluginVisibility(const juce::PluginDescription& des
 }
 
 // =============================================================================
-// Check for crashed scan on startup
+// FIX: checkForCrashedScan — moved to AutoScanner file (safe cleanup only)
+// This is now just a thin wrapper that delegates to the implementation
+// in PluginManagerTab_AutoScanner.cpp
 // =============================================================================
-void PluginManagerTab::checkForCrashedScan() {
-    juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                              .getChildFile("Colosseum");
-    juce::File deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
-    
-    if (deadMansPedal.existsAsFile()) {
-        juce::String crashedPlugin = deadMansPedal.loadFileAsString().trim();
-        
-        if (crashedPlugin.isNotEmpty()) {
-            auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
-            
-            juce::MessageManager::callAsync([safeThis, crashedPlugin, deadMansPedal]() {
-                if (safeThis == nullptr) return;
-                
-                auto* alertWindow = new juce::AlertWindow(
-                    "Plugin Scan Crash Detected",
-                    "The last scan crashed while loading:\n\n" + crashedPlugin + 
-                    "\n\nWhat would you like to do?",
-                    juce::MessageBoxIconType::WarningIcon);
-                
-                alertWindow->addButton("Blacklist Plugin", 1);
-                alertWindow->addButton("Allow Anyway", 2);
-                alertWindow->addButton("Try Again", 3);
-                alertWindow->addButton("Ignore", 0);
-                
-                alertWindow->enterModalState(true,
-                    juce::ModalCallbackFunction::create([safeThis, crashedPlugin, deadMansPedal, alertWindow](int result) {
-                        if (safeThis == nullptr) { delete alertWindow; return; }
-                        
-                        switch (result) {
-                            case 1:  // Blacklist
-                            {
-                                safeThis->processor.knownPluginList.addToBlacklist(crashedPlugin);
-                                deadMansPedal.deleteFile();
-                                
-                                if (auto* settings = safeThis->processor.appProperties.getUserSettings()) {
-                                    if (auto xml = safeThis->processor.knownPluginList.createXml())
-                                        settings->setValue("KnownPlugins", xml.get());
-                                    settings->saveIfNeeded();
-                                }
-                                
-                                juce::NativeMessageBox::showMessageBoxAsync(
-                                    juce::MessageBoxIconType::InfoIcon,
-                                    "Plugin Blacklisted",
-                                    "The plugin has been blacklisted and will be skipped in future scans.");
-                                break;
-                            }
-                            
-                            case 2:  // Allow Anyway
-                            {
-                                deadMansPedal.deleteFile();
-                                
-                                auto* settings = safeThis->processor.appProperties.getUserSettings();
-                                if (settings) {
-                                    juce::String approved = settings->getValue("ApprovedPlugins", "");
-                                    if (approved.isNotEmpty()) approved += "|";
-                                    approved += crashedPlugin;
-                                    settings->setValue("ApprovedPlugins", approved);
-                                    settings->saveIfNeeded();
-                                }
-                                
-                                juce::NativeMessageBox::showMessageBoxAsync(
-                                    juce::MessageBoxIconType::InfoIcon,
-                                    "Plugin Approved",
-                                    "The plugin has been added to the approved list.");
-                                break;
-                            }
-                            
-                            case 3:  // Try Again
-                                deadMansPedal.deleteFile();
-                                break;
-                            
-                            case 0:  // Ignore
-                            default:
-                                break;
-                        }
-                        
-                        delete alertWindow;
-                    }), true);
-            });
-        } else {
-            deadMansPedal.deleteFile();
-        }
-    }
-}
+// NOTE: checkForCrashedScan() is implemented in PluginManagerTab_AutoScanner.cpp
 
 // =============================================================================
 // PluginTreeItem Implementation

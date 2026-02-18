@@ -1,4 +1,5 @@
 
+
 // D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_05_Graph.cpp
 // Graph Management and Node Management
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
@@ -150,9 +151,12 @@ void SubterraneumAudioProcessor::resetBlacklist() {
     knownPluginList.clearBlacklistedFiles();
     if (auto* userSettings = appProperties.getUserSettings()) {
         if (auto xml = knownPluginList.createXml())
-            userSettings->setValue("KnownPlugins", xml.get());
+            userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
     }
 }
+
+
+
 
 

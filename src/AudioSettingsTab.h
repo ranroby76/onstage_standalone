@@ -1,5 +1,6 @@
 
 
+
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Added timeSigValueLabel to display current time signature
 // FIX: Added recording folder selection button
@@ -150,7 +151,7 @@ private:
     
     juce::Slider tempoSlider;
     juce::Label tempoLabel { "tempo", "BPM" };
-    juce::Label tempoValueLabel { "tempoValue", "120.00" };
+    juce::Label tempoValueLabel { "tempoValue", "120.0" };
     
     juce::TextButton tapTempoBtn { "TAP" };
     std::vector<double> tapTimes;
@@ -209,6 +210,10 @@ private:
     // MIDI reconnection
     void reconnectMidiDevices();
 };
+
+
+
+
 
 
 

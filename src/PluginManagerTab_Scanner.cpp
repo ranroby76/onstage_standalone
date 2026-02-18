@@ -1,11 +1,14 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_Scanner.cpp
-// FIXED: Uses JUCE's PluginDirectoryScanner with async instantiation support
-// This properly handles plugins that need message-thread instantiation (like taq.sim solo)
+// ScanProgressPanel — Simple VST3-only scan dialog 
+// NOW uses OutOfProcessScanner instead of JUCE's PluginDirectoryScanner
+// ZERO freezes, ZERO crashes — same 3-phase approach as the full scanner
 
 #include "PluginManagerTab.h"
+#include "OutOfProcessScanner.h"
 
 // =============================================================================
-// ScanProgressPanel Implementation - USING JUCE SCANNER WITH ASYNC SUPPORT
+// ScanProgressPanel — kept for the simple "Scan VST3" entry point
+// Now routes through OutOfProcessScanner for safety
 // =============================================================================
 ScanProgressPanel::ScanProgressPanel(SubterraneumAudioProcessor& p, std::function<void()> onComplete)
     : processor(p), onCompleteCallback(onComplete)
@@ -27,18 +30,15 @@ ScanProgressPanel::ScanProgressPanel(SubterraneumAudioProcessor& p, std::functio
     
     addAndMakeVisible(progressBar);
     
-    // Setup dead man's pedal for crash recovery
-    juce::File dataDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                              .getChildFile("Colosseum");
-    if (!dataDir.exists()) dataDir.createDirectory();
-    deadMansPedal = dataDir.getChildFile("PluginScanDeadMan.txt");
-    
     setSize(400, 180);
 }
 
 ScanProgressPanel::~ScanProgressPanel() {
     stopTimer();
-    scanner = nullptr;
+    if (oopScanner) {
+        oopScanner->stopScanning();
+        oopScanner = nullptr;
+    }
 }
 
 void ScanProgressPanel::paint(juce::Graphics& g) {
@@ -59,6 +59,11 @@ void ScanProgressPanel::resized() {
 }
 
 void ScanProgressPanel::startScan() {
+    titleLabel.setText("Scanning VST3 Plugins", juce::dontSendNotification);
+    statusLabel.setText("Collecting VST3 files...", juce::dontSendNotification);
+    progress = 0.0;
+    scanning = true;
+    
     // Get VST3 folders from settings
     juce::FileSearchPath searchPath;
     
@@ -68,9 +73,8 @@ void ScanProgressPanel::startScan() {
             juce::StringArray folders;
             folders.addTokens(vst3Paths, "|", "");
             for (const auto& folder : folders) {
-                if (folder.isNotEmpty()) {
+                if (folder.isNotEmpty())
                     searchPath.add(juce::File(folder));
-                }
             }
         }
     }
@@ -92,71 +96,75 @@ void ScanProgressPanel::startScan() {
         #endif
     }
     
-    // Find VST3 format
-    juce::AudioPluginFormat* vst3Format = nullptr;
-    for (int i = 0; i < processor.formatManager.getNumFormats(); ++i) {
-        if (processor.formatManager.getFormat(i)->getName() == "VST3") {
-            vst3Format = processor.formatManager.getFormat(i);
-            break;
+    // Collect VST3 files
+    juce::Array<OutOfProcessScanner::PluginToScan> pluginFiles;
+    
+    for (int i = 0; i < searchPath.getNumPaths(); ++i) {
+        juce::File folder = searchPath[i];
+        if (!folder.exists()) continue;
+        
+        juce::Array<juce::File> found;
+        folder.findChildFiles(found, juce::File::findFilesAndDirectories, true, "*.vst3");
+        
+        juce::StringArray addedPaths;
+        for (const auto& f : found) {
+            // Skip nested bundles (e.g. .vst3 inside .vst3)
+            bool isNested = false;
+            for (const auto& existing : addedPaths) {
+                if (f.isAChildOf(juce::File(existing))) {
+                    isNested = true;
+                    break;
+                }
+            }
+            if (!isNested && !addedPaths.contains(f.getFullPathName())) {
+                addedPaths.add(f.getFullPathName());
+                pluginFiles.add({ f.getFullPathName(), "VST3" });
+            }
         }
     }
     
-    if (vst3Format == nullptr) {
-        statusLabel.setText("VST3 format not available!", juce::dontSendNotification);
+    if (pluginFiles.isEmpty()) {
+        statusLabel.setText("No VST3 plugins found in search paths", juce::dontSendNotification);
+        scanning = false;
         juce::Timer::callAfterDelay(2000, [this]() {
             if (onCompleteCallback) onCompleteCallback();
         });
         return;
     }
     
-    titleLabel.setText("Scanning VST3 Plugins", juce::dontSendNotification);
-    statusLabel.setText("Initializing scanner...", juce::dontSendNotification);
-    progress = 0.0;
-    scanning = true;
+    statusLabel.setText("Found " + juce::String(pluginFiles.size()) + " VST3 files", juce::dontSendNotification);
     
-    // Create JUCE's proper plugin scanner
-    // FIXED: Last parameter is TRUE to allow async instantiation
-    // This is critical for plugins like taq.sim solo that need message-thread instantiation
-    scanner = std::make_unique<juce::PluginDirectoryScanner>(
-        processor.knownPluginList,
-        *vst3Format,
-        searchPath,
-        true,           // recursive
-        deadMansPedal,  // crash recovery file
-        true            // FIXED: allow plugins requiring async instantiation
-    );
+    // Create OutOfProcessScanner for safe scanning
+    oopScanner = std::make_unique<OutOfProcessScanner>(processor);
+    oopScanner->setPluginsToScan(pluginFiles);
+    oopScanner->startScanning();
     
-    // Start timer for incremental scanning (16ms = ~60fps, matching working version)
-    startTimer(16);
+    // Start UI timer — 50ms = never blocks
+    startTimer(50);
 }
 
 void ScanProgressPanel::timerCallback() {
-    if (!scanning || !scanner) {
+    if (!scanning || !oopScanner) {
         stopTimer();
         return;
     }
     
-    juce::String pluginBeingScanned;
+    // Read atomics (lock-free, instant)
+    float scanProgress = oopScanner->progress.load();
+    bool finished = oopScanner->scanFinished.load();
     
-    // Scan next plugin - JUCE loads it properly to get all metadata
-    if (scanner->scanNextFile(true, pluginBeingScanned)) {
-        // Still scanning
-        progress = scanner->getProgress();
-        
-        // Update display
-        if (pluginBeingScanned.isNotEmpty()) {
-            // Truncate long paths
-            juce::String displayName = juce::File(pluginBeingScanned).getFileNameWithoutExtension();
-            if (displayName.length() > 40) {
-                displayName = displayName.substring(0, 37) + "...";
-            }
-            pluginLabel.setText(displayName, juce::dontSendNotification);
-        }
-        
-        int found = processor.knownPluginList.getNumTypes();
-        statusLabel.setText("Found " + juce::String(found) + " plugins...", juce::dontSendNotification);
-    } else {
-        // Scan complete
+    progress = (double)scanProgress;
+    
+    // Update current plugin name
+    juce::String currentPlugin = oopScanner->getCurrentPlugin();
+    if (currentPlugin.length() > 40)
+        currentPlugin = currentPlugin.substring(0, 37) + "...";
+    pluginLabel.setText(currentPlugin, juce::dontSendNotification);
+    
+    int found = processor.knownPluginList.getNumTypes();
+    statusLabel.setText("Found " + juce::String(found) + " plugins...", juce::dontSendNotification);
+    
+    if (finished) {
         stopTimer();
         scanning = false;
         finishScan();
@@ -164,50 +172,39 @@ void ScanProgressPanel::timerCallback() {
 }
 
 void ScanProgressPanel::finishScan() {
-    scanner = nullptr;
-    
-    // Delete dead man's pedal on successful completion
-    if (deadMansPedal.existsAsFile()) {
-        deadMansPedal.deleteFile();
+    if (oopScanner) {
+        oopScanner->stopScanning();
+        oopScanner = nullptr;
     }
     
-    int totalFound = processor.knownPluginList.getNumTypes();
+    // Delete old dead man's pedal if it exists
+    if (deadMansPedal.existsAsFile())
+        deadMansPedal.deleteFile();
     
-    // Count instruments vs effects
-    int instruments = 0;
-    int effects = 0;
+    int totalFound = processor.knownPluginList.getNumTypes();
+    int instruments = 0, effects = 0;
     for (const auto& plugin : processor.knownPluginList.getTypes()) {
-        if (plugin.isInstrument)
-            instruments++;
-        else
-            effects++;
+        if (plugin.isInstrument) instruments++;
+        else effects++;
     }
     
     // Save the plugin list
     if (auto* settings = processor.appProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml()) {
-            settings->setValue("KnownPlugins", xml.get());
+            settings->setValue("KnownPluginsV2", xml.get());
             settings->saveIfNeeded();
         }
     }
     
-    // Trigger change notification
     processor.knownPluginList.sendChangeMessage();
     
     titleLabel.setText("Scan Complete!", juce::dontSendNotification);
     statusLabel.setText("Found " + juce::String(totalFound) + " plugins", juce::dontSendNotification);
-    pluginLabel.setText(juce::String(instruments) + " instruments, " + juce::String(effects) + " effects", 
+    pluginLabel.setText(juce::String(instruments) + " instruments, " + juce::String(effects) + " effects",
                         juce::dontSendNotification);
     progress = 1.0;
     
-    // CRITICAL FIX: Defer callback to prevent crash
-    // Use MessageManager::callAsync to ensure finishScan() returns before object is deleted
-    if (onCompleteCallback) {
-        auto callback = onCompleteCallback;
-        juce::MessageManager::callAsync([callback]() {
-            if (callback) {
-                callback();
-            }
-        });
-    }
+    juce::Timer::callAfterDelay(2000, [this]() {
+        if (onCompleteCallback) onCompleteCallback();
+    });
 }
