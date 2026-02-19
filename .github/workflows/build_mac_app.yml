@@ -135,9 +135,9 @@ jobs:
             --team-id "$TEAM_ID" \
             --wait
 
-          # Create DMG (can be stapled, unlike ZIP)
+          # Staple the app, then create DMG from the stapled app
+          xcrun stapler staple "$APP_PATH"
           hdiutil create -volname "OnStage" -srcfolder "$APP_PATH" -ov -format UDZO "OnStage_Mac.dmg"
-          xcrun stapler staple "OnStage_Mac.dmg"
 
       - name: Package App (unsigned fallback)
         if: env.SKIP_SIGNING == 'true'
