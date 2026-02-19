@@ -4,6 +4,9 @@
     VLCMediaPlayer_Desktop.cpp
     OnStage - MINIMAL BUG FIX VERSION (keeps abstract base class architecture)
 
+    FIX: VLC args for proper A/V sync without sacrificing audio quality.
+    FIX: Volume smoothing to prevent clicks on volume changes.
+
   ==============================================================================
 */
 
@@ -29,7 +32,18 @@ VLCMediaPlayer_Desktop::VLCMediaPlayer_Desktop()
         "--aout=amem", 
         "--vout=vmem",
         "--no-video-title-show",
-        "--no-osd"
+        "--no-osd",
+        "--no-xlib",
+        "--quiet",
+        
+        // A/V sync: keep video frames in lockstep with audio
+        "--no-drop-late-frames",
+        "--no-skip-frames",
+        "--clock-jitter=0",
+        
+        // Caching: 500ms gives decoder headroom without adding latency
+        "--file-caching=500",
+        "--network-caching=500"
     };
     m_instance = libvlc_new(sizeof(args) / sizeof(args[0]), args);
     
@@ -37,11 +51,9 @@ VLCMediaPlayer_Desktop::VLCMediaPlayer_Desktop()
     {
         m_mediaPlayer = libvlc_media_player_new(m_instance);
         
-        // FIX #3: Check correct variable
         if (m_mediaPlayer)
         {
             libvlc_audio_set_callbacks(m_mediaPlayer, audioPlay, audioPause, audioResume, audioFlush, audioDrain, this);
-            // FIX #2: Use S16N instead of f32l
             libvlc_audio_set_format(m_mediaPlayer, "S16N", 44100, 2);
 
             libvlc_video_set_callbacks(m_mediaPlayer, videoLock, videoUnlock, videoDisplay, this);
@@ -78,9 +90,11 @@ void VLCMediaPlayer_Desktop::prepareToPlay(int samplesPerBlock, double sampleRat
     
     if (m_mediaPlayer)
     {
-        // FIX #2: Use S16N instead of f32l
         libvlc_audio_set_format(m_mediaPlayer, "S16N", static_cast<int>(currentSampleRate), 2);
     }
+
+    // Reset volume smoother
+    smoothedVolume = volume;
 
     isPrepared = true;
 }
@@ -99,7 +113,6 @@ bool VLCMediaPlayer_Desktop::loadFile(const juce::String& path)
     if (!m_instance || !m_mediaPlayer) return false;
     
     int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
-    // FIX #2: Use S16N instead of f32l
     libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
 
     libvlc_media_t* media = libvlc_media_new_path(m_instance, path.toUTF8());
@@ -117,7 +130,6 @@ void VLCMediaPlayer_Desktop::play(const juce::String& path)
         if (m_mediaPlayer) 
         {
             int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
-            // FIX #2: Use S16N instead of f32l
             libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
             libvlc_media_player_play(m_mediaPlayer);
         }
@@ -129,7 +141,6 @@ void VLCMediaPlayer_Desktop::play()
     if (m_mediaPlayer) 
     {
         int rate = (currentSampleRate > 0) ? static_cast<int>(currentSampleRate) : 44100;
-        // FIX #2: Use S16N instead of f32l
         libvlc_audio_set_format(m_mediaPlayer, "S16N", rate, 2);
         libvlc_media_player_play(m_mediaPlayer);
     }
@@ -155,7 +166,6 @@ void VLCMediaPlayer_Desktop::stop()
 
 void VLCMediaPlayer_Desktop::setVolume(float newVolume)
 {
-    // FIX: Limit volume to reasonable range (0.0 to 2.0) to prevent clipping
     volume = juce::jlimit(0.0f, 2.0f, newVolume);
 }
 
@@ -215,7 +225,7 @@ void* VLCMediaPlayer_Desktop::videoLock(void* data, void** planes)
     {
         juce::Image::BitmapData bitmapData(self->bufferVideoImage, juce::Image::BitmapData::readWrite);
         *planes = bitmapData.data;
-        return nullptr;  // BitmapData destroyed HERE when scope ends
+        return nullptr;
     }
     return nullptr;
 }
@@ -223,7 +233,6 @@ void* VLCMediaPlayer_Desktop::videoLock(void* data, void** planes)
 void VLCMediaPlayer_Desktop::videoUnlock(void* data, void* picture, void* const* planes)
 {
     juce::ignoreUnused(data, picture, planes);
-    // FIX #1: No cleanup needed - BitmapData already destroyed in videoLock
 }
 
 void VLCMediaPlayer_Desktop::videoDisplay(void* data, void* picture)
@@ -275,7 +284,6 @@ void VLCMediaPlayer_Desktop::addAudioSamples(const void* samples, unsigned count
         int start1, size1, start2, size2;
         fifo.prepareToWrite(toWrite, start1, size1, start2, size2);
         
-        // FIX #2: Now data is S16N format, convert properly
         const int16_t* src = static_cast<const int16_t*>(samples);
         const float scale = 1.0f / 32768.0f;
         if (size1 > 0) {
@@ -318,23 +326,38 @@ void VLCMediaPlayer_Desktop::getNextAudioBlock(const juce::AudioSourceChannelInf
         int start1, size1, start2, size2;
         fifo.prepareToRead(toRead, start1, size1, start2, size2);
         
-        // FIX: Use copyFrom for clean audio (no accumulation), then apply volume gain separately
+        // FIX: Volume smoothing — ramp to prevent clicks on volume changes
+        const float targetVol = volume;
+        const float startVol = smoothedVolume;
+        const float volStep = (targetVol - startVol) / (float)toRead;
+        
+        // First segment
         if (size1 > 0) {
             for (int ch = 0; ch < 2; ++ch) {
-                info.buffer->copyFrom(ch, info.startSample, ringBuffer, ch, start1, size1);
-                // Apply volume gain
-                if (volume != 1.0f)
-                    info.buffer->applyGain(ch, info.startSample, size1, volume);
+                const float* src = ringBuffer.getReadPointer(ch, start1);
+                float* dst = info.buffer->getWritePointer(ch, info.startSample);
+                float vol = startVol;
+                for (int i = 0; i < size1; ++i) {
+                    dst[i] = src[i] * vol;
+                    vol += volStep;
+                }
             }
         }
+        
+        // Second segment (ring buffer wrap)
         if (size2 > 0) {
             for (int ch = 0; ch < 2; ++ch) {
-                info.buffer->copyFrom(ch, info.startSample + size1, ringBuffer, ch, start2, size2);
-                // Apply volume gain
-                if (volume != 1.0f)
-                    info.buffer->applyGain(ch, info.startSample + size1, size2, volume);
+                const float* src = ringBuffer.getReadPointer(ch, start2);
+                float* dst = info.buffer->getWritePointer(ch, info.startSample + size1);
+                float vol = startVol + volStep * size1;
+                for (int i = 0; i < size2; ++i) {
+                    dst[i] = src[i] * vol;
+                    vol += volStep;
+                }
             }
         }
+        
+        smoothedVolume = targetVol;
         fifo.finishedRead(size1 + size2);
     }
     

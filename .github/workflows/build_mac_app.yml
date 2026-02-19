@@ -2,7 +2,7 @@ name: Build macOS App
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, ranroby76/supabase ]
   workflow_dispatch:
 
 env:
@@ -11,7 +11,7 @@ env:
 jobs:
   build_mac_app:
     name: Build macOS Standalone
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository
@@ -22,7 +22,7 @@ jobs:
       - name: Clone JUCE Framework
         run: |
           rm -rf JUCE
-          git clone --depth 1 --branch master https://github.com/juce-framework/JUCE.git JUCE
+          git clone --depth 1 --branch 8.0.11 https://github.com/juce-framework/JUCE.git JUCE
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.7
@@ -135,15 +135,18 @@ jobs:
             --team-id "$TEAM_ID" \
             --wait
 
-          xcrun stapler staple "$APP_PATH"
+          # Create DMG (can be stapled, unlike ZIP)
+          hdiutil create -volname "OnStage" -srcfolder "$APP_PATH" -ov -format UDZO "OnStage_Mac.dmg"
+          xcrun stapler staple "OnStage_Mac.dmg"
 
-      - name: Package App
+      - name: Package App (unsigned fallback)
+        if: env.SKIP_SIGNING == 'true'
         run: |
           APP_PATH=$(find build -name "OnStage.app" -type d | head -1)
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac.zip"
+          hdiutil create -volname "OnStage" -srcfolder "$APP_PATH" -ov -format UDZO "OnStage_Mac.dmg"
 
       - name: Upload App
         uses: actions/upload-artifact@v4
         with:
           name: OnStage-Mac-v${{ env.APP_VERSION }}
-          path: OnStage_Mac.zip
+          path: OnStage_Mac.dmg

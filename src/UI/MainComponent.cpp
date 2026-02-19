@@ -2,10 +2,10 @@
 //  MainComponent.cpp
 //  OnStage — Main application component
 //
-//  MODIFIED: Added DragAndDropContainer inheritance for plugin browser drag-drop
-//  MODIFIED: Added InternalPluginBrowser panel to the right of master meters
-//  MODIFIED: Right area widened to accommodate browser (visible on Studio tab)
-//  MODIFIED: SidebarPanel now shows ASIO/REG LEDs, CPU, RAM, latency
+//  FIX #1: Workspace buttons now have right-click context menu
+//  FIX #2: Workspace bar background limited to plugin browser left edge
+//  FIX #3: Plugin browser visible on startup (correct initialization order)
+//  FIX #4: Zoom slider relocated between left logo and Manual button in header
 // ==============================================================================
 
 #include "MainComponent.h"
@@ -37,12 +37,8 @@ MainComponent::MainComponent (AudioEngine& engine, PresetManager& presets)
         LOG_INFO ("Step 0a: Checking License...");
         RegistrationManager::getInstance().checkRegistration();
         bool isReg = RegistrationManager::getInstance().isProMode();
-        if (isReg)
-            LOG_INFO ("License Status: REGISTERED (PRO MODE)");
-        else
-            LOG_INFO ("License Status: DEMO MODE");
-
-        // Pass registration status to sidebar
+        if (isReg) LOG_INFO ("License Status: REGISTERED (PRO MODE)");
+        else       LOG_INFO ("License Status: DEMO MODE");
         sidebar.isRegisteredCached = isReg;
 
         LOG_INFO ("Step 0b: Allocating GoldenSliderLookAndFeel...");
@@ -51,30 +47,26 @@ MainComponent::MainComponent (AudioEngine& engine, PresetManager& presets)
         LOG_INFO ("Step 1: Adding header");
         addAndMakeVisible (header);
 
-        // --- Sidebar (replaces TabbedComponent) ---------------------------------
         LOG_INFO ("Step 2: Adding sidebar");
         addAndMakeVisible (sidebar);
         sidebar.onTabChanged = [this] (int index) { showPage (index); };
 
-        LOG_INFO ("Step 3: Creating IOPage");
-        ioPage = std::make_unique<IOPage> (audioEngine, audioEngine.getIOSettings());
-        addChildComponent (*ioPage);
-
-        LOG_INFO ("Step 4: Creating WiringCanvas (Studio tab)");
+        LOG_INFO ("Step 3: Creating WiringCanvas (Rack tab)");
         wiringCanvas = std::make_unique<WiringCanvas> (audioEngine.getGraph(), presetManager);
         addChildComponent (*wiringCanvas);
 
-        LOG_INFO ("Step 5: Creating MediaPage");
+        LOG_INFO ("Step 4: Creating MediaPage");
         mediaPage = std::make_unique<MediaPage> (audioEngine, audioEngine.getIOSettings());
         addChildComponent (*mediaPage);
 
-        // Show the first page
-        showPage (0);
+        LOG_INFO ("Step 5: Creating IOPage");
+        ioPage = std::make_unique<IOPage> (audioEngine, audioEngine.getIOSettings());
+        addChildComponent (*ioPage);
 
-        LOG_INFO ("Step 9: Adding master meter");
+        LOG_INFO ("Step 6: Adding master meter");
         addAndMakeVisible (masterMeter);
 
-        LOG_INFO ("Step 10: Setting up master volume slider");
+        LOG_INFO ("Step 7: Setting up master volume slider");
         addAndMakeVisible (masterVolumeSlider);
         masterVolumeSlider.setRange (0.0, 1.0, 0.01);
         masterVolumeSlider.setValue (0.5, juce::dontSendNotification);
@@ -86,7 +78,7 @@ MainComponent::MainComponent (AudioEngine& engine, PresetManager& presets)
             audioEngine.setMasterVolume (static_cast<float> (masterVolumeSlider.getValue()));
         };
 
-        LOG_INFO ("Step 11: Adding master volume label");
+        LOG_INFO ("Step 8: Adding master volume label");
         addAndMakeVisible (masterVolumeLabel);
         masterVolumeLabel.setText ("MASTER", juce::dontSendNotification);
         masterVolumeLabel.setFont (juce::Font (12.0f, juce::Font::bold));
@@ -95,24 +87,82 @@ MainComponent::MainComponent (AudioEngine& engine, PresetManager& presets)
         masterVolumeLabel.setMidiInfo ("MIDI: CC 7");
 
         // --- Internal Plugin Browser -------------------------------------------
-        LOG_INFO ("Step 12a: Setting up InternalPluginBrowser");
-        addAndMakeVisible (pluginBrowser);
-        pluginBrowser.setVisible (false);   // hidden by default, shown on Studio tab
+        // FIX #3: Add FIRST, then showPage(0) will set it visible
+        LOG_INFO ("Step 9: Setting up InternalPluginBrowser");
+        addChildComponent (pluginBrowser);   // starts hidden
 
         pluginBrowser.onEffectDoubleClick = [this] (const InternalEffectInfo& info)
         {
-            // Add at a default position on the canvas
             audioEngine.getGraph().addEffect (info.typeID, 300.0f, 300.0f);
-            if (wiringCanvas)
-                wiringCanvas->markDirty();
+            if (wiringCanvas) wiringCanvas->markDirty();
         };
 
-        LOG_INFO ("Step 12b: Setting up header callbacks");
+        // --- Zoom Slider (FIX #4: in header between logo and Manual) -----------
+        LOG_INFO ("Step 10: Setting up zoom slider");
+        zoomSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        zoomSlider.setRange (0.25, 1.0, 0.75 / 75.0);
+        zoomSlider.setValue (1.0, juce::dontSendNotification);
+        zoomSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        zoomSlider.setColour (juce::Slider::trackColourId, juce::Colour (80, 80, 90));
+        zoomSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xFFFFD700));
+        zoomSlider.setColour (juce::Slider::backgroundColourId, juce::Colour (40, 40, 48));
+
+        zoomSlider.onValueChange = [this]()
+        {
+            float zoom = (float) zoomSlider.getValue();
+            if (wiringCanvas) wiringCanvas->setZoomLevel (zoom);
+            int pct = juce::roundToInt (zoom * 100.0f);
+            zoomLabel.setText (juce::String (pct) + "%", juce::dontSendNotification);
+            bool atDefault = std::abs (zoom - 1.0f) < 0.01f;
+            zoomSlider.setColour (juce::Slider::thumbColourId,
+                atDefault ? juce::Colour (0xFFFFD700) : juce::Colours::white);
+        };
+
+        zoomSlider.setDoubleClickReturnValue (true, 1.0);
+        addAndMakeVisible (zoomSlider);
+
+        zoomLabel.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+        zoomLabel.setJustificationType (juce::Justification::centred);
+        zoomLabel.setColour (juce::Label::textColourId, juce::Colour (160, 160, 180));
+        addAndMakeVisible (zoomLabel);
+
+        // --- Workspace Selector Bar --------------------------------------------
+        LOG_INFO ("Step 11: Setting up workspace bar");
+        workspaceManager = std::make_unique<WorkspaceManager> (audioEngine.getGraph(), presetManager);
+
+        for (int i = 0; i < WorkspaceManager::maxWorkspaces; ++i)
+        {
+            workspaceButtons[i].setButtonText (workspaceManager->getName (i));
+            workspaceButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (40, 40, 45));
+            workspaceButtons[i].setColour (juce::TextButton::textColourOffId, juce::Colour (190, 190, 200));
+            workspaceButtons[i].onClick = [this, i]()
+            {
+                if (! workspaceManager->isEnabled (i)) return;
+                workspaceManager->switchWorkspace (i);
+                zoomSlider.setValue (1.0, juce::sendNotificationSync);
+                updateWorkspaceButtonColors();
+            };
+            addAndMakeVisible (workspaceButtons[i]);
+            // FIX #1: Register mouse listener so MainComponent::mouseDown gets right-clicks
+            workspaceButtons[i].addMouseListener (this, false);
+        }
+
+        workspacesLabel.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+        workspacesLabel.setJustificationType (juce::Justification::centredLeft);
+        workspacesLabel.setColour (juce::Label::textColourId, juce::Colour (200, 200, 220));
+        addAndMakeVisible (workspacesLabel);
+        updateWorkspaceButtonColors();
+
+        // --- Header callbacks ---------------------------------------------------
+        LOG_INFO ("Step 12: Setting up header callbacks");
         header.onSavePreset = [this]() { savePreset(); };
         header.onLoadPreset = [this]() { loadPreset(); };
 
         LOG_INFO ("Step 13: Setting window size");
         setSize (1280, 720);
+
+        // FIX #3: Show initial page LAST so plugin browser gets proper bounds
+        showPage (0);
 
         LOG_INFO ("=== MainComponent Constructor COMPLETE ===");
     }
@@ -136,22 +186,48 @@ MainComponent::~MainComponent()
 }
 
 // ==============================================================================
-//  Page switching
+//  Page switching — Rack (0), Media (1), I/O (2)
 // ==============================================================================
 
 void MainComponent::showPage (int index)
 {
     currentPageIndex = index;
 
-    if (ioPage)        ioPage->setVisible        (index == 0);
-    if (wiringCanvas)  wiringCanvas->setVisible  (index == 1);
-    if (mediaPage)     mediaPage->setVisible     (index == 2);
+    if (wiringCanvas)  wiringCanvas->setVisible  (index == 0);
+    if (mediaPage)     mediaPage->setVisible     (index == 1);
+    if (ioPage)        ioPage->setVisible        (index == 2);
 
-    // Show plugin browser only on the Studio (wiring) tab
-    pluginBrowser.setVisible (index == 1);
+    pluginBrowser.setVisible (index == 0);
+
+    zoomSlider.setVisible (index == 0);
+    zoomLabel.setVisible  (index == 0);
 
     resized();
 }
+
+// ==============================================================================
+//  FIX #1: Right-click on workspace buttons → context menu
+// ==============================================================================
+
+void MainComponent::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+    {
+        // Check if the click originated from a workspace button
+        for (int i = 0; i < WorkspaceManager::maxWorkspaces; ++i)
+        {
+            if (e.eventComponent == &workspaceButtons[i])
+            {
+                showWorkspaceContextMenu (i);
+                return;
+            }
+        }
+    }
+}
+
+// ==============================================================================
+//  Paint
+// ==============================================================================
 
 void MainComponent::paint (juce::Graphics& g)
 {
@@ -161,14 +237,12 @@ void MainComponent::paint (juce::Graphics& g)
     constexpr int rightBannerWidth = 56;
     constexpr int browserWidth     = 180;
 
-    // Determine total right area width based on current tab
     int totalRightWidth = rightBannerWidth;
-    if (currentPageIndex == 1)
+    if (currentPageIndex == 0)
         totalRightWidth += browserWidth;
 
     auto fullRightArea = getLocalBounds().removeFromRight (totalRightWidth).toFloat();
 
-    // Paint the meters/slider column (rightmost 56px strip)
     auto bannerArea = fullRightArea.removeFromRight ((float) rightBannerWidth);
     juce::ColourGradient grad (
         juce::Colour (0xFF3A3A3A), bannerArea.getX(), bannerArea.getY(),
@@ -177,16 +251,25 @@ void MainComponent::paint (juce::Graphics& g)
     g.setGradientFill (grad);
     g.fillRect (bannerArea);
 
-    // Left edge line (separator) of the meters column
     g.setColour (juce::Colour (0xFF1A1A1A));
     g.drawVerticalLine ((int) bannerArea.getX(), 0.0f, (float) getHeight());
 
-    // If browser is visible, paint separator between browser and meters
-    if (currentPageIndex == 1)
+    if (currentPageIndex == 0)
     {
         g.setColour (juce::Colour (0xFF1A1A1A));
         g.drawVerticalLine ((int) fullRightArea.getX(), 0.0f, (float) getHeight());
     }
+
+    // --- Workspace bar background ---
+    // FIX #2: Only draw from sidebar to plugin browser left edge (not full width)
+    constexpr int sidebarWidth  = 100;
+    constexpr int headerHeight  = 60;
+
+    int wsBarRightEdge = getWidth() - totalRightWidth;
+
+    g.setColour (juce::Colour (0xFF1A1A1F));
+    g.fillRect (sidebarWidth, headerHeight,
+                wsBarRightEdge - sidebarWidth, workspaceBarHeight);
 }
 
 void MainComponent::resized()
@@ -197,51 +280,91 @@ void MainComponent::resized()
     constexpr int rightBannerWidth = 56;
     constexpr int browserWidth     = 180;
 
-    // Calculate total right area width based on current tab
     int totalRightWidth = rightBannerWidth;
-    if (currentPageIndex == 1)
+    if (currentPageIndex == 0)
         totalRightWidth += browserWidth;
 
     auto rightArea = bounds.removeFromRight (totalRightWidth);
-
-    // --- The rightmost 56px is always the meters/volume banner ---
     auto rightBanner = rightArea.removeFromRight (rightBannerWidth);
 
-    // --- Plugin browser occupies the remaining left portion (when visible) ---
-    if (currentPageIndex == 1)
-    {
+    if (currentPageIndex == 0)
         pluginBrowser.setBounds (rightArea);
-    }
 
     // --- Header bar at top ---
     constexpr int headerHeight = 60;
-    header.setBounds (bounds.removeFromTop (headerHeight));
+    auto headerArea = bounds.removeFromTop (headerHeight);
 
-    // --- Sidebar on the left (full height below header) ---
+    // FIX #4: Zoom slider in header between left logo and Manual button
+    // Left logo (Fanan) right edge is at approx x=55 + (height-20)*5.668
+    if (currentPageIndex == 0)
+    {
+        int h = headerArea.getHeight();
+        int fananLogoRight = 55 + (int) ((h - 20) * 5.668f);
+
+        int zoomSliderWidth  = 90;
+        int zoomSliderHeight = 16;
+        int zoomX = fananLogoRight + 12;
+        int headerCenterY = headerArea.getY() + h / 2;
+        int labelHeight = 12;
+
+        zoomSlider.setBounds (zoomX, headerCenterY - zoomSliderHeight / 2 + 4,
+                              zoomSliderWidth, zoomSliderHeight);
+        zoomLabel.setBounds  (zoomX, headerCenterY - labelHeight - 2,
+                              zoomSliderWidth, labelHeight);
+    }
+
+    header.setBounds (headerArea);
+
+    // --- Workspace bar (below header, above content) ---
+    auto wsBar = bounds.removeFromTop (workspaceBarHeight);
+
+    // --- Sidebar on the left ---
     constexpr int sidebarWidth = 100;
-
     auto sidebarColumn = bounds.removeFromLeft (sidebarWidth);
     sidebar.setBounds (sidebarColumn);
 
+    // FIX #1: Workspace bar layout — buttons stretch vertically to plugin browser border
+    {
+        int startX = sidebarWidth;
+        int labelW = 85;
+        workspacesLabel.setBounds (startX, wsBar.getY(), labelW, workspaceBarHeight);
+
+        int btnStartX = startX + labelW + 4;
+        // FIX #2: Buttons end at the plugin browser left edge
+        int btnEndX = getWidth() - totalRightWidth;
+        int availableW = btnEndX - btnStartX - 4;
+        int btnGap = 2;
+        int btnW = (availableW - (WorkspaceManager::maxWorkspaces - 1) * btnGap)
+                    / WorkspaceManager::maxWorkspaces;
+        if (btnW < 20) btnW = 20;
+
+        for (int i = 0; i < WorkspaceManager::maxWorkspaces; ++i)
+        {
+            workspaceButtons[i].setBounds (
+                btnStartX + i * (btnW + btnGap),
+                wsBar.getY() + 2,
+                btnW,
+                workspaceBarHeight - 4);
+        }
+    }
+
     // --- Content area — all pages share the same bounds ---
     auto contentArea = bounds;
-
-    if (ioPage)        ioPage->setBounds        (contentArea);
     if (wiringCanvas)  wiringCanvas->setBounds  (contentArea);
     if (mediaPage)     mediaPage->setBounds     (contentArea);
+    if (ioPage)        ioPage->setBounds        (contentArea);
 
     // --- Right banner internal layout ----------------------------------------
     int bannerH  = rightBanner.getHeight();
     int meterH   = juce::roundToInt (bannerH * 0.45f);
     int sliderH  = juce::roundToInt (bannerH * 0.45f);
-
     constexpr int pad = 6;
 
     auto meterArea = rightBanner.removeFromTop (meterH).reduced (pad, pad);
     masterMeter.setBounds (meterArea);
 
-    auto gap = rightBanner.removeFromTop (bannerH - meterH - sliderH);
-    masterVolumeLabel.setBounds (gap.reduced (2, 0));
+    auto gapArea = rightBanner.removeFromTop (bannerH - meterH - sliderH);
+    masterVolumeLabel.setBounds (gapArea.reduced (2, 0));
 
     auto sliderArea = rightBanner.reduced (pad, pad);
     masterVolumeSlider.setBounds (sliderArea.withSizeKeepingCentre (
@@ -251,6 +374,126 @@ void MainComponent::resized()
 float MainComponent::sliderValueToDb (double v)
 {
     return v <= 0.0 ? -100.0f : static_cast<float> ((v - 0.5) * 44.0);
+}
+
+// ==============================================================================
+//  Workspace helpers
+// ==============================================================================
+
+void MainComponent::updateWorkspaceButtonColors()
+{
+    if (! workspaceManager) return;
+
+    int active = workspaceManager->getActiveWorkspace();
+
+    for (int i = 0; i < WorkspaceManager::maxWorkspaces; ++i)
+    {
+        bool isActive   = (i == active);
+        bool isEnabled  = workspaceManager->isEnabled (i);
+        bool isOccupied = workspaceManager->isOccupied (i);
+
+        if (isActive)
+        {
+            workspaceButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xFFD4AF37));
+            workspaceButtons[i].setColour (juce::TextButton::textColourOffId, juce::Colours::black);
+        }
+        else if (isOccupied)
+        {
+            workspaceButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (60, 60, 68));
+            workspaceButtons[i].setColour (juce::TextButton::textColourOffId, juce::Colour (220, 220, 230));
+        }
+        else if (isEnabled)
+        {
+            workspaceButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (45, 45, 52));
+            workspaceButtons[i].setColour (juce::TextButton::textColourOffId, juce::Colour (160, 160, 180));
+        }
+        else
+        {
+            workspaceButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (30, 30, 35));
+            workspaceButtons[i].setColour (juce::TextButton::textColourOffId, juce::Colour (80, 80, 90));
+        }
+
+        workspaceButtons[i].setButtonText (workspaceManager->getName (i));
+    }
+}
+
+void MainComponent::showWorkspaceContextMenu (int idx)
+{
+    if (! workspaceManager) return;
+
+    juce::PopupMenu menu;
+
+    bool isActive  = (idx == workspaceManager->getActiveWorkspace());
+    bool isEnabled = workspaceManager->isEnabled (idx);
+
+    if (! isEnabled)
+    {
+        menu.addItem (1, "Enable");
+    }
+    else
+    {
+        menu.addItem (2, "Rename...");
+        menu.addItem (3, "Clear", ! isActive || workspaceManager->isOccupied (idx));
+        menu.addSeparator();
+        menu.addItem (4, "Duplicate to...");
+        menu.addSeparator();
+        if (! isActive)
+            menu.addItem (5, "Disable");
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options(),
+        [this, idx] (int result)
+        {
+            switch (result)
+            {
+                case 1:  // Enable
+                    workspaceManager->setEnabled (idx, true);
+                    break;
+                case 2:  // Rename
+                {
+                    auto current = workspaceManager->getName (idx);
+                    auto* aw = new juce::AlertWindow ("Rename Workspace",
+                                                      "Enter name:", juce::MessageBoxIconType::NoIcon);
+                    aw->addTextEditor ("name", current);
+                    aw->addButton ("OK", 1);
+                    aw->addButton ("Cancel", 0);
+                    aw->enterModalState (true, juce::ModalCallbackFunction::create (
+                        [this, idx, aw] (int r)
+                        {
+                            if (r == 1)
+                                workspaceManager->setName (idx, aw->getTextEditorContents ("name"));
+                            delete aw;
+                            updateWorkspaceButtonColors();
+                        }), false);
+                    return;
+                }
+                case 3:  // Clear
+                    workspaceManager->clearWorkspace (idx);
+                    break;
+                case 4:  // Duplicate
+                {
+                    juce::PopupMenu dupMenu;
+                    for (int i = 0; i < WorkspaceManager::maxWorkspaces; ++i)
+                        if (i != idx)
+                            dupMenu.addItem (100 + i, "Workspace " + workspaceManager->getName (i));
+                    dupMenu.showMenuAsync (juce::PopupMenu::Options(),
+                        [this, idx] (int r)
+                        {
+                            if (r >= 100)
+                            {
+                                workspaceManager->duplicateWorkspace (idx, r - 100);
+                                updateWorkspaceButtonColors();
+                            }
+                        });
+                    return;
+                }
+                case 5:  // Disable
+                    workspaceManager->setEnabled (idx, false);
+                    break;
+                default: return;
+            }
+            updateWorkspaceButtonColors();
+        });
 }
 
 // ==============================================================================
@@ -284,6 +527,7 @@ void MainComponent::loadPreset()
             {
                 audioEngine.loadGraphState (f, presetManager);
                 header.setPresetName (f.getFileNameWithoutExtension());
+                updateWorkspaceButtonColors();
             }
         }
     );

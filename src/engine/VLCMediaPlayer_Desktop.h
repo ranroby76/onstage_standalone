@@ -4,6 +4,8 @@
     VLCMediaPlayer_Desktop.h
     OnStage - MINIMAL BUG FIX VERSION (keeps abstract base class architecture)
 
+    FIX: Added smoothedVolume for click-free volume changes.
+
   ==============================================================================
 */
 
@@ -79,13 +81,12 @@ private:
     juce::Image currentVideoImage; 
     juce::Image bufferVideoImage;
     
-    // FIX #1: REMOVED videoBitmapData member - this was causing the crash!
-    
     juce::Component* attachedVideoComponent = nullptr;
 
     double currentSampleRate = 44100.0;
     int maxBlockSize = 512;
     float volume = 1.0f;
+    float smoothedVolume = 1.0f;
     bool isPrepared = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VLCMediaPlayer_Desktop)

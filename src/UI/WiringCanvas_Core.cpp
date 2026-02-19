@@ -1,3 +1,4 @@
+
 // ==============================================================================
 //  WiringCanvas_Core.cpp
 //  OnStage — Constructor, timers, node-type cache management, PreAmp sliders,
@@ -188,7 +189,7 @@ void WiringCanvas::rebuildNodeCache()
         // Cache display name
         if (cache.isAudioInput)       cache.displayName = "Audio Input";
         else if (cache.isAudioOutput) cache.displayName = "Audio Output";
-        else if (cache.isPlayback)    cache.displayName = "Playback";
+        else if (cache.isPlayback)    cache.displayName = "Media";
         else if (proc)
         {
             try   { cache.displayName = proc->getName(); }

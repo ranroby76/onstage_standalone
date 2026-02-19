@@ -1,3 +1,4 @@
+
 #pragma once
 
 #ifdef _WIN32
@@ -13,6 +14,7 @@
 #include "StyledSlider.h" 
 #include "MasterMeter.h" 
 #include "InternalPluginBrowser.h"
+#include "WorkspaceManager.h"
 
 class AudioEngine;
 class PresetManager;
@@ -26,21 +28,15 @@ class MediaPage;
 class SidebarButton : public juce::Component
 {
 public:
-    SidebarButton (const juce::String& label)
-        : text (label)
+    SidebarButton (const juce::String& label) : text (label)
     {
         setRepaintsOnMouseActivity (true);
     }
 
     void setSelected (bool shouldBeSelected)
     {
-        if (selected != shouldBeSelected)
-        {
-            selected = shouldBeSelected;
-            repaint();
-        }
+        if (selected != shouldBeSelected) { selected = shouldBeSelected; repaint(); }
     }
-
     bool isSelected() const { return selected; }
 
     std::function<void()> onClick;
@@ -48,10 +44,8 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto bounds = getLocalBounds().toFloat().reduced (8.0f, 3.0f);
-
         if (selected)
         {
-            // ON state: black fill, white frame, white text
             g.setColour (juce::Colours::black);
             g.fillRoundedRectangle (bounds, 4.0f);
             g.setColour (juce::Colours::white);
@@ -60,16 +54,13 @@ public:
         }
         else
         {
-            // OFF state: grayish-white fill, black frame, black text
             bool hover = isMouseOver();
-            auto fillColour = hover ? juce::Colour (0xFFD0D0D0) : juce::Colour (0xFFBBBBBB);
-            g.setColour (fillColour);
+            g.setColour (hover ? juce::Colour (0xFFD0D0D0) : juce::Colour (0xFFBBBBBB));
             g.fillRoundedRectangle (bounds, 4.0f);
             g.setColour (juce::Colours::black);
             g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
             g.setColour (juce::Colour (0xFF1A1A1A));
         }
-
         g.setFont (juce::Font (13.0f, juce::Font::bold));
         g.drawText (text, bounds, juce::Justification::centred, false);
     }
@@ -77,14 +68,12 @@ public:
     void mouseUp (const juce::MouseEvent& e) override
     {
         if (e.mouseWasClicked() && getLocalBounds().contains (e.getPosition()))
-            if (onClick)
-                onClick();
+            if (onClick) onClick();
     }
 
 private:
     juce::String text;
     bool selected = false;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SidebarButton)
 };
 
@@ -95,25 +84,17 @@ class StatusLed : public juce::Component
 {
 public:
     StatusLed() { setOpaque (false); }
-
-    void setActive (bool active)
-    {
-        if (isActive != active) { isActive = active; repaint(); }
-    }
+    void setActive (bool active) { if (isActive != active) { isActive = active; repaint(); } }
 
     void paint (juce::Graphics& g) override
     {
         auto bounds = getLocalBounds().toFloat().reduced (1.0f);
         float size = juce::jmin (bounds.getWidth(), bounds.getHeight());
         auto r = bounds.withSizeKeepingCentre (size, size);
-
-        auto onColour  = juce::Colour (0xFF00DD00);  // green
-        auto offColour = juce::Colour (0xFFDD0000);  // red
-
+        auto onColour  = juce::Colour (0xFF00DD00);
+        auto offColour = juce::Colour (0xFFDD0000);
         g.setColour (isActive ? onColour : offColour);
         g.fillEllipse (r);
-
-        // Glow
         if (isActive)
         {
             g.setGradientFill (juce::ColourGradient (
@@ -121,7 +102,6 @@ public:
                 onColour.withAlpha (0.0f), r.getTopLeft(), true));
             g.fillEllipse (r);
         }
-
         g.setColour (juce::Colour (0xFF333333));
         g.drawEllipse (r, 0.8f);
     }
@@ -140,12 +120,11 @@ public:
     SidebarPanel (AudioEngine& engine)
         : audioEngine (engine)
     {
-        for (auto* btn : { &ioButton, &studioButton, &mediaButton })
+        for (auto* btn : { &rackButton, &mediaButton, &ioButton })
             addAndMakeVisible (btn);
-
-        ioButton.onClick      = [this] { selectTab (0); };
-        studioButton.onClick  = [this] { selectTab (1); };
-        mediaButton.onClick   = [this] { selectTab (2); };
+        rackButton.onClick    = [this] { selectTab (0); };
+        mediaButton.onClick   = [this] { selectTab (1); };
+        ioButton.onClick      = [this] { selectTab (2); };
 
         addAndMakeVisible (asioLed);
         addAndMakeVisible (asioLabel);
@@ -165,106 +144,68 @@ public:
         cpuLabel.setFont (juce::Font (9.5f, juce::Font::plain));
         cpuLabel.setColour (juce::Label::textColourId, juce::Colour (0xFF888888));
         cpuLabel.setJustificationType (juce::Justification::centredLeft);
-
         addAndMakeVisible (ramLabel);
         ramLabel.setFont (juce::Font (9.5f, juce::Font::plain));
         ramLabel.setColour (juce::Label::textColourId, juce::Colour (0xFF888888));
         ramLabel.setJustificationType (juce::Justification::centredLeft);
 
         selectTab (0);
-        startTimerHz (4);  // 4 Hz polling
+        startTimerHz (4);
     }
-
     ~SidebarPanel() override { stopTimer(); }
 
     void selectTab (int index)
     {
         currentTab = index;
-        ioButton.setSelected      (index == 0);
-        studioButton.setSelected  (index == 1);
-        mediaButton.setSelected   (index == 2);
-
-        if (onTabChanged)
-            onTabChanged (index);
+        rackButton.setSelected  (index == 0);
+        mediaButton.setSelected (index == 1);
+        ioButton.setSelected    (index == 2);
+        if (onTabChanged) onTabChanged (index);
     }
-
     int getCurrentTab() const { return currentTab; }
-
     std::function<void (int)> onTabChanged;
 
-    void paint (juce::Graphics&) override
-    {
-        // No gradient — transparent background, blends with app bg
-    }
-
+    void paint (juce::Graphics&) override {}
     void resized() override
     {
         auto area = getLocalBounds();
         int hPad = 10;
-
-        // --- Tab buttons at top ---
-        constexpr int btnHeight = 38;
-        constexpr int spacing   = 6;
-
+        constexpr int btnHeight = 38, spacing = 6;
         auto btnArea = area.removeFromTop (btnHeight * 3 + spacing * 2).reduced (hPad, 0);
-        ioButton.setBounds      (btnArea.removeFromTop (btnHeight));
+        rackButton.setBounds  (btnArea.removeFromTop (btnHeight));
         btnArea.removeFromTop (spacing);
-        studioButton.setBounds  (btnArea.removeFromTop (btnHeight));
+        mediaButton.setBounds (btnArea.removeFromTop (btnHeight));
         btnArea.removeFromTop (spacing);
-        mediaButton.setBounds   (btnArea.removeFromTop (btnHeight));
+        ioButton.setBounds    (btnArea.removeFromTop (btnHeight));
 
-        // --- Status LEDs ---
         area.removeFromTop (12);
         auto ledArea = area.reduced (hPad, 0);
-
-        constexpr int ledSize  = 12;
-        constexpr int ledRow   = 16;
-
-        // ASIO row
+        constexpr int ledSize = 12, ledRow = 16;
         auto asioRow = ledArea.removeFromTop (ledRow);
         asioLed.setBounds (asioRow.removeFromLeft (ledSize).withSizeKeepingCentre (ledSize, ledSize));
-        asioRow.removeFromLeft (4);
-        asioLabel.setBounds (asioRow);
-
+        asioRow.removeFromLeft (4); asioLabel.setBounds (asioRow);
         ledArea.removeFromTop (3);
-
-        // REG row
         auto regRow = ledArea.removeFromTop (ledRow);
         regLed.setBounds (regRow.removeFromLeft (ledSize).withSizeKeepingCentre (ledSize, ledSize));
-        regRow.removeFromLeft (4);
-        regLabel.setBounds (regRow);
-
-        // --- System meters ---
+        regRow.removeFromLeft (4); regLabel.setBounds (regRow);
         ledArea.removeFromTop (10);
-        auto metersArea = ledArea.reduced (0, 0);
-
         constexpr int meterRow = 14;
-        cpuLabel.setBounds     (metersArea.removeFromTop (meterRow));
-        metersArea.removeFromTop (2);
-        ramLabel.setBounds     (metersArea.removeFromTop (meterRow));
+        cpuLabel.setBounds (ledArea.removeFromTop (meterRow));
+        ledArea.removeFromTop (2);
+        ramLabel.setBounds (ledArea.removeFromTop (meterRow));
     }
 
 private:
     void timerCallback() override
     {
-        // --- ASIO status ---
         auto* device = audioEngine.getDeviceManager().getCurrentAudioDevice();
-        bool asioConnected = (device != nullptr);
-        asioLed.setActive (asioConnected);
-
-        // --- Registration ---
-        // Use forward-declared singleton — include is in .cpp
+        asioLed.setActive (device != nullptr);
         regLed.setActive (isRegisteredCached);
-
-        // --- CPU usage ---
         double cpu = audioEngine.getDeviceManager().getCpuUsage() * 100.0;
         cpuLabel.setText ("CPU: " + juce::String (cpu, 1) + "%", juce::dontSendNotification);
-
-        // --- RAM usage (process working set) ---
         double ramMb = getCurrentProcessMemoryMB();
         ramLabel.setText ("RAM: " + juce::String ((int) ramMb) + " MB", juce::dontSendNotification);
     }
-
     static double getCurrentProcessMemoryMB()
     {
        #ifdef _WIN32
@@ -281,32 +222,20 @@ private:
     }
 
     AudioEngine& audioEngine;
-
-    SidebarButton ioButton      { "I/O" };
-    SidebarButton studioButton  { "Studio" };
-    SidebarButton mediaButton   { "Media" };
-
-    StatusLed asioLed;
-    juce::Label asioLabel;
-
-    StatusLed regLed;
-    juce::Label regLabel;
-
-    juce::Label cpuLabel;
-    juce::Label ramLabel;
-
+    SidebarButton rackButton  { "Rack" };
+    SidebarButton mediaButton { "Media" };
+    SidebarButton ioButton    { "I/O" };
+    StatusLed asioLed;  juce::Label asioLabel;
+    StatusLed regLed;   juce::Label regLabel;
+    juce::Label cpuLabel, ramLabel;
     bool isRegisteredCached = false;
-
     int currentTab = 0;
-
-    // Allow MainComponent to update registration cache
     friend class MainComponent;
-
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SidebarPanel)
 };
 
 // ==============================================================================
-//  MainComponent — now also a DragAndDropContainer for the plugin browser
+//  MainComponent — DragAndDropContainer for the plugin browser
 // ==============================================================================
 class MainComponent : public juce::Component,
                       public juce::DragAndDropContainer
@@ -318,6 +247,9 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
 
+    // FIX #1: Catch right-click on workspace buttons for context menu
+    void mouseDown (const juce::MouseEvent& e) override;
+
 private:
     void showPage (int index);
 
@@ -325,15 +257,12 @@ private:
     PresetManager& presetManager;
 
     std::unique_ptr<GoldenSliderLookAndFeel> goldenLookAndFeel;
-
     HeaderBar header;
-
-    // --- Sidebar replaces TabbedComponent ---
     SidebarPanel sidebar;
 
-    std::unique_ptr<IOPage> ioPage;
     std::unique_ptr<WiringCanvas> wiringCanvas;
     std::unique_ptr<MediaPage> mediaPage;
+    std::unique_ptr<IOPage> ioPage;
 
     int currentPageIndex = 0;
 
@@ -341,8 +270,30 @@ private:
     MidiTooltipLabel masterVolumeLabel;
     MasterMeter masterMeter;
 
-    // --- Internal Plugin Browser (right-side panel) ---
     InternalPluginBrowser pluginBrowser;
+
+    // Zoom — relocated to header (FIX #4)
+    class ZoomSlider : public juce::Slider
+    {
+    public:
+        ZoomSlider() { setMouseClickGrabsKeyboardFocus (false); }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu()) { setValue (1.0, juce::sendNotificationSync); return; }
+            juce::Slider::mouseDown (e);
+        }
+    };
+    ZoomSlider   zoomSlider;
+    juce::Label  zoomLabel { "zoomLbl", "100%" };
+
+    // Workspace bar
+    static constexpr int workspaceBarHeight = 28;
+    juce::TextButton workspaceButtons[WorkspaceManager::maxWorkspaces];
+    juce::Label      workspacesLabel { "wsLabel", "WORKSPACES" };
+    std::unique_ptr<WorkspaceManager> workspaceManager;
+
+    void updateWorkspaceButtonColors();
+    void showWorkspaceContextMenu (int workspaceIndex);
 
     float sliderValueToDb (double sliderValue);
     void savePreset();

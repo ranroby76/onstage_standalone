@@ -1,3 +1,4 @@
+
 // ==============================================================================
 //  WiringCanvas_NodeWindows.cpp
 //  OnStage — Editor window management
@@ -27,7 +28,8 @@
 #include "../UI/SaturationPanel.h"
 #include "../UI/DoublerPanel.h"
 #include "../UI/MasterPanel.h"
-#include "../UI/TunerPanel.h"
+// #include "../UI/TunerPanel.h"   // DISABLED
+#include "../UI/TransientSplitterPanel.h"
 
 // Guitar panels
 #include "../guitar/GuitarPanels.h"
@@ -39,8 +41,9 @@
 
 static juce::Point<int> getDefaultWindowSize (const juce::String& effectType)
 {
-    if (effectType == "Tuner")
-        return { 780, 400 };
+    // if (effectType == "Tuner")   return { 780, 400 };  // DISABLED
+    if (effectType == "TransientSplitter")
+        return { 750, 280 };
 
     return { 1200, 600 };
 }
@@ -129,7 +132,8 @@ static std::unique_ptr<juce::Component> createPanelForEffect (
     if (type == "Saturation")   { auto& p = static_cast<SaturationProcessorNode*>(effectNode)->getProcessor();   return std::make_unique<SaturationPanel> (p, presets); }
     if (type == "Doubler")      { auto& p = static_cast<DoublerProcessorNode*>(effectNode)->getProcessor();      return std::make_unique<DoublerPanel> (p, presets); }
     if (type == "Master")       { auto& p = static_cast<MasterProcessorNode*>(effectNode)->getProcessor();       return std::make_unique<MasterPanel> (p); }
-    if (type == "Tuner")        { auto& p = static_cast<TunerProcessorNode*>(effectNode)->getProcessor();        return std::make_unique<TunerPanel> (p); }
+    // if (type == "Tuner")     { ... }   // DISABLED
+    if (type == "TransientSplitter") { auto& p = static_cast<TransientSplitterNode*>(effectNode)->getProcessor();  return std::make_unique<TransientSplitterPanel> (p); }
 
     // --- Guitar panels ---
     if (type == "GuitarOverdrive")  { auto& p = dynamic_cast<OverdriveProcessorNode*>(effectNode)->getProcessor();      return std::make_unique<OverdrivePanel> (p, presets); }

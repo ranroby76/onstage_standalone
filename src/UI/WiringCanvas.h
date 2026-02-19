@@ -1,3 +1,4 @@
+
 // ==============================================================================
 //  WiringCanvas.h
 //  OnStage — Visual node-graph canvas for audio routing
@@ -56,6 +57,17 @@ public:
     // Access the graph (needed by editor windows for size persistence)
     OnStageGraph& getStageGraph() { return stageGraph; }
 
+    // Zoom
+    void setZoomLevel (float zoom)
+    {
+        zoomLevel = juce::jlimit (0.25f, 1.0f, zoom);
+        setTransform (juce::AffineTransform::scale (zoomLevel));
+        repaint();
+        if (auto* parent = getParentComponent())
+            parent->repaint();
+    }
+    float getZoomLevel() const { return zoomLevel; }
+
     // Timer IDs
     enum TimerIDs { MainTimer = 1, MeterTimer = 2, DragTimer = 3 };
 
@@ -92,6 +104,7 @@ public:
 private:
     OnStageGraph&  stageGraph;
     PresetManager& presetManager;
+    float zoomLevel = 1.0f;
 
     // =========================================================================
     //  Pin identification

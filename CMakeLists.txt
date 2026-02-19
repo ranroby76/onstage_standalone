@@ -39,7 +39,7 @@ set(RUBBERBAND_INCLUDE_DIR "${RUBBERBAND_ROOT}")
 # =========================
 juce_add_gui_app(OnStage
     PRODUCT_NAME "OnStage"
-    COMPANY_NAME "Subcore"
+    COMPANY_NAME "Fanan"
     VERSION "1.0.0"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/logo_256.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/logo_48.png"
@@ -125,6 +125,7 @@ target_sources(OnStage PRIVATE
     # NEW — Internal Plugin Browser
     # ==============================
     src/UI/InternalPluginBrowser.h
+    src/UI/WorkspaceManager.h
 
     # ==============================
     # NEW — Wiring Canvas (Phase 2)
@@ -157,7 +158,7 @@ target_sources(OnStage PRIVATE
     src/UI/SaturationPanel.h
     src/UI/DoublerPanel.h
     src/UI/MasterPanel.h
-    src/UI/TunerPanel.h
+    src/UI/TransientSplitterPanel.h
 
     # ==============================
     # UI — Widgets (existing)
@@ -204,7 +205,9 @@ target_sources(OnStage PRIVATE
     src/dsp/MasterProcessor.h
     src/dsp/RecorderProcessor.cpp    # NEW
     src/dsp/RecorderProcessor.h      # NEW
-    src/dsp/TunerProcessor.h
+    # src/dsp/TunerProcessor.h              # DISABLED
+    src/dsp/TransientSplitterProcessor.cpp
+    src/dsp/TransientSplitterProcessor.h
 
     # ==============================
     # RubberBand (single-file build)

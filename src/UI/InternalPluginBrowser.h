@@ -1,3 +1,4 @@
+
 // ==============================================================================
 //  InternalPluginBrowser.h
 //  OnStage — Right sidebar panel listing all built-in effects for drag-drop
@@ -38,6 +39,7 @@ inline std::vector<InternalEffectInfo> getInternalEffects()
         { "DeEsser",      "De-Esser",      "Dynamics" },
         { "DynamicEQ",    "Dynamic EQ",    "Dynamics" },
         { "Master",       "Master",        "Dynamics" },
+        { "TransientSplitter", "Transient Splitter", "Dynamics" },
         { "Exciter",      "Exciter",       "Color"    },
         { "Sculpt",       "Sculpt",        "Color"    },
         { "Saturation",   "Saturation",    "Color"    },
@@ -50,7 +52,7 @@ inline std::vector<InternalEffectInfo> getInternalEffects()
         // --- System Tools ---
         { "PreAmp",       "Pre-Amp",       "System"   },
         { "Recorder",     "Recorder",      "System"   },
-        // { "Tuner",        "Tuner",         "System"   },  // DISABLED — needs pitch detection fixes
+        // { "Tuner",        "Tuner",         "System"   },  // DISABLED
 
         // --- Guitar Effects ---
         { "GuitarOverdrive",  "Overdrive",            "Guitar" },

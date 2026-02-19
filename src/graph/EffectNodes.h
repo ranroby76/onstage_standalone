@@ -1,3 +1,4 @@
+
 // D:\Workspace\ONSTAGE_WIRED\src\graph\EffectNodes.h
 // ==============================================================================
 //  EffectNodes.h
@@ -30,7 +31,8 @@
 #include "../dsp/RecorderProcessor.h"
 #include "../dsp/StudioReverbProcessor.h"
 #include "../dsp/MasterProcessor.h"
-#include "../dsp/TunerProcessor.h"
+// #include "../dsp/TunerProcessor.h"   // DISABLED
+#include "../dsp/TransientSplitterProcessor.h"
 
 // ==============================================================================
 // Base class — shared interface for every effect node
@@ -704,41 +706,9 @@ private:
 };
 
 // ==============================================================================
-//  Tuner (YIN pitch detection — mono 1-in/1-out, analysis + pass-through)
+//  Tuner — DISABLED (detection not production-ready)
 // ==============================================================================
-class TunerProcessorNode : public EffectProcessorNode
-{
-public:
-    TunerProcessorNode()
-        : EffectProcessorNode ("Tuner", 1, 1) {}
-
-    juce::String getEffectType() const override { return "Tuner"; }
-
-    void prepareToPlay (double sr, int bs) override { tuner.prepare (sr, bs); }
-    void releaseResources() override                { tuner.reset(); }
-
-    void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
-    {
-        tuner.process (buffer);
-        // Audio passes through unmodified (mono in → mono out)
-    }
-
-    bool isBusesLayoutSupported (const BusesLayout& l) const override
-    {
-        return l.getMainInputChannelSet()  == juce::AudioChannelSet::mono()
-            && l.getMainOutputChannelSet() == juce::AudioChannelSet::mono();
-    }
-
-    void getStateInformation (juce::MemoryBlock&) override {}
-    void setStateInformation (const void*, int) override {}
-
-    TunerProcessor& getProcessor()             { return tuner; }
-    const TunerProcessor& getProcessor() const { return tuner; }
-
-private:
-    TunerProcessor tuner;
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TunerProcessorNode)
-};
+// class TunerProcessorNode : public EffectProcessorNode { ... };
 
 // ==============================================================================
 //  Studio Reverb (Dattorro Progenitor — separate node from convolution reverb)
@@ -813,6 +783,55 @@ private:
 };
 
 // ==============================================================================
+//  Transient Splitter (envelope-based transient/sustain separator)
+// ==============================================================================
+class TransientSplitterNode : public EffectProcessorNode
+{
+public:
+    TransientSplitterNode() : EffectProcessorNode ("Transient Splitter", 2, 4) {}
+    juce::String getEffectType() const override { return "TransientSplitter"; }
+
+    void prepareToPlay (double sr, int bs) override
+    {
+        currentSampleRate = sr;  currentBlockSize = bs;
+        splitter.prepare (sr, bs);
+    }
+    void releaseResources() override { splitter.reset(); }
+
+    void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    {
+        splitter.process (buffer);
+    }
+
+    bool isBusesLayoutSupported (const BusesLayout& l) const override
+    {
+        // 2-in stereo, 4-out discrete (transient L/R + sustain L/R)
+        auto inSet  = l.getMainInputChannelSet();
+        auto outSet = l.getMainOutputChannelSet();
+
+        if (inSet == juce::AudioChannelSet::stereo()
+            && outSet == juce::AudioChannelSet::discreteChannels (4))
+            return true;
+
+        // Also accept if graph gives unified 4-ch buffer
+        if (inSet.size() >= 2 && outSet.size() >= 4)
+            return true;
+
+        return false;
+    }
+
+    void getStateInformation (juce::MemoryBlock& dest) override { splitter.getState (dest); }
+    void setStateInformation (const void* data, int size) override { splitter.setState (data, size); }
+
+    TransientSplitterProcessor&       getProcessor()       { return splitter; }
+    const TransientSplitterProcessor& getProcessor() const { return splitter; }
+
+private:
+    TransientSplitterProcessor splitter;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransientSplitterNode)
+};
+
+// ==============================================================================
 //  Factory — create an effect node by type string
 // ==============================================================================
 inline std::unique_ptr<EffectProcessorNode> createEffectNode (const juce::String& type)
@@ -833,9 +852,10 @@ inline std::unique_ptr<EffectProcessorNode> createEffectNode (const juce::String
     if (type == "Saturation")   return std::make_unique<SaturationProcessorNode>();
     if (type == "Doubler")      return std::make_unique<DoublerProcessorNode>();
     if (type == "Recorder")     return std::make_unique<RecorderProcessorNode>();
-    // if (type == "Tuner")        return std::make_unique<TunerProcessorNode>();  // DISABLED — needs pitch detection fixes
+    // if (type == "Tuner")        return std::make_unique<TunerProcessorNode>();  // DISABLED
     if (type == "StudioReverb") return std::make_unique<StudioReverbProcessorNode>();
     if (type == "Master")      return std::make_unique<MasterProcessorNode>();
+    if (type == "TransientSplitter") return std::make_unique<TransientSplitterNode>();
 
     // Guitar effects
     if (type == "GuitarOverdrive")  return std::make_unique<OverdriveProcessorNode>();
@@ -865,7 +885,7 @@ inline juce::StringArray getAvailableEffectTypes()
         // Studio
         "PreAmp", "Gate", "EQ", "Compressor", "Exciter", "Sculpt",
         "Reverb", "StudioReverb", "Delay", "Harmonizer", "DynamicEQ", "Pitch",
-        "DeEsser", "Saturation", "Doubler", "Recorder", "Master",
+        "DeEsser", "Saturation", "Doubler", "Recorder", "Master", "TransientSplitter",
         // Guitar
         "GuitarOverdrive", "GuitarDistortion", "GuitarFuzz",
         "GuitarChorus", "GuitarFlanger", "GuitarPhaser", "GuitarTremolo",
