@@ -96,13 +96,16 @@ int RegistrationManager::getMachineIDNumber() {
 }
 
 long long RegistrationManager::calculateExpectedSerial() {
-    // Formula: serial = (((((ID + 7999) * 2) + 1111) * 2) - 9392)
     long long id = getMachineIDNumber();
-    long long result = id + 7999;
-    result = result * 2;
-    result = result + 1111;
-    result = result * 2;
-    result = result - 9392;
+    
+    constexpr long long k = 0xA5B7;
+    constexpr long long c[] = { 47752LL, 42421LL, 41440LL, 42421LL, 33031LL };
+    
+    long long result = id + (c[0] ^ k);
+    result = result * (c[1] ^ k);
+    result = result + (c[2] ^ k);
+    result = result * (c[3] ^ k);
+    result = result - (c[4] ^ k);
     return result;
 }
 
