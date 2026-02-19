@@ -1,0 +1,54 @@
+# Build outputs
+build/
+out/
+cmake-build-*/
+x64/
+Debug/
+Release/
+
+# IDE — Visual Studio
+.vs/
+*.vcxproj.user
+*.suo
+*.sdf
+*.opensdf
+*.db
+*.opendb
+*.ipch
+
+# IDE — Xcode
+*.xcworkspace
+*.xcuserdata
+DerivedData/
+
+# IDE — CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Signing certificates — NEVER commit these
+*.cer
+*.p12
+*.pem
+developerID_application.cer
+
+# JUCE (cloned at build time by CI)
+JUCE/
+
+# Compiled objects
+*.o
+*.obj
+*.lib
+*.a
+*.dll
+*.dylib
+*.so
+*.exe
+*.app
+*.dmg
+*.zip
+*.ipa
