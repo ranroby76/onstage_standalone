@@ -9,9 +9,13 @@
 #include <string>
 #endif
 
+#if JUCE_MAC
+#include <cstdio>
+#endif
+
 void RegistrationManager::checkRegistration() {
     juce::File licenseFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                             .getChildFile("Colosseum").getChildFile("license.key");
+                             .getChildFile("Colosseum").getChildFile("colosseum_license.key");
     
     if (licenseFile.existsAsFile()) {
         juce::String savedSerial = licenseFile.loadFileAsString().trim();
@@ -43,7 +47,7 @@ bool RegistrationManager::tryRegister(const juce::String& serialInput) {
             if (!appData.exists()) 
                 appData.createDirectory();
             
-            juce::File licenseFile = appData.getChildFile("license.key");
+            juce::File licenseFile = appData.getChildFile("colosseum_license.key");
             licenseFile.replaceWithText(cleanInput);
             
             registered = true;
@@ -126,8 +130,18 @@ juce::String RegistrationManager::getSystemVolumeSerial() {
     }
     return "LINUX01";
 #else
-    // macOS - use system UUID
-    return juce::SystemStats::getUniqueDeviceID().substring(0, 8).toUpperCase();
+    // macOS - read IOPlatformUUID directly (stable, not dependent on JUCE version)
+    juce::String uuid;
+    FILE* pipe = popen("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}' | tr -d '\"'", "r");
+    if (pipe != nullptr) {
+        char buffer[256] = {};
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+            uuid = juce::String(buffer).trim().removeCharacters("-");
+        pclose(pipe);
+    }
+    if (uuid.isEmpty())
+        uuid = "MACOS001";
+    return uuid.substring(0, 8).toUpperCase();
 #endif
 }
 
