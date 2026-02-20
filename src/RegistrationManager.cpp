@@ -10,10 +10,14 @@
 #include <windows.h>
 #endif
 
+#if JUCE_MAC
+#include <cstdio>
+#endif
+
 void RegistrationManager::checkRegistration()
 {
     juce::File licenseFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                             .getChildFile("OnStage").getChildFile("license.key");
+                             .getChildFile("OnStage").getChildFile("onstage_license.key");
 
     if (licenseFile.existsAsFile())
     {
@@ -34,7 +38,7 @@ bool RegistrationManager::tryRegister(const juce::String& serialInput)
 {
     try {
         juce::String cleanInput = serialInput.trim();
-        if (cleanInput.isEmpty() || !cleanInput.containsOnly("0123456789")) return false;
+        if (cleanInput.isEmpty() || !cleanInput.containsOnly("0123456789-")) return false;
 
         long long inputNum = cleanInput.getLargeIntValue();
         long long expected = calculateExpectedSerial();
@@ -46,7 +50,7 @@ bool RegistrationManager::tryRegister(const juce::String& serialInput)
             juce::File appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("OnStage");
             if (!appData.exists()) appData.createDirectory();
             
-            juce::File licenseFile = appData.getChildFile("license.key");
+            juce::File licenseFile = appData.getChildFile("onstage_license.key");
             licenseFile.replaceWithText(cleanInput);
             
             isRegistered = true;
@@ -128,7 +132,7 @@ long long RegistrationManager::calculateExpectedSerial()
 
         juce::String finalExpr = formula.replace("a", juce::String(machineId));
         long long rawResult = evaluateFormula(finalExpr);
-        return rawResult / 10;
+        return rawResult;
     }
     catch (...) { 
         LOG_ERROR("Calculation Exception");
@@ -235,6 +239,17 @@ juce::String RegistrationManager::getSystemVolumeSerial()
         }
         return "LINUX01";
     #else
-        return "MAC0001"; 
+        // macOS - read IOPlatformUUID directly (stable, not dependent on JUCE version)
+        juce::String uuid;
+        FILE* pipe = popen("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}' | tr -d '\"'", "r");
+        if (pipe != nullptr) {
+            char buffer[256] = {};
+            if (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+                uuid = juce::String(buffer).trim().removeCharacters("-");
+            pclose(pipe);
+        }
+        if (uuid.isEmpty())
+            uuid = "MACOS001";
+        return uuid.substring(0, 8).toUpperCase();
     #endif
 }
