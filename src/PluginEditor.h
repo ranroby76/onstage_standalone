@@ -1,4 +1,5 @@
 
+
 // FIX: Plugin Browser Panel is now a fixed panel (288px) to the left of yellow menu
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
 // FIX: Added MIDI Panic button under Keys button
@@ -136,8 +137,48 @@ private:
     
     std::unique_ptr<VirtualKeyboardWindow> keyboardWindow;
     
+    // =========================================================================
+    // Floating Mixer Window — detachable resizable mixer
+    // =========================================================================
+    class FloatingMixerWindow : public juce::DocumentWindow {
+    public:
+        FloatingMixerWindow(SubterraneumAudioProcessor& p)
+            : DocumentWindow("Colosseum Mixer", 
+                             juce::Colour(0xff1e1e1e), 
+                             DocumentWindow::allButtons),
+              mixer(p)
+        {
+            setContentNonOwned(&mixer, false);
+            setResizable(true, true);
+            setResizeLimits(400, 200, 2560, 1440);
+            centreWithSize(900, 500);
+            setVisible(true);
+            setAlwaysOnTop(false);
+            setUsingNativeTitleBar(true);
+        }
+        
+        ~FloatingMixerWindow() override {}
+        
+        void closeButtonPressed() override {
+            // Notify parent to clean up
+            if (onClose) onClose();
+        }
+        
+        std::function<void()> onClose;
+        
+    private:
+        MixerView mixer;
+    };
+    
+    std::unique_ptr<FloatingMixerWindow> floatingMixerWindow;
+    juce::TextButton floatMixerButton { "Floating\nMixer" };  // Detach mixer to floating window
+    void toggleFloatingMixer();
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessorEditor) 
 };
+
+
+
 
 
 

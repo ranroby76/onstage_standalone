@@ -1,4 +1,5 @@
 
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
@@ -528,6 +529,11 @@ public:
     void resetGraph();
     void loadUserPreset(const juce::File& file);
     void saveUserPreset(const juce::File& file);
+    
+    // Default patch auto-load on startup
+    juce::File getDefaultPatchFile() const;
+    void loadDefaultPatchOnStartup();
+    
     void removeNode(juce::AudioProcessorGraph::NodeID nodeID);
     void toggleBypass(juce::AudioProcessorGraph::NodeID nodeID);
 
@@ -661,6 +667,9 @@ private:
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
+
+
+
 
 
 

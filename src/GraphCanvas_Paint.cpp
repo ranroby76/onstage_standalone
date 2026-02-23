@@ -1,5 +1,3 @@
-
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Paint.cpp
 // FIXED: Added RecorderProcessor visualization
 // FIX: Added folder button to recorder, fixed layout
@@ -15,6 +13,7 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
 
 void GraphCanvas::paint(juce::Graphics& g)
 {
@@ -1178,6 +1177,89 @@ void GraphCanvas::paint(juce::Graphics& g)
         // END STEP SEQ VISUALIZATION
         // =====================================================================
 
+
+        // =====================================================================
+        // LATCHER - 4x4 pad grid compact visualization
+        // =====================================================================
+        if (auto* latcher = dynamic_cast<LatcherProcessor*>(proc))
+        {
+            auto contentArea = bounds.reduced(8, 6);
+            
+            // "All Off" button in upper right corner of content area
+            float allOffW = 42.0f;
+            float allOffH = 16.0f;
+            auto allOffRect = juce::Rectangle<float>(
+                contentArea.getRight() - allOffW,
+                contentArea.getY(),
+                allOffW, allOffH);
+            
+            // Count latched pads for color
+            int latchedCount = 0;
+            for (int i = 0; i < LatcherProcessor::NumPads; i++)
+                if (latcher->isPadLatched(i)) latchedCount++;
+            
+            g.setColour(latchedCount > 0 ? juce::Colour(0xffCC3333) : juce::Colour(60, 60, 60));
+            g.fillRoundedRectangle(allOffRect, 3.0f);
+            g.setColour(latchedCount > 0 ? juce::Colours::white : juce::Colours::grey);
+            g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+            g.drawText("ALL OFF", allOffRect, juce::Justification::centred);
+            
+            // Grid area — below All Off, above bottom buttons
+            auto gridArea = contentArea;
+            gridArea.removeFromTop(allOffH + 2.0f);
+            gridArea.removeFromBottom(Style::bottomBtnHeight + Style::bottomBtnMargin + 2);
+            
+            float padW = gridArea.getWidth() / 4.0f;
+            float padH = gridArea.getHeight() / 4.0f;
+            float gap = 2.0f;
+            
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 4; col++)
+                {
+                    int padIndex = row * 4 + col;
+                    bool latched = latcher->isPadLatched(padIndex);
+                    
+                    auto padRect = juce::Rectangle<float>(
+                        gridArea.getX() + col * padW + gap / 2,
+                        gridArea.getY() + row * padH + gap / 2,
+                        padW - gap,
+                        padH - gap);
+                    
+                    if (latched)
+                    {
+                        // Golden ON state
+                        g.setColour(juce::Colour(0xffB8860B));  // dark goldenrod
+                        g.fillRoundedRectangle(padRect, 3.0f);
+                        g.setColour(juce::Colour(0xffFFD700).withAlpha(0.3f));
+                        g.fillRoundedRectangle(padRect.expanded(1), 4.0f);
+                    }
+                    else
+                    {
+                        g.setColour(juce::Colour(50, 50, 60));
+                        g.fillRoundedRectangle(padRect, 3.0f);
+                    }
+                    
+                    g.setColour(latched ? juce::Colour(0xffFFD700) : juce::Colour(70, 70, 80));
+                    g.drawRoundedRectangle(padRect, 3.0f, 0.8f);
+                    
+                    // Pad number — golden foreground
+                    g.setColour(latched ? juce::Colour(0xffFFD700) : juce::Colours::white.withAlpha(0.35f));
+                    g.setFont(juce::Font(juce::FontOptions(8.0f)));
+                    g.drawText(juce::String(padIndex + 1), padRect, juce::Justification::centred);
+                }
+            }
+            
+            if (latchedCount > 0)
+            {
+                g.setColour(juce::Colour(0xffFFD700).withAlpha(0.06f));
+                g.fillRoundedRectangle(bounds.reduced(2), Style::nodeRounding);
+            }
+        }
+        // =====================================================================
+        // END LATCHER VISUALIZATION
+        // =====================================================================
+
         // Draw pins
         drawNodePins(g, node);
 
@@ -1279,6 +1361,33 @@ void GraphCanvas::drawNodePins(juce::Graphics& g, juce::AudioProcessorGraph::Nod
     bool producesMidi = proc->producesMidi();
     
     auto cache = getCachedNodeType(node->nodeID);
+    
+    // Latcher: E (editor popup) + X (delete)
+    if (dynamic_cast<LatcherProcessor*>(proc))
+    {
+        auto nodeBounds = getNodeBounds(node);
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(proc);
     
     for (int i = 0; i < numIn; ++i) {
@@ -1684,10 +1793,3 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
 }
-
-
-
-
-
-
-

@@ -1,5 +1,3 @@
-
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginBrowserPanel.cpp
 // FIX: Removed vendor from items, removed favorites, added title,
 // collapsible vendor/folder groups, custom drag image for visibility
@@ -7,6 +5,37 @@
 // NEW: Hidden plugins (eye toggle) are filtered out
 
 #include "PluginBrowserPanel.h"
+
+// =============================================================================
+// FavoritePatchItem - .subt patch file entry in Favorites mode
+// =============================================================================
+FavoritePatchItem::FavoritePatchItem(const juce::File& file) : patchFile(file) {
+    setSize(200, 36);
+}
+
+void FavoritePatchItem::paint(juce::Graphics& g) {
+    auto bounds = getLocalBounds().toFloat();
+    
+    if (hovered) {
+        g.setColour(juce::Colour(0xFF3A3A3A));
+        g.fillRoundedRectangle(bounds, 4.0f);
+    }
+    
+    // Star icon
+    g.setColour(juce::Colour(0xFFFFD700));
+    g.setFont(juce::Font(juce::FontOptions(14.0f)));
+    g.drawText(juce::String::charToString(0x2605), 6, 0, 20, getHeight(), juce::Justification::centred);
+    
+    // Patch name (without .subt extension)
+    g.setColour(juce::Colours::white);
+    g.setFont(13.0f);
+    g.drawText(patchFile.getFileNameWithoutExtension(), 28, 0, getWidth() - 36, getHeight(), 
+               juce::Justification::centredLeft, true);
+}
+
+void FavoritePatchItem::mouseDoubleClick(const juce::MouseEvent&) {
+    if (onPatchDoubleClick) onPatchDoubleClick(patchFile);
+}
 
 // =============================================================================
 // PluginBrowserItem - Plugin entry (no favorites, no vendor display)
@@ -87,6 +116,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
             case SystemToolType::MidiPlayer:     name = "MIDI Player"; break;
             case SystemToolType::StepSeq:        name = "Step Seq"; break;
             case SystemToolType::TransientSplitter: name = "Transient Splitter"; break;
+            case SystemToolType::Latcher:            name = "Latcher"; break;
             case SystemToolType::VST2Plugin:     name = "VST2 Plugin..."; break;
             default: name = "Unknown";
         }
@@ -143,6 +173,10 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
                     case SystemToolType::TransientSplitter:
                         dragId = "TOOL:TransientSplitter"; 
                         displayName = "Transient Splitter";
+                        break;
+                    case SystemToolType::Latcher:
+                        dragId = "TOOL:Latcher";
+                        displayName = "Latcher";
                         break;
                     case SystemToolType::VST2Plugin:
                         dragId = "TOOL:VST2Plugin"; 
@@ -424,6 +458,12 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(ts);
     y += 34;
     
+    auto* latch = items.add(new PluginBrowserItem(SystemToolType::Latcher));
+    latch->setBounds(0, y, getWidth(), 32);
+    latch->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(latch);
+    y += 34;
+    
     auto* v2 = items.add(new PluginBrowserItem(SystemToolType::VST2Plugin));
     v2->setBounds(0, y, getWidth(), 32);
     v2->onToolDoubleClick = onToolDoubleClick;
@@ -433,15 +473,59 @@ void PluginBrowserList::setSystemTools() {
     setSize(getWidth(), y + 10);
 }
 
+void PluginBrowserList::setFavorites(const juce::Array<juce::File>& patchFiles) {
+    items.clear();
+    headers.clear();
+    flatHeaders.clear();
+    groupedPlugins.clear();
+    favoriteItems.clear();
+    removeAllChildren();
+    
+    int y = 5;
+    
+    if (patchFiles.isEmpty()) {
+        auto* h = flatHeaders.add(new juce::Label());
+        h->setText("No .subt patches found", juce::dontSendNotification);
+        h->setFont(juce::Font(juce::FontOptions(12.0f)));
+        h->setColour(juce::Label::textColourId, juce::Colours::grey);
+        h->setBounds(5, y, getWidth() - 10, 24);
+        addAndMakeVisible(h);
+        y += 26;
+    } else {
+        auto* h = flatHeaders.add(new juce::Label());
+        h->setText("Favorite Patches", juce::dontSendNotification);
+        h->setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+        h->setColour(juce::Label::textColourId, juce::Colour(0xFFFFD700));
+        h->setBounds(5, y, getWidth() - 10, 24);
+        addAndMakeVisible(h);
+        y += 26;
+        
+        for (const auto& file : patchFiles) {
+            auto* item = favoriteItems.add(new FavoritePatchItem(file));
+            item->setBounds(0, y, getWidth(), 36);
+            item->onPatchDoubleClick = onPatchDoubleClick;
+            addAndMakeVisible(item);
+            y += 38;
+        }
+    }
+    
+    setSize(getWidth(), y + 10);
+}
+
 // =============================================================================
 // PluginBrowserPanel
 // =============================================================================
 PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processor(p) {
-    // Title label
-    titleLabel.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    titleLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(titleLabel);
+    // Mode selector buttons: Add Plugins | Favorites
+    addPluginsBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::cyan.darker());
+    addPluginsBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    addPluginsBtn.addListener(this);
+    addAndMakeVisible(addPluginsBtn);
+    
+    favoritesBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2A2A2A));
+    favoritesBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    favoritesBtn.addListener(this);
+    addAndMakeVisible(favoritesBtn);
     
     searchBox.setTextToShowWhenEmpty("Search...", juce::Colours::grey);
     searchBox.addListener(this);
@@ -457,9 +541,23 @@ PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processo
         addAndMakeVisible(b);
     }
     
+    // Favorites mode controls
+    setFavFolderBtn.addListener(this);
+    setFavFolderBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2a5a2a));
+    setFavFolderBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    addAndMakeVisible(setFavFolderBtn);
+    setFavFolderBtn.setVisible(false);
+    
+    favFolderLabel.setFont(juce::Font(juce::FontOptions(10.0f)));
+    favFolderLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+    favFolderLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(favFolderLabel);
+    favFolderLabel.setVisible(false);
+    
     pluginList = std::make_unique<PluginBrowserList>();
     pluginList->onPluginDoubleClick = [this](const auto& d) { if (onPluginDropped) onPluginDropped(d, {300,300}); };
     pluginList->onToolDoubleClick = [this](auto t) { if (onToolDropped) onToolDropped(t, {300,300}); };
+    pluginList->onPatchDoubleClick = [this](const juce::File& f) { showWorkspaceSelector(f); };
     viewport.setViewedComponent(pluginList.get(), false);
     viewport.setScrollBarsShown(true, false);
     addAndMakeVisible(viewport);
@@ -468,6 +566,16 @@ PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processo
     countLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
     countLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(countLabel);
+    
+    // Load saved favorites folder path
+    if (auto* settings = processor.appProperties.getUserSettings()) {
+        auto path = settings->getValue("FavoritesPatchFolder", "");
+        if (path.isNotEmpty()) {
+            juce::File dir(path);
+            if (dir.isDirectory())
+                favFolderLabel.setText(dir.getFileName(), juce::dontSendNotification);
+        }
+    }
     
     processor.knownPluginList.addChangeListener(this);
     setWantsKeyboardFocus(true);
@@ -486,38 +594,76 @@ void PluginBrowserPanel::paint(juce::Graphics& g) {
 void PluginBrowserPanel::resized() {
     auto area = getLocalBounds().reduced(8);
     
-    // Title at top
-    titleLabel.setBounds(area.removeFromTop(28));
+    // Mode selector row: [Add Plugins] [Favorites]
+    auto modeRow = area.removeFromTop(28);
+    int halfW = modeRow.getWidth() / 2;
+    addPluginsBtn.setBounds(modeRow.removeFromLeft(halfW).reduced(1, 0));
+    favoritesBtn.setBounds(modeRow.reduced(1, 0));
     area.removeFromTop(4);
     
-    // Search box
-    searchBox.setBounds(area.removeFromTop(28));
-    area.removeFromTop(6);
-    
-    // Type filter row: All | Instr | Effects | Tools (4 buttons)
-    auto row1 = area.removeFromTop(26);
-    int w1 = row1.getWidth() / 4;
-    allBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
-    instrumentsBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
-    effectsBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
-    toolsBtn.setBounds(row1.reduced(2, 0));
-    area.removeFromTop(4);
-    
-    // View mode row (hidden for Tools)
-    auto row2 = area.removeFromTop(26);
-    bool showViewMode = (typeFilter != TypeFilter::Tools);
-    flatBtn.setVisible(showViewMode);
-    vendorBtn.setVisible(showViewMode);
-    folderBtn.setVisible(showViewMode);
-    formatBtn.setVisible(showViewMode);
-    if (showViewMode) {
-        int w2 = row2.getWidth() / 4;
-        flatBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
-        vendorBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
-        folderBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
-        formatBtn.setBounds(row2.reduced(2, 0));
+    if (favoritesMode) {
+        // Favorites mode layout
+        searchBox.setVisible(true);
+        searchBox.setBounds(area.removeFromTop(28));
+        searchBox.setTextToShowWhenEmpty("Search patches...", juce::Colours::grey);
+        area.removeFromTop(6);
+        
+        // Set Folder button + label
+        setFavFolderBtn.setVisible(true);
+        setFavFolderBtn.setBounds(area.removeFromTop(26).reduced(2, 0));
+        area.removeFromTop(2);
+        favFolderLabel.setVisible(true);
+        favFolderLabel.setBounds(area.removeFromTop(16));
+        area.removeFromTop(4);
+        
+        // Hide plugin filter/view buttons
+        allBtn.setVisible(false);
+        instrumentsBtn.setVisible(false);
+        effectsBtn.setVisible(false);
+        toolsBtn.setVisible(false);
+        flatBtn.setVisible(false);
+        vendorBtn.setVisible(false);
+        folderBtn.setVisible(false);
+        formatBtn.setVisible(false);
+    } else {
+        // Plugin browser mode layout
+        setFavFolderBtn.setVisible(false);
+        favFolderLabel.setVisible(false);
+        
+        searchBox.setVisible(true);
+        searchBox.setBounds(area.removeFromTop(28));
+        searchBox.setTextToShowWhenEmpty("Search...", juce::Colours::grey);
+        area.removeFromTop(6);
+        
+        // Type filter row
+        auto row1 = area.removeFromTop(26);
+        int w1 = row1.getWidth() / 4;
+        allBtn.setVisible(true);
+        instrumentsBtn.setVisible(true);
+        effectsBtn.setVisible(true);
+        toolsBtn.setVisible(true);
+        allBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
+        instrumentsBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
+        effectsBtn.setBounds(row1.removeFromLeft(w1).reduced(2, 0));
+        toolsBtn.setBounds(row1.reduced(2, 0));
+        area.removeFromTop(4);
+        
+        // View mode row (hidden for Tools)
+        auto row2 = area.removeFromTop(26);
+        bool showViewMode = (typeFilter != TypeFilter::Tools);
+        flatBtn.setVisible(showViewMode);
+        vendorBtn.setVisible(showViewMode);
+        folderBtn.setVisible(showViewMode);
+        formatBtn.setVisible(showViewMode);
+        if (showViewMode) {
+            int w2 = row2.getWidth() / 4;
+            flatBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
+            vendorBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
+            folderBtn.setBounds(row2.removeFromLeft(w2).reduced(2, 0));
+            formatBtn.setBounds(row2.reduced(2, 0));
+        }
+        area.removeFromTop(4);
     }
-    area.removeFromTop(4);
     
     countLabel.setBounds(area.removeFromBottom(20));
     area.removeFromBottom(4);
@@ -537,6 +683,29 @@ bool PluginBrowserPanel::keyPressed(const juce::KeyPress& key) {
 }
 
 void PluginBrowserPanel::buttonClicked(juce::Button* b) {
+    if (b == &addPluginsBtn) {
+        if (!favoritesMode) return;  // already in this mode
+        favoritesMode = false;
+        searchBox.clear();
+        updateButtons();
+        applyFilters();
+        resized();
+        return;
+    }
+    if (b == &favoritesBtn) {
+        if (favoritesMode) return;  // already in this mode
+        favoritesMode = true;
+        searchBox.clear();
+        updateButtons();
+        loadFavoritesList();
+        resized();
+        return;
+    }
+    if (b == &setFavFolderBtn) {
+        selectFavoritesFolder();
+        return;
+    }
+    
     if (b == &allBtn) typeFilter = TypeFilter::All;
     else if (b == &instrumentsBtn) typeFilter = TypeFilter::Instruments;
     else if (b == &effectsBtn) typeFilter = TypeFilter::Effects;
@@ -553,7 +722,10 @@ void PluginBrowserPanel::buttonClicked(juce::Button* b) {
 
 void PluginBrowserPanel::textEditorTextChanged(juce::TextEditor&) {
     searchText = searchBox.getText();
-    applyFilters();
+    if (favoritesMode)
+        loadFavoritesList();
+    else
+        applyFilters();
 }
 
 void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) {
@@ -565,11 +737,18 @@ void PluginBrowserPanel::changeListenerCallback(juce::ChangeBroadcaster*) {
 
 void PluginBrowserPanel::refresh() {
     updateButtons();
-    applyFilters();
+    if (favoritesMode)
+        loadFavoritesList();
+    else
+        applyFilters();
     pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
 }
 
 void PluginBrowserPanel::updateButtons() {
+    // Mode selector highlights
+    addPluginsBtn.setColour(juce::TextButton::buttonColourId, !favoritesMode ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
+    favoritesBtn.setColour(juce::TextButton::buttonColourId, favoritesMode ? juce::Colour(0xFFB8860B) : juce::Colour(0xFF2A2A2A));
+    
     allBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::All ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
     instrumentsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Instruments ? juce::Colours::gold.darker() : juce::Colour(0xFF2A2A2A));
     effectsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Effects ? juce::Colours::skyblue.darker() : juce::Colour(0xFF2A2A2A));
@@ -621,6 +800,103 @@ juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     }
     return result;
 }
+
+// =============================================================================
+// Favorites Mode Methods
+// =============================================================================
+juce::File PluginBrowserPanel::getFavoritesFolder() const {
+    if (auto* settings = processor.appProperties.getUserSettings()) {
+        auto path = settings->getValue("FavoritesPatchFolder", "");
+        if (path.isNotEmpty()) {
+            juce::File dir(path);
+            if (dir.isDirectory()) return dir;
+        }
+    }
+    return {};
+}
+
+void PluginBrowserPanel::selectFavoritesFolder() {
+    favFolderChooser = std::make_shared<juce::FileChooser>(
+        "Select Favorites Patch Folder",
+        getFavoritesFolder().exists() ? getFavoritesFolder() : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory),
+        "",
+        true);
+    
+    auto chooserFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories;
+    
+    favFolderChooser->launchAsync(chooserFlags, [this](const juce::FileChooser& chooser) {
+        auto result = chooser.getResult();
+        if (result.isDirectory()) {
+            if (auto* settings = processor.appProperties.getUserSettings()) {
+                settings->setValue("FavoritesPatchFolder", result.getFullPathName());
+                settings->saveIfNeeded();
+            }
+            favFolderLabel.setText(result.getFileName(), juce::dontSendNotification);
+            loadFavoritesList();
+        }
+    });
+}
+
+void PluginBrowserPanel::loadFavoritesList() {
+    auto folder = getFavoritesFolder();
+    juce::Array<juce::File> patches;
+    
+    if (folder.isDirectory()) {
+        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.subt");
+        files.sort();
+        
+        for (const auto& f : files) {
+            if (searchText.isNotEmpty()) {
+                if (!f.getFileNameWithoutExtension().containsIgnoreCase(searchText))
+                    continue;
+            }
+            patches.add(f);
+        }
+    }
+    
+    pluginList->setFavorites(patches);
+    countLabel.setText(juce::String(patches.size()) + " patch" + (patches.size() != 1 ? "es" : ""), juce::dontSendNotification);
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+    viewport.setViewPosition(0, 0);
+}
+
+void PluginBrowserPanel::showWorkspaceSelector(const juce::File& patchFile) {
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Load into workspace:");
+    
+    for (int i = 0; i < 16; ++i) {
+        menu.addItem(i + 1, "Workspace " + juce::String(i + 1));
+    }
+    
+    menu.addSeparator();
+    menu.addItem(100, "Load into CURRENT workspace");
+    
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(getScreenBounds().reduced(20)),
+        [this, patchFile](int result) {
+            if (result == 0) return;  // dismissed
+            
+            if (result == 100) {
+                // Load into current workspace
+                processor.loadUserPreset(patchFile);
+                
+                // Refresh editor
+                if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getTopLevelComponent()))
+                    editor->resized();
+            } else {
+                int wsIndex = result - 1;
+                // Switch to target workspace first, then load
+                processor.switchWorkspace(wsIndex);
+                processor.loadUserPreset(patchFile);
+                
+                if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getTopLevelComponent()))
+                    editor->resized();
+            }
+        });
+}
+
+
+
+
 
 
 

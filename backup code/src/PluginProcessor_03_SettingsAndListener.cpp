@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_03_SettingsAndListener.cpp
 // MIDI CHANNEL DUPLICATION: Hardware MIDI duplicated to selected channels for layering
 // Default: 0xFFFF (ALL channels) = pass-through unchanged
@@ -48,7 +49,7 @@ void SubterraneumAudioProcessor::changeListenerCallback(juce::ChangeBroadcaster*
     if (source == &knownPluginList) {
         if (auto* userSettings = appProperties.getUserSettings()) {
             if (auto xml = knownPluginList.createXml()) {
-                userSettings->setValue("KnownPlugins", xml.get());
+                userSettings->setValue("KnownPluginsV2", xml.get());
                 userSettings->saveIfNeeded();
             }
         }
@@ -206,4 +207,7 @@ void SubterraneumAudioProcessor::applyHardwareMidiChannelFiltering(juce::MidiBuf
     
     midiMessages.swapWith(duplicated);
 }
+
+
+
 

@@ -1,5 +1,6 @@
 
 
+
 // FIX: Plugin Browser Panel is now a fixed 240px panel on the right side of content
 // No toggle button - always visible on Rack tab, hidden on other tabs
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
@@ -89,6 +90,12 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     panicButton.setTooltip("Send All Notes Off to all instruments (stops stuck notes)");
     addAndMakeVisible(panicButton);
     panicButton.addListener(this);
+    
+    // Floating Mixer button (dark yellow, two-line label)
+    addAndMakeVisible(floatMixerButton);
+    floatMixerButton.addListener(this);
+    floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));  // dark yellow/goldenrod
+    floatMixerButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     
     // Workspace selector buttons
     for (int i = 0; i < 16; ++i)
@@ -290,6 +297,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
 }
 
 SubterraneumAudioProcessorEditor::~SubterraneumAudioProcessorEditor() {
+    floatingMixerWindow.reset();  // Close floating mixer before destruction
     stopTimer();
 }
 
@@ -387,6 +395,28 @@ void SubterraneumAudioProcessorEditor::sendMidiPanic() {
     });
 }
 
+void SubterraneumAudioProcessorEditor::toggleFloatingMixer() {
+    if (floatingMixerWindow) {
+        // Close floating window
+        floatingMixerWindow.reset();
+        floatMixerButton.setButtonText("Floating\nMixer");
+        floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));
+    } else {
+        // Open floating mixer window
+        floatingMixerWindow = std::make_unique<FloatingMixerWindow>(audioProcessor);
+        floatingMixerWindow->onClose = [this]() {
+            // Defer cleanup to avoid deleting during callback
+            juce::MessageManager::callAsync([this]() {
+                floatingMixerWindow.reset();
+                floatMixerButton.setButtonText("Floating\nMixer");
+                floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));
+            });
+        };
+        floatMixerButton.setButtonText("Dock\nMixer");
+        floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff8B7500));
+    }
+}
+
 void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) { 
     // FIX: Handle left menu tab buttons - now only 6 buttons (removed Studio)
     if (b == &rackButton) {
@@ -466,6 +496,8 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
     } else if (b == &panicButton) {
         // NEW: Handle panic button
         sendMidiPanic();
+    } else if (b == &floatMixerButton) {
+        toggleFloatingMixer();
     }
 }
 
@@ -568,6 +600,8 @@ void SubterraneumAudioProcessorEditor::resized() {
     keysButton.setBounds(leftMenu.removeFromTop(utilBtnH).reduced(8, 3));
     leftMenu.removeFromTop(utilGap);
     panicButton.setBounds(leftMenu.removeFromTop(utilBtnH).reduced(8, 3));
+    leftMenu.removeFromTop(utilGap);
+    floatMixerButton.setBounds(leftMenu.removeFromTop(utilBtnH * 2).reduced(8, 3));
     
     auto mainHeader = area.removeFromTop(Style::mainHeaderHeight); 
     
@@ -846,6 +880,9 @@ SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::VirtualKeyboardWindow(S
 
 SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::~VirtualKeyboardWindow() {}
 void SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::closeButtonPressed() { setVisible(false); }
+
+
+
 
 
 

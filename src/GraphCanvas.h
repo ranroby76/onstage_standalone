@@ -1,4 +1,3 @@
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas.h
 // FIX: Added dedicated 50ms timer for stereo meter (20fps refresh)
 // NEW: Drag and drop support for Plugin Browser Panel
@@ -27,6 +26,7 @@ class AutoSamplerProcessor;
 class MidiPlayerProcessor;
 class CCStepperProcessor;
 class TransientSplitterProcessor;
+class LatcherProcessor;
 
 // FIX: Use MultiTimer for separate timer rates
 // NEW: Inherit from DragAndDropTarget for plugin browser support
@@ -145,6 +145,7 @@ private:
         MidiPlayerProcessor* midiPlayer = nullptr;
         CCStepperProcessor* ccStepper = nullptr;
         TransientSplitterProcessor* transientSplitter = nullptr;
+        LatcherProcessor* latcher = nullptr;
         bool isAudioInput = false;
         bool isAudioOutput = false;
         bool isMidiInput = false;
@@ -167,6 +168,7 @@ private:
     bool hasSampler = false;
     bool hasMidiPlayer = false;
     bool hasStepSeq = false;
+    bool hasLatcher = false;
     
     PinID lastHighlightPin;
     juce::AudioProcessorGraph::Connection lastHoveredConnection = { 
@@ -182,6 +184,10 @@ private:
     };
     juce::AudioProcessorGraph::NodeID draggingNodeID; 
     juce::Point<float> nodeDragOffset; 
+    
+    // Magnetic snap: connected nodes attract when dragged nearby
+    static constexpr float magneticSnapThreshold = 20.0f;  // pixels
+    void applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode, float& x, float& y);
     
     juce::AudioProcessorGraph::NodeID draggingKnobNodeID;
     float knobDragStartY = 0.0f;
@@ -298,9 +304,14 @@ private:
     void showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer);
     void showStepSeqEditor(juce::AudioProcessorGraph::Node* node);
     void showTransientSplitterEditor(TransientSplitterProcessor* proc);
+    void showLatcherEditor(juce::AudioProcessorGraph::Node* node);
     void disconnectNode(juce::AudioProcessorGraph::Node* node);
     void scanPlugins(); 
     void verifyPositions();
     bool isAsioActive() const;
     bool shouldShowNode(juce::AudioProcessorGraph::Node* node) const;
 };
+
+
+
+

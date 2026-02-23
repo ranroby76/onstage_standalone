@@ -1,5 +1,3 @@
-
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_PluginMenu.cpp
 // Plugin menu implementation
 // FIXED: Added Recorder system tool
@@ -16,6 +14,7 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
 #include <fstream>
 #include <chrono>
 #include <ctime>
@@ -109,6 +108,7 @@ void GraphCanvas::showPluginMenu()
     systemToolsMenu.addItem(8, "MIDI Player");
     systemToolsMenu.addItem(9, "Step Seq");
     systemToolsMenu.addItem(10, "Transient Splitter");
+    systemToolsMenu.addItem(11, "Latcher");
     #if JUCE_PLUGINHOST_VST
     systemToolsMenu.addSeparator();
     systemToolsMenu.addItem(5, "VST2 Plugin...");
@@ -119,7 +119,7 @@ void GraphCanvas::showPluginMenu()
     if (processor.knownPluginList.getNumTypes() == 0)
     {
         LOG("No plugins found in list");
-        m.addItem(11, "No plugins found. Please scan via Plugin Manager tab.", true, false);
+        m.addItem(99, "No plugins found. Please scan via Plugin Manager tab.", true, false);
     }
     else
     {
@@ -366,6 +366,18 @@ void GraphCanvas::showPluginMenu()
         }
         else if (result == 11)
         {
+            LOG("Adding Latcher node");
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::make_unique<LatcherProcessor>());
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
+                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
+                safeThis->markDirty();
+                LOG("Latcher added successfully");
+            }
+        }
+        else if (result == 99)
+        {
             LOG("No plugins menu item selected");
             return;
         }
@@ -470,6 +482,10 @@ void GraphCanvas::showPluginMenu()
     
     LOG("<<< showPluginMenu() complete");
 }
+
+
+
+
 
 
 

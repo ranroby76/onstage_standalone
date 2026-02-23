@@ -72,8 +72,8 @@ endif()
 # =============================================================================
 juce_add_gui_app(SubterraneumApp
     PRODUCT_NAME "Colosseum"
-    COMPANY_NAME "Subcore"
-    BUNDLE_ID "com.subcore.colosseum"
+    COMPANY_NAME "Fanan"
+    BUNDLE_ID "com.fanan.colosseum"
     # macOS specific settings
     ICON_BIG "${MACOS_ICON_FILE}"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -101,11 +101,29 @@ target_sources(SubterraneumApp PRIVATE
     src/PluginProcessor_06_AudioAndPresets.cpp
 
     # -------------------------------------------------------------------------
-    # PluginManagerTab (VST3 + AU scanning)
+    # PluginManagerTab (multi-format scanning with out-of-process safety)
     # -------------------------------------------------------------------------
     src/PluginManagerTab_Main.cpp
     src/PluginManagerTab_Scanner.cpp
+    src/PluginManagerTab_AutoScanner.cpp
+    src/PluginManagerTab_ScanOptions.cpp
     src/PluginManagerTab_Folders.cpp
+
+    # -------------------------------------------------------------------------
+    # Out-of-Process Plugin Scanner (crash-safe child process scanning)
+    # -------------------------------------------------------------------------
+    src/OutOfProcessScanner.cpp
+    src/PluginScanWorker.cpp
+
+    # -------------------------------------------------------------------------
+    # VST3 Module Scanner (reads moduleinfo.json — no plugin loading)
+    # -------------------------------------------------------------------------
+    src/VST3ModuleScanner.cpp
+
+    # -------------------------------------------------------------------------
+    # Background Plugin Scanner (JSON metadata enrichment)
+    # -------------------------------------------------------------------------
+    src/BackgroundPluginScanner.cpp
 
     # -------------------------------------------------------------------------
     # GraphCanvas (split into 9 files)

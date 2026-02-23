@@ -1,4 +1,5 @@
 
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\AudioSettingsTab.cpp
 // MIDI CHANNEL DUPLICATION: Select target channels to duplicate hardware MIDI to
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
@@ -108,6 +109,30 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     tempoValueLabel.setFont(juce::Font(18.0f, juce::Font::bold));
     tempoValueLabel.setJustificationType(juce::Justification::centred);
     tempoValueLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+
+    // Make tempo value clickable — single click opens text editor
+    tempoValueLabel.setEditable(true, true, false);
+    tempoValueLabel.setColour(juce::Label::outlineWhenEditingColourId, juce::Colours::orange);
+    tempoValueLabel.setColour(juce::TextEditor::textColourId, juce::Colours::orange);
+    tempoValueLabel.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff1a1a1a));
+    tempoValueLabel.setColour(juce::TextEditor::highlightColourId, juce::Colours::orange.withAlpha(0.3f));
+    tempoValueLabel.setColour(juce::TextEditor::outlineColourId, juce::Colours::orange);
+    tempoValueLabel.onTextChange = [this]()
+    {
+        auto text = tempoValueLabel.getText().trim();
+        double newTempo = text.getDoubleValue();
+
+        // Clamp to slider range (20-300 BPM)
+        newTempo = juce::jlimit(20.0, 300.0, newTempo);
+
+        // Round to 1 decimal place (e.g. 75.6)
+        newTempo = std::round(newTempo * 10.0) / 10.0;
+
+        currentTempo = newTempo;
+        tempoSlider.setValue(newTempo, juce::dontSendNotification);
+        processor.masterTempo.store(currentTempo);
+        tempoValueLabel.setText(juce::String(newTempo, 1), juce::dontSendNotification);
+    };
     
     addAndMakeVisible(tapTempoBtn);
     tapTempoBtn.addListener(this);
@@ -338,8 +363,8 @@ void AudioSettingsTab::resized() {
     
     tempoControlRow.removeFromRight(8);
     
-    // Value label next to TAP
-    auto valueLabelArea = tempoControlRow.removeFromRight(65);
+    // Value label next to TAP (wider to fit typed input)
+    auto valueLabelArea = tempoControlRow.removeFromRight(75);
     tempoValueLabel.setBounds(valueLabelArea);
     
     tempoControlRow.removeFromRight(8);
@@ -410,7 +435,7 @@ void AudioSettingsTab::sliderValueChanged(juce::Slider* s) {
 }
 
 void AudioSettingsTab::updateTempoDisplay() {
-    tempoValueLabel.setText(juce::String(currentTempo, 2), juce::dontSendNotification);
+    tempoValueLabel.setText(juce::String(currentTempo, 1), juce::dontSendNotification);
 }
 
 void AudioSettingsTab::updateTimeSigDisplay() {
@@ -1006,3 +1031,7 @@ void AudioSettingsTab::reconnectMidiDevices()
         }
     });
 }
+
+
+
+

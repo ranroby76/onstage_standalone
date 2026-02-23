@@ -1,6 +1,7 @@
 
 
 
+
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Added timeSigValueLabel to display current time signature
 // FIX: Added recording folder selection button
@@ -114,6 +115,27 @@ private:
     juce::TextButton samplerFolderBtn { "Set Sampler Folder..." };
     juce::Label samplerFolderLabel { "sampFolder", "" };
     
+    // Default patch auto-load
+    // Save as Default button with right-click info popup
+    class InfoButton : public juce::TextButton {
+    public:
+        using juce::TextButton::TextButton;
+        juce::String infoText;
+        void mouseDown(const juce::MouseEvent& e) override {
+            if (e.mods.isRightButtonDown() && infoText.isNotEmpty()) {
+                auto options = juce::PopupMenu::Options().withTargetComponent(this);
+                juce::PopupMenu menu;
+                menu.addSectionHeader(infoText);
+                menu.showMenuAsync(options);
+                return;
+            }
+            juce::TextButton::mouseDown(e);
+        }
+    };
+    InfoButton saveDefaultBtn { "Save as Default" };
+    juce::TextButton clearDefaultBtn { "Clear Default" };
+    juce::Label defaultPatchLabel { "defaultPatch", "" };
+    
     // =========================================================================
     // MIDI Settings - Split into Inputs and Outputs
     // =========================================================================
@@ -207,9 +229,17 @@ private:
     void selectSamplerFolder();
     void updateSamplerFolderLabel();
     
+    // Default patch helpers
+    void saveAsDefault();
+    void clearDefault();
+    void updateDefaultPatchLabel();
+    
     // MIDI reconnection
     void reconnectMidiDevices();
 };
+
+
+
 
 
 

@@ -1,4 +1,3 @@
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Layout.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
@@ -14,6 +13,7 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
 
 void GraphCanvas::drawPin(juce::Graphics& g, juce::Point<float> pos, juce::Colour color, bool isHovered, bool isHighlighted)
 {
@@ -121,6 +121,12 @@ juce::Rectangle<float> GraphCanvas::getNodeBounds(juce::AudioProcessorGraph::Nod
         nodeWidth = Style::minNodeWidth * 2.0f;
     }
 
+    else if (dynamic_cast<LatcherProcessor*>(proc))
+    {
+        // Latcher: 4x4 pad grid needs space (4x taller, 2x wider)
+        nodeHeight = Style::nodeHeight * 4.0f;
+        nodeWidth = Style::minNodeWidth * 2.0f;
+    }
     return { x, y, nodeWidth, nodeHeight };
 }
 
@@ -207,5 +213,9 @@ juce::AudioProcessorGraph::Node* GraphCanvas::findNodeAt(juce::Point<float> pos)
     }
     return nullptr;
 }
+
+
+
+
 
 

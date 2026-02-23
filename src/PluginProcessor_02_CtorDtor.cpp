@@ -1,4 +1,5 @@
 
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_02_CtorDtor.cpp
 // Constructor / Destructor
 // FIX: Destructor now stops recording and writer thread before clearing graph
@@ -53,6 +54,11 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
     juce::MessageManager::callAsync([this]() {
         updateHardwareMidiChannelMasks();
     });
+    
+    // FIX #2: Auto-load default patch on startup (deferred so graph is fully ready)
+    juce::MessageManager::callAsync([this]() {
+        loadDefaultPatchOnStartup();
+    });
 }
 
 SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
@@ -83,6 +89,39 @@ SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
         userSettings->setValue("KnownPluginsV2", xml.get());
     userSettings->saveIfNeeded();
 }
+
+// =============================================================================
+// Default Patch File Location
+// =============================================================================
+juce::File SubterraneumAudioProcessor::getDefaultPatchFile() const {
+    // Store in the same Fanan settings folder used by appProperties
+    auto settingsFolder = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
+    
+    #if JUCE_MAC
+    settingsFolder = settingsFolder.getChildFile("Application Support");
+    #endif
+    
+    return settingsFolder.getChildFile("Fanan").getChildFile("Colosseum_Default.subt");
+}
+
+// =============================================================================
+// Auto-Load Default Patch on Startup
+// =============================================================================
+void SubterraneumAudioProcessor::loadDefaultPatchOnStartup() {
+    auto defaultFile = getDefaultPatchFile();
+    
+    if (defaultFile.existsAsFile()) {
+        loadUserPreset(defaultFile);
+        
+        // Notify editor to refresh UI if it exists
+        if (auto* editor = dynamic_cast<SubterraneumAudioProcessorEditor*>(getActiveEditor())) {
+            editor->repaint();
+        }
+    }
+}
+
+
+
 
 
 

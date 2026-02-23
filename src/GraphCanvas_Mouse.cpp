@@ -1,4 +1,3 @@
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Mouse.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
@@ -19,6 +18,8 @@
 #include "CCStepperEditorComponent.h"
 #include "TransientSplitterProcessor.h"
 #include "TransientSplitterEditorComponent.h"
+#include "LatcherProcessor.h"
+#include "LatcherEditorComponent.h"
 #include "AutoSamplerEditorComponent.h"
 #include "MidiSelectors.h"
 #include "TransportOverrideComponent.h"
@@ -1189,6 +1190,110 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // END TRANSIENT SPLITTER button handling
         // =========================================================================
 
+
+        // =========================================================================
+        // LATCHER button handling (E editor, X delete, All Off, pad clicks)
+        // =========================================================================
+        LatcherProcessor* latcher = cache ? cache->latcher
+                                          : dynamic_cast<LatcherProcessor*>(node->getProcessor());
+        if (latcher)
+        {
+            auto latcherContent = nodeBounds;
+            latcherContent.removeFromTop(Style::nodeTitleHeight);
+            auto lArea = latcherContent.reduced(8, 6);
+
+            // "All Off" button — upper right of content area
+            float allOffW = 42.0f;
+            float allOffH = 16.0f;
+            auto allOffRect = juce::Rectangle<float>(
+                lArea.getRight() - allOffW, lArea.getY(), allOffW, allOffH);
+
+            // Grid area (below All Off, above bottom buttons)
+            auto lGridArea = lArea;
+            lGridArea.removeFromTop(allOffH + 2.0f);
+            lGridArea.removeFromBottom(Style::bottomBtnHeight + Style::bottomBtnMargin + 2);
+
+            // Bottom buttons (E + X)
+            float lBtnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+            float lBtnX = nodeBounds.getX() + Style::bottomBtnMargin;
+            auto lEditRect = juce::Rectangle<float>(lBtnX, lBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+            lBtnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+            auto lDeleteRect = juce::Rectangle<float>(lBtnX, lBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+
+            if (e.mods.isRightButtonDown())
+            {
+                auto screenBounds = getScreenBounds();
+                auto launchTip = [&](const juce::String& text) {
+                    auto* tooltip = new StatusToolTip(text, true);
+                    juce::CallOutBox::launchAsynchronously(
+                        std::unique_ptr<juce::Component>(tooltip),
+                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
+                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        nullptr);
+                };
+
+                if (allOffRect.contains(pos))   { launchTip("All Off - Release all latched pads"); return; }
+                if (lEditRect.contains(pos))     { launchTip("E - Open Latcher pad editor"); return; }
+                if (lDeleteRect.contains(pos))   { launchTip("X - Delete this Latcher module"); return; }
+                if (lGridArea.contains(pos))     { launchTip("Click pads to toggle latch on/off"); return; }
+                return;
+            }
+
+            // All Off button
+            if (allOffRect.contains(pos))
+            {
+                latcher->allNotesOff();
+                needsRepaint = true;
+                return;
+            }
+
+            // Check bottom buttons BEFORE grid
+            if (lEditRect.contains(pos))
+            {
+                showLatcherEditor(node);
+                return;
+            }
+
+            if (lDeleteRect.contains(pos))
+            {
+                latcher->allNotesOff();
+                auto nodeID = node->nodeID;
+                auto windowIt = activePluginWindows.find(nodeID);
+                if (windowIt != activePluginWindows.end())
+                    activePluginWindows.erase(windowIt);
+                disconnectNode(node);
+                processor.removeNode(nodeID);
+                updateParentSelector();
+                markDirty();
+                return;
+            }
+
+            // PAD GRID clicks - toggle pads directly from the node
+            if (lGridArea.contains(pos))
+            {
+                float padW = lGridArea.getWidth() / 4.0f;
+                float padH = lGridArea.getHeight() / 4.0f;
+
+                int col = (int)((pos.x - lGridArea.getX()) / padW);
+                int row = (int)((pos.y - lGridArea.getY()) / padH);
+                col = juce::jlimit(0, 3, col);
+                row = juce::jlimit(0, 3, row);
+                int padIndex = row * 4 + col;
+
+                latcher->togglePadFromUI(padIndex);
+                needsRepaint = true;
+                return;
+            }
+
+            draggingNodeID = node->nodeID;
+            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
+            startTimer(MouseInteractionTimerID, 16);
+            return;
+        }
+        // =========================================================================
+        // END LATCHER button handling
+        // =========================================================================
+
         // =========================================================================
         // REGULAR PLUGIN NODE button handling (E, CH, M, P, X buttons)
         // Right-click = tooltip only, Left-click = action
@@ -1556,6 +1661,112 @@ void GraphCanvas::mouseMove(const juce::MouseEvent& e)
     // Don't force repaint here - timerCallback will check if state changed
 }
 
+// =============================================================================
+// Magnetic Snap: Align dragged node with connected neighbors
+// Snaps to horizontal (Y-align) or vertical (X-align edge-to-edge) when close.
+// Hold Shift during drag to temporarily disable snapping.
+// =============================================================================
+void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode, float& x, float& y)
+{
+    if (!draggedNode || !processor.mainGraph) return;
+    
+    auto draggedBounds = getNodeBounds(draggedNode);
+    float dragW = draggedBounds.getWidth();
+    float dragH = draggedBounds.getHeight();
+    
+    bool snappedX = false;
+    bool snappedY = false;
+    float bestSnapDistX = magneticSnapThreshold + 1.0f;
+    float bestSnapDistY = magneticSnapThreshold + 1.0f;
+    float snapX = x;
+    float snapY = y;
+    
+    // Collect connected node IDs
+    auto nodeID = draggedNode->nodeID;
+    
+    for (auto& conn : processor.mainGraph->getConnections())
+    {
+        juce::AudioProcessorGraph::NodeID otherID;
+        
+        if (conn.source.nodeID == nodeID)
+            otherID = conn.destination.nodeID;
+        else if (conn.destination.nodeID == nodeID)
+            otherID = conn.source.nodeID;
+        else
+            continue;
+        
+        auto* otherNode = processor.mainGraph->getNodeForId(otherID);
+        if (!otherNode) continue;
+        
+        auto otherBounds = getNodeBounds(otherNode);
+        float ox = otherBounds.getX();
+        float oy = otherBounds.getY();
+        float ow = otherBounds.getWidth();
+        float oh = otherBounds.getHeight();
+        
+        // --- Horizontal alignment (snap Y): top-to-top ---
+        float distTopTop = std::abs(y - oy);
+        if (distTopTop < bestSnapDistY && distTopTop < magneticSnapThreshold) {
+            bestSnapDistY = distTopTop;
+            snapY = oy;
+            snappedY = true;
+        }
+        
+        // --- Horizontal alignment: center-to-center Y ---
+        float dragCenterY = y + dragH * 0.5f;
+        float otherCenterY = oy + oh * 0.5f;
+        float distCenterY = std::abs(dragCenterY - otherCenterY);
+        if (distCenterY < bestSnapDistY && distCenterY < magneticSnapThreshold) {
+            bestSnapDistY = distCenterY;
+            snapY = otherCenterY - dragH * 0.5f;
+            snappedY = true;
+        }
+        
+        // --- Vertical snap: right edge of dragged → left edge of other (flow: left→right) ---
+        float dragRight = x + dragW;
+        float gap1 = std::abs(dragRight - ox);             // snug against left
+        float gap2 = std::abs(dragRight + 10.0f - ox);     // 10px gap
+        
+        if (gap1 < bestSnapDistX && gap1 < magneticSnapThreshold) {
+            bestSnapDistX = gap1;
+            snapX = ox - dragW;
+            snappedX = true;
+        }
+        if (gap2 < bestSnapDistX && gap2 < magneticSnapThreshold) {
+            bestSnapDistX = gap2;
+            snapX = ox - dragW - 10.0f;
+            snappedX = true;
+        }
+        
+        // --- Vertical snap: left edge of dragged → right edge of other (flow: right→left) ---
+        float otherRight = ox + ow;
+        float gap3 = std::abs(x - otherRight);
+        float gap4 = std::abs(x - (otherRight + 10.0f));
+        
+        if (gap3 < bestSnapDistX && gap3 < magneticSnapThreshold) {
+            bestSnapDistX = gap3;
+            snapX = otherRight;
+            snappedX = true;
+        }
+        if (gap4 < bestSnapDistX && gap4 < magneticSnapThreshold) {
+            bestSnapDistX = gap4;
+            snapX = otherRight + 10.0f;
+            snappedX = true;
+        }
+        
+        // --- Vertical alignment: left-to-left (stacking) ---
+        float distLeftLeft = std::abs(x - ox);
+        if (distLeftLeft < bestSnapDistX && distLeftLeft < magneticSnapThreshold) {
+            bestSnapDistX = distLeftLeft;
+            snapX = ox;
+            snappedX = true;
+        }
+    }
+    
+    if (snappedX) x = snapX;
+    if (snappedY) y = snapY;
+}
+
 void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
 {
     if (midiSliderDragging && midiSliderDragPlayer)
@@ -1601,6 +1812,11 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
             auto p = e.position - nodeDragOffset;
             float clampedX = juce::jmax(10.0f, juce::jmin(p.x, (float)getWidth()  - Style::nodeWidth  - 10.0f));
             float clampedY = juce::jmax(10.0f, juce::jmin(p.y, (float)getHeight() - Style::nodeHeight - 10.0f));
+            
+            // Magnetic snap: align with connected nodes when close
+            if (!e.mods.isShiftDown())  // Hold Shift to disable snap
+                applyMagneticSnap(node, clampedX, clampedY);
+            
             node->properties.set("x", clampedX);
             node->properties.set("y", clampedY);
             needsRepaint = true;
@@ -1689,7 +1905,8 @@ void GraphCanvas::mouseDoubleClick(const juce::MouseEvent& e)
             || dynamic_cast<AutoSamplerProcessor*>(proc)
             || dynamic_cast<MidiPlayerProcessor*>(proc)
             || dynamic_cast<CCStepperProcessor*>(proc)
-            || dynamic_cast<TransientSplitterProcessor*>(proc))
+            || dynamic_cast<TransientSplitterProcessor*>(proc)
+            || dynamic_cast<LatcherProcessor*>(proc))
             return;
             
         // Safe to open plugin window for regular plugin nodes
@@ -2227,4 +2444,21 @@ void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
         nullptr);
 }
 
+void GraphCanvas::showLatcherEditor(juce::AudioProcessorGraph::Node* node)
+{
+    if (!node) return;
+    auto* latcher = dynamic_cast<LatcherProcessor*>(node->getProcessor());
+    if (!latcher) return;
 
+    auto* editorComp = new LatcherEditorComponent(latcher);
+    auto screenBounds = getScreenBounds();
+    auto nodeBounds = getNodeBounds(node);
+
+    juce::CallOutBox::launchAsynchronously(
+        std::unique_ptr<juce::Component>(editorComp),
+        juce::Rectangle<int>(
+            screenBounds.getX() + (int)nodeBounds.getCentreX(),
+            screenBounds.getY() + (int)nodeBounds.getCentreY(),
+            1, 1),
+        nullptr);
+}

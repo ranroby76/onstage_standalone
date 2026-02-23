@@ -1,4 +1,3 @@
-
 // FIXED: Plugin drag-and-drop matching - use fileOrIdentifier instead of createIdentifierString()
 // FIXED: Signature must match header exactly (SourceDetails, not juce::DragAndDropTarget::SourceDetails)
 // FIXED: Added Recorder system tool support
@@ -13,6 +12,7 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
 
 bool GraphCanvas::isInterestedInDragSource(const SourceDetails& dragSourceDetails) {
     juce::String dragId = dragSourceDetails.description.toString();
@@ -79,6 +79,8 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
             nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
         } else if (toolName == "TransientSplitter") {
             nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
+        } else if (toolName == "Latcher") {
+            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
         } else if (toolName == "VST2Plugin") {
             // VST2 opens a file chooser - no node created here
             loadVST2Plugin(dropPos.toFloat());
@@ -153,5 +155,9 @@ void GraphCanvas::addPluginAtPosition(const juce::PluginDescription& description
             "OK");
     }
 }
+
+
+
+
 
 

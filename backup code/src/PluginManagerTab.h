@@ -1,13 +1,14 @@
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab.h
 // Plugin Manager Tab with scanning, tree view, and plugin info
 // FIX: buildTree() preserves expand/collapse state
 // NEW: Eye toggle - hide/show plugins from Add menus
+// NEW: 3-phase out-of-process scanning — zero freezes, zero crashes
 
 #pragma once
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "OutOfProcessScanner.h"
 #include "Style.h"
 #include <map>
 #include <set>
@@ -137,6 +138,9 @@ public:
     void closeButtonPressed() override { setVisible(false); }
 };
 
+// =============================================================================
+// ScanProgressPanel — Simple VST3-only scanner (kept for legacy/simple scan)
+// =============================================================================
 class ScanProgressPanel : public juce::Component, private juce::Timer {
 public:
     ScanProgressPanel(SubterraneumAudioProcessor& p, std::function<void()> onComplete);
@@ -153,12 +157,17 @@ private:
     juce::ProgressBar progressBar { progress };
     double progress = 0.0;
     bool scanning = false;
-    std::unique_ptr<juce::PluginDirectoryScanner> scanner;
     juce::File deadMansPedal;
+    std::unique_ptr<OutOfProcessScanner> oopScanner;
+    
     void timerCallback() override;
     void finishScan();
 };
 
+// =============================================================================
+// AutoPluginScanner — 3-phase scanner UI with continuous visual feedback
+// UI timer reads atomics from background OutOfProcessScanner — NEVER blocks
+// =============================================================================
 class AutoPluginScanner : public juce::Component, private juce::Timer {
 public:
     AutoPluginScanner(SubterraneumAudioProcessor& processor, std::function<void()> onComplete);
@@ -166,23 +175,66 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void startScan();
+    
+    // Settings (kept for API compat with ScanOptionsPanel)
+    void setTrustAllMode(bool) {}
+    void setSkipVST2ShellPlugins(bool) {}
+    void setVST2Timeout(int) {}
+    void setSkipProblematicPlugins(bool) {}
+    
 private:
     SubterraneumAudioProcessor& processor;
     std::function<void()> onCompleteCallback;
+    
+    // UI labels — updated by timer reading atomics
     juce::Label titleLabel { "title", "Scanning Plugins..." };
-    juce::Label formatLabel { "format", "" };
+    juce::Label phaseLabel { "phase", "" };
     juce::Label statusLabel { "status", "Preparing..." };
     juce::Label pluginLabel { "plugin", "" };
+    juce::Label statsLabel { "stats", "" };
     juce::ProgressBar progressBar { progress };
     double progress = 0.0;
-    int currentFormatIndex = 0;
-    int totalPluginsFound = 0;
-    juce::StringArray formatNames;
-    std::unique_ptr<juce::PluginDirectoryScanner> scanner;
-    juce::File deadMansPedal;
+    
+    // The background scanner (does all work on its own thread)
+    std::unique_ptr<OutOfProcessScanner> oopScanner;
+    
     void timerCallback() override;
-    void startNextFormat();
+    void collectPluginFiles();
     void finishScan();
+    void removeDuplicatePlugins();
+    juce::FileSearchPath getSearchPathForFormat(const juce::String& formatName);
+};
+
+// =============================================================================
+// ScanOptionsPanel — Scan options dialog
+// =============================================================================
+class ScanOptionsPanel : public juce::Component {
+public:
+    ScanOptionsPanel(SubterraneumAudioProcessor& p, std::function<void()> onComplete);
+    ~ScanOptionsPanel() override;
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    
+private:
+    SubterraneumAudioProcessor& processor;
+    std::function<void()> onCompleteCallback;
+    
+    juce::Label titleLabel { "title", "Plugin Scanner" };
+    juce::Label formatInfoLabel { "formatInfo", "" };
+    juce::Label statusLabel { "status", "" };
+    juce::Label safeInfoLabel { "safeInfo", "" };
+    
+    juce::TextButton scanNewBtn { "Scan For New Plugins" };
+    juce::TextButton rescanAllBtn { "Rescan All (Clear + Scan)" };
+    juce::TextButton removeMissingBtn { "Remove Missing" };
+    juce::TextButton removeAllBtn { "Remove All Plugins" };
+    juce::TextButton cancelBtn { "Close" };
+    
+    void updateFormatInfo();
+    void scanForNewPlugins(bool clearList);
+    void launchScanner();
+    void removeMissingPlugins();
+    void removeAllPlugins();
 };
 
 // =============================================================================
@@ -206,7 +258,6 @@ public:
     void removePluginFromList(const juce::PluginDescription& desc);
     void checkForCrashedScan();
     
-    // NEW: Plugin visibility (eye toggle) - hide plugins from Add menus
     bool isPluginHidden(const juce::PluginDescription& desc);
     void setPluginHidden(const juce::PluginDescription& desc, bool hidden);
     void togglePluginVisibility(const juce::PluginDescription& desc);
@@ -237,7 +288,6 @@ private:
     std::unique_ptr<CloseableDialogWindow> foldersDialog;
     std::unique_ptr<juce::DialogWindow> scanDialog;
     
-    // FIX: Track which folders are expanded across tree rebuilds
     std::set<juce::String> expandedFolders;
     
     void buildTree();
@@ -247,11 +297,9 @@ private:
     void expandAllItems();
     void collapseAllItems();
     
-    // FIX: Save/restore expand state across buildTree() calls
     void saveExpandedState();
     void restoreExpandedState();
     
-    // NEW: Visibility key helper
     juce::String getPluginVisibilityKey(const juce::PluginDescription& desc);
     
     class TreeLookAndFeel : public juce::LookAndFeel_V4 {
@@ -293,10 +341,8 @@ private:
         bool isPlugin;
         bool showColumns;
         bool isVendor;
-        bool hiddenFromMenus = false;  // NEW: Eye toggle state
+        bool hiddenFromMenus = false;
         
         PluginManagerTab* parentTab = nullptr;
     };
 };
-
-

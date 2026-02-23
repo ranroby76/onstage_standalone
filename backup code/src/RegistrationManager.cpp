@@ -9,9 +9,13 @@
 #include <string>
 #endif
 
+#if JUCE_MAC
+#include <cstdio>
+#endif
+
 void RegistrationManager::checkRegistration() {
     juce::File licenseFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                             .getChildFile("Colosseum").getChildFile("license.key");
+                             .getChildFile("Colosseum").getChildFile("colosseum_license.key");
     
     if (licenseFile.existsAsFile()) {
         juce::String savedSerial = licenseFile.loadFileAsString().trim();
@@ -43,7 +47,7 @@ bool RegistrationManager::tryRegister(const juce::String& serialInput) {
             if (!appData.exists()) 
                 appData.createDirectory();
             
-            juce::File licenseFile = appData.getChildFile("license.key");
+            juce::File licenseFile = appData.getChildFile("colosseum_license.key");
             licenseFile.replaceWithText(cleanInput);
             
             registered = true;
@@ -96,13 +100,16 @@ int RegistrationManager::getMachineIDNumber() {
 }
 
 long long RegistrationManager::calculateExpectedSerial() {
-    // Formula: serial = (((((ID + 7999) * 2) + 1111) * 2) - 9392)
     long long id = getMachineIDNumber();
-    long long result = id + 7999;
-    result = result * 2;
-    result = result + 1111;
-    result = result * 2;
-    result = result - 9392;
+    
+    constexpr long long k = 0xA5B7;
+    constexpr long long c[] = { 47752LL, 42421LL, 41440LL, 42421LL, 33031LL };
+    
+    long long result = id + (c[0] ^ k);
+    result = result * (c[1] ^ k);
+    result = result + (c[2] ^ k);
+    result = result * (c[3] ^ k);
+    result = result - (c[4] ^ k);
     return result;
 }
 
@@ -123,8 +130,18 @@ juce::String RegistrationManager::getSystemVolumeSerial() {
     }
     return "LINUX01";
 #else
-    // macOS - use system UUID
-    return juce::SystemStats::getUniqueDeviceID().substring(0, 8).toUpperCase();
+    // macOS - read IOPlatformUUID directly (stable, not dependent on JUCE version)
+    juce::String uuid;
+    FILE* pipe = popen("ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}' | tr -d '\"'", "r");
+    if (pipe != nullptr) {
+        char buffer[256] = {};
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr)
+            uuid = juce::String(buffer).trim().removeCharacters("-");
+        pclose(pipe);
+    }
+    if (uuid.isEmpty())
+        uuid = "MACOS001";
+    return uuid.substring(0, 8).toUpperCase();
 #endif
 }
 

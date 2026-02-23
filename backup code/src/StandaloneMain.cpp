@@ -1,9 +1,12 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\StandaloneMain.cpp
-// FIX: Added exit confirmation dialog and proper process cleanup
+// FIX: Added --scan-plugin mode for out-of-process plugin scanning
+// When launched with --scan-plugin <path> <format> <outputFile>,
+// runs in headless mode: loads one plugin, writes metadata, exits.
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "PluginScanWorker.h"
 
 class SubterraneumApplication : public juce::JUCEApplication
 {
@@ -16,22 +19,61 @@ public:
 
     void initialise(const juce::String& commandLine) override
     {
-        juce::ignoreUnused(commandLine);
+        // =================================================================
+        // OUT-OF-PROCESS SCAN MODE
+        // Usage: Colosseum --scan-plugin <pluginPath> <formatName> <outputFile>
+        // Runs headless: loads one plugin, writes JSON metadata, exits.
+        // =================================================================
+        if (commandLine.contains("--scan-plugin"))
+        {
+            scanMode = true;
+            
+            // Parse arguments
+            juce::StringArray args = juce::StringArray::fromTokens(commandLine, true);
+            
+            int scanIdx = args.indexOf("--scan-plugin");
+            if (scanIdx >= 0 && scanIdx + 3 < args.size())
+            {
+                juce::String pluginPath = args[scanIdx + 1];
+                juce::String formatName = args[scanIdx + 2];
+                juce::String outputFile = args[scanIdx + 3];
+                
+                // Remove quotes if present
+                pluginPath = pluginPath.unquoted();
+                formatName = formatName.unquoted();
+                outputFile = outputFile.unquoted();
+                
+                // Run scan worker (headless, no GUI)
+                PluginScanWorker::runScan(pluginPath, formatName, outputFile);
+            }
+            
+            // Exit immediately after scan
+            quit();
+            return;
+        }
+        
+        // =================================================================
+        // NORMAL MODE — Launch GUI
+        // =================================================================
         mainWindow.reset(new MainWindow(getApplicationName()));
     }
 
     void shutdown() override
     {
-        // FIX: Ensure proper cleanup - window destructor handles everything
         mainWindow = nullptr;
         
-        // FIX: Extra cleanup to ensure no zombie processes
-        juce::Process::terminate();
+        if (!scanMode)
+            juce::Process::terminate();
     }
 
     void systemRequestedQuit() override
     {
-        // FIX: Show confirmation dialog before quitting
+        if (scanMode)
+        {
+            quit();
+            return;
+        }
+        
         if (mainWindow)
         {
             mainWindow->confirmAndQuit();
@@ -62,18 +104,14 @@ public:
             deviceManager = std::make_unique<juce::AudioDeviceManager>();
             
             // Initialize with maximum channels (256 is JUCE's typical max)
-            // This allows us to access ALL channels including virtual/loopback
             deviceManager->initialiseWithDefaultDevices(256, 256);
             
             // Set preferred audio device type based on platform
             #if JUCE_WINDOWS
-                // Windows: Prefer ASIO for low latency
                 deviceManager->setCurrentAudioDeviceType("ASIO", true);
             #elif JUCE_MAC
-                // macOS: Use CoreAudio
                 deviceManager->setCurrentAudioDeviceType("CoreAudio", true);
             #elif JUCE_LINUX
-                // Linux: Prefer JACK if available, otherwise ALSA
                 auto availableTypes = deviceManager->getAvailableDeviceTypes();
                 bool hasJack = false;
                 for (auto* type : availableTypes) {
@@ -89,23 +127,17 @@ public:
                 }
             #endif
             
-            // Close the device initially (user will select manually or load from settings)
+            // Close the device initially
             deviceManager->closeAudioDevice();
             
-            // Store reference for processor
             SubterraneumAudioProcessor::standaloneDeviceManager = deviceManager.get();
             
-            // Create processor and editor
             processor = std::make_unique<SubterraneumAudioProcessor>();
             
-            // Setup audio callback
             deviceManager->addAudioCallback(&audioSourcePlayer);
             audioSourcePlayer.setProcessor(processor.get());
-            
-            // Setup MIDI input callback - this routes MIDI from enabled inputs to the processor
             deviceManager->addMidiInputDeviceCallback("", &audioSourcePlayer);
             
-            // Create editor
             auto* editor = new SubterraneumAudioProcessorEditor(*processor);
             setContentOwned(editor, true);
 
@@ -116,60 +148,40 @@ public:
 
         ~MainWindow() override
         {
-            // CRITICAL: Proper shutdown order to prevent crashes and zombie processes
-            
-            // 1. First disconnect audio callbacks
             audioSourcePlayer.setProcessor(nullptr);
             deviceManager->removeAudioCallback(&audioSourcePlayer);
             deviceManager->removeMidiInputDeviceCallback("", &audioSourcePlayer);
-            
-            // 2. Close the audio device completely
             deviceManager->closeAudioDevice();
-            
-            // 3. Clear the content (destroys the editor)
             clearContentComponent();
-            
-            // 4. Now safe to destroy processor
             processor = nullptr;
-            
-            // 5. Clear the static reference
             SubterraneumAudioProcessor::standaloneDeviceManager = nullptr;
-            
-            // 6. Finally destroy device manager
             deviceManager = nullptr;
-            
-            // FIX: Give time for all threads to finish
             juce::Thread::sleep(50);
         }
 
         void closeButtonPressed() override
         {
-            // FIX: Show confirmation dialog instead of immediately quitting
             confirmAndQuit();
         }
         
-        // FIX: New method to confirm and quit
         void confirmAndQuit()
         {
-            // Show Yes/No confirmation dialog
             juce::AlertWindow::showOkCancelBox(
                 juce::MessageBoxIconType::QuestionIcon,
                 "Exit Colosseum",
                 "Are you sure you want to exit?",
-                "Yes",  // OK button text
-                "No",   // Cancel button text
+                "Yes",
+                "No",
                 this,
                 juce::ModalCallbackFunction::create([](int result)
                 {
-                    if (result == 1)  // User clicked Yes
+                    if (result == 1)
                     {
-                        // Quit the application
                         if (auto* app = juce::JUCEApplicationBase::getInstance())
                         {
                             app->quit();
                         }
                     }
-                    // If result == 0, user clicked No - do nothing
                 })
             );
         }
@@ -184,6 +196,7 @@ public:
 
 private:
     std::unique_ptr<MainWindow> mainWindow;
+    bool scanMode = false;
 };
 
 START_JUCE_APPLICATION(SubterraneumApplication)

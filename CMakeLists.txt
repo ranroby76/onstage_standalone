@@ -174,6 +174,7 @@ target_sources(SubterraneumApp PRIVATE
     src/MidiPlayerProcessor.cpp
     src/CCStepperProcessor.cpp
     src/TransientSplitterProcessor.cpp
+    src/LatcherProcessor.cpp
 
     # -------------------------------------------------------------------------
     # Core / Standalone

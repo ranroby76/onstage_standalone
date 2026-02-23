@@ -1,0 +1,277 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main, master, ranroby76/supabase ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build_mac_app:
+    name: Build macOS Standalone
+    runs-on: macos-15
+
+    env:
+      SIGNING_ENABLED: ${{ secrets.MACOS_CERTIFICATE }}
+      BUILD_DIR: build
+      APP_ARTEFACTS: build/SubterraneumApp_artefacts/Release
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clone JUCE
+        run: |
+          git clone --depth 1 --branch 8.0.11 https://github.com/juce-framework/JUCE.git JUCE
+          echo "JUCE cloned to $(pwd)/JUCE"
+
+      - name: Install Dependencies
+        run: brew install ninja
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Create macOS Icon
+        run: |
+          mkdir -p assets
+
+          # Check if .icns already exists
+          if [ -f "assets/Colosseum.icns" ]; then
+            echo "macOS icon already exists"
+            exit 0
+          fi
+
+          # Find source image: try .ico first, then .png
+          SOURCE_IMG=""
+          if [ -f "icon.ico" ]; then
+            echo "Found icon.ico - converting to PNG first..."
+            sips -s format png icon.ico --out /tmp/icon_source.png 2>/dev/null
+            if [ $? -ne 0 ]; then
+              if command -v magick &> /dev/null; then
+                magick icon.ico[0] /tmp/icon_source.png
+              elif command -v convert &> /dev/null; then
+                convert icon.ico[0] /tmp/icon_source.png
+              else
+                echo "Installing ImageMagick for .ico conversion..."
+                brew install imagemagick
+                magick icon.ico[0] /tmp/icon_source.png
+              fi
+            fi
+            SOURCE_IMG="/tmp/icon_source.png"
+          elif [ -f "assets/colosseum_logo.png" ]; then
+            SOURCE_IMG="assets/colosseum_logo.png"
+          fi
+
+          if [ -z "$SOURCE_IMG" ] || [ ! -f "$SOURCE_IMG" ]; then
+            echo "No source image found for icon (tried icon.ico, assets/colosseum_logo.png)"
+            exit 0
+          fi
+
+          echo "Converting $SOURCE_IMG to ICNS..."
+          mkdir -p Icon.iconset
+
+          sips -z 16 16     "$SOURCE_IMG" --out Icon.iconset/icon_16x16.png
+          sips -z 32 32     "$SOURCE_IMG" --out Icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     "$SOURCE_IMG" --out Icon.iconset/icon_32x32.png
+          sips -z 64 64     "$SOURCE_IMG" --out Icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   "$SOURCE_IMG" --out Icon.iconset/icon_128x128.png
+          sips -z 256 256   "$SOURCE_IMG" --out Icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   "$SOURCE_IMG" --out Icon.iconset/icon_256x256.png
+          sips -z 512 512   "$SOURCE_IMG" --out Icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   "$SOURCE_IMG" --out Icon.iconset/icon_512x512.png
+          sips -z 1024 1024 "$SOURCE_IMG" --out Icon.iconset/icon_512x512@2x.png
+
+          iconutil -c icns Icon.iconset -o assets/Colosseum.icns
+          rm -rf Icon.iconset
+
+          echo "Created assets/Colosseum.icns"
+
+      - name: Import Signing Certificate
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: "actions-keychain-pw"
+        run: |
+          echo $BUILD_CERTIFICATE_BASE64 | base64 --decode > certificate.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+
+          security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign:,productsign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning build.keychain
+
+          rm certificate.p12
+
+      - name: Configure CMake
+        run: |
+          cmake -B ${{ env.BUILD_DIR }} -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJUCE_PATH="${{ github.workspace }}/JUCE" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+
+      - name: Build App
+        run: cmake --build ${{ env.BUILD_DIR }} --config Release --parallel
+
+      - name: Locate App Bundle
+        id: find_app
+        run: |
+          APP_PATH="${{ env.APP_ARTEFACTS }}/Colosseum.app"
+
+          # Fallback: search if not at expected path
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App not at expected path, searching..."
+            APP_PATH=$(find ${{ env.BUILD_DIR }} -name "*.app" -type d | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "::error::No .app bundle found!"
+            find ${{ env.BUILD_DIR }} -type d -name "*artefacts*"
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
+          echo "Found app: $APP_PATH"
+
+          echo "=== Bundle Contents ==="
+          ls -la "$APP_PATH/Contents/"
+          ls -la "$APP_PATH/Contents/MacOS/" || true
+          ls -la "$APP_PATH/Contents/Resources/" || true
+
+          # Verify universal binary
+          echo "=== Architecture Check ==="
+          MAIN_BIN=$(find "$APP_PATH/Contents/MacOS" -type f | head -1)
+          if [ -n "$MAIN_BIN" ]; then
+            lipo -info "$MAIN_BIN"
+          fi
+
+      - name: Create Entitlements File
+        run: |
+          cat > entitlements.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.cs.allow-jit</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+              <key>com.apple.security.device.audio-input</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          echo "Created entitlements.plist"
+
+      - name: Sign App
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
+          KEYCHAIN_PASSWORD: "actions-keychain-pw"
+        run: |
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | grep -o '"[^"]*"' | sed 's/"//g')
+
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application certificate found"
+            security find-identity -v -p codesigning build.keychain
+            exit 1
+          fi
+
+          echo "Signing with identity: $IDENTITY"
+          echo "App path: $APP_PATH"
+
+          # Sign inner binaries first (inside-out signing)
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
+
+          find "$APP_PATH" -type d -name "*.framework" \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
+
+          # Sign the main app bundle LAST
+          codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist "$APP_PATH"
+
+          echo "=== Verifying signature ==="
+          codesign --verify --strict --verbose=2 "$APP_PATH"
+
+          echo "=== Entitlements ==="
+          codesign -d --entitlements :- "$APP_PATH"
+
+      # =================================================================
+      # FIX: Create .dmg FIRST, then notarize the .dmg, then staple .dmg
+      # Old flow: zip → notarize zip → staple .app → re-zip
+      #   Problem: .zip CANNOT be stapled, so the downloaded zip has no ticket
+      #   On Apple Silicon + latest macOS, Gatekeeper silently blocks it
+      # New flow: sign .app → create .dmg → notarize .dmg → staple .dmg
+      #   .dmg CAN be stapled — notarization ticket embedded in the download
+      # =================================================================
+      - name: Create DMG
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
+        run: |
+          hdiutil create -volname "Colosseum" \
+            -srcfolder "$APP_PATH" \
+            -ov -format UDZO \
+            "Colosseum_Mac_Universal.dmg"
+          echo "Created Colosseum_Mac_Universal.dmg"
+
+      - name: Notarize DMG
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        env:
+          APPLE_ID: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
+        run: |
+          echo "=== Submitting DMG for notarization ==="
+          xcrun notarytool submit "Colosseum_Mac_Universal.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+
+          echo "=== Stapling notarization ticket to DMG ==="
+          xcrun stapler staple "Colosseum_Mac_Universal.dmg"
+
+          echo "=== Verifying staple ==="
+          xcrun stapler validate "Colosseum_Mac_Universal.dmg"
+          echo "DMG is signed, notarized, and stapled"
+
+      - name: Package Unsigned App
+        if: ${{ env.SIGNING_ENABLED == '' }}
+        env:
+          APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
+        run: |
+          echo "Creating unsigned package from $APP_PATH"
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Unsigned.zip"
+
+      - name: Upload Signed DMG
+        if: ${{ env.SIGNING_ENABLED != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Colosseum-Mac-App-Signed
+          path: Colosseum_Mac_Universal.dmg
+
+      - name: Upload Unsigned App
+        if: ${{ env.SIGNING_ENABLED == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Colosseum-Mac-App-Unsigned
+          path: Colosseum_Mac_Unsigned.zip
+
+      - name: Cleanup Keychain
+        if: always()
+        run: security delete-keychain build.keychain 2>/dev/null || true

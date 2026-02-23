@@ -1,5 +1,3 @@
-
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Core.cpp
 // CRITICAL FIX: Use MeteringProcessor::isInstrument() instead of getPluginDescription()
 // getPluginDescription() freezes some plugins!
@@ -21,6 +19,7 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
 #include <fstream>
 #include <chrono>
 #include <ctime>
@@ -191,6 +190,7 @@ void GraphCanvas::rebuildNodeTypeCache()
     hasSampler = false;
     hasMidiPlayer = false;
     hasStepSeq = false;
+    hasLatcher = false;
     
     if (!processor.mainGraph) {
         LOG("  mainGraph is null, returning");
@@ -218,6 +218,7 @@ void GraphCanvas::rebuildNodeTypeCache()
         cache.midiPlayer = dynamic_cast<MidiPlayerProcessor*>(proc);
         cache.ccStepper = dynamic_cast<CCStepperProcessor*>(proc);
         cache.transientSplitter = dynamic_cast<TransientSplitterProcessor*>(proc);
+        cache.latcher = dynamic_cast<LatcherProcessor*>(proc);
         
         // FIX: Track if stereo meter exists
         if (cache.stereoMeter) {
@@ -246,6 +247,11 @@ void GraphCanvas::rebuildNodeTypeCache()
         if (cache.ccStepper) {
             hasStepSeq = true;
             LOG("    StepSeq detected!");
+        }
+        
+        if (cache.latcher) {
+            hasLatcher = true;
+            LOG("    Latcher detected!");
         }
         
         LOG("    Checking if I/O node...");
@@ -485,7 +491,7 @@ void GraphCanvas::timerCallback(int timerID)
         // STEREO METER TIMER (50ms = 20fps) - Smooth meter animation
         // =============================================================================
         // FIX: Only run if stereo meter, recorder, or sampler exists (efficiency)
-        if (hasStereoMeter || hasRecorder || hasSampler || hasMidiPlayer || hasStepSeq)
+        if (hasStereoMeter || hasRecorder || hasSampler || hasMidiPlayer || hasStepSeq || hasLatcher)
         {
             // Always repaint when meter/recorder/sampler is present for smooth animation
             repaint();
@@ -527,6 +533,10 @@ void GraphCanvas::verifyPositions()
         if (!node->properties.contains("y")) node->properties.set("y", 100.0);
     }
 }
+
+
+
+
 
 
 
