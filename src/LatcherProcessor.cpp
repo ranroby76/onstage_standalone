@@ -1,5 +1,13 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\LatcherProcessor.cpp
 // THE LATCHER - 4x4 MIDI toggle pad controller
+// 
+// BEHAVIOR:
+//   UI click on pad:  toggle ON/OFF immediately, send proper MIDI
+//   External MIDI in: NoteOn matching a pad's triggerNote = toggle that pad
+//                     NoteOff is IGNORED (toggle is per-press, not momentary)
+//   ON  state: sends NoteOn  (144+ch, outputNote, velocity) per pad settings
+//   OFF state: sends NoteOff (128+ch, outputNote, 0) per pad settings
+//
 // MIDI-only, lock-free UI<->audio communication
 
 #include "LatcherProcessor.h"
@@ -7,7 +15,6 @@
 LatcherProcessor::LatcherProcessor()
     : AudioProcessor(BusesProperties())  // No audio buses - MIDI only
 {
-    // Initialize pads with sensible defaults (C4-D#5 mapping)
     for (int i = 0; i < NumPads; i++)
     {
         pads[i] = Pad();
@@ -21,8 +28,6 @@ LatcherProcessor::LatcherProcessor()
 
 LatcherProcessor::~LatcherProcessor()
 {
-    // Send note-off for any latched pads before destruction
-    // (can't send MIDI here, but state will be cleaned up)
 }
 
 void LatcherProcessor::prepareToPlay(double /*sampleRate*/, int /*samplesPerBlock*/)
@@ -33,23 +38,25 @@ void LatcherProcessor::releaseResources()
 {
 }
 
-bool LatcherProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+bool LatcherProcessor::isBusesLayoutSupported(const BusesLayout& /*layouts*/) const
 {
-    // MIDI-only: accept disabled/empty audio layouts
-    return layouts.getMainInputChannelSet().isDisabled()
-        && layouts.getMainOutputChannelSet().isDisabled();
+    // Accept any layout — we're MIDI-only, audio buses are irrelevant
+    return true;
 }
 
 // =============================================================================
-// processBlock - Handle incoming MIDI triggers and UI toggle requests
+// processBlock - THE CORE: handle UI toggles + external MIDI triggers
 // =============================================================================
 void LatcherProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     buffer.clear();
 
+    juce::MidiBuffer outputMidi;
+
     // =========================================================================
-    // 1) Process pending UI toggles (from mouse clicks)
-    //    Consume all pending toggles atomically
+    // 1) Process pending UI toggles (from mouse clicks / allNotesOff)
+    //    padLatched was already flipped in togglePadFromUI() for instant UI.
+    //    Here we just emit the correct MIDI message based on current state.
     // =========================================================================
     uint32_t toggles = pendingToggles.exchange(0);
     if (toggles != 0)
@@ -58,21 +65,21 @@ void LatcherProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         {
             if (toggles & (1u << i))
             {
-                bool wasLatched = padLatched[i].load();
-                bool nowLatched = !wasLatched;
-                padLatched[i].store(nowLatched);
-
+                bool isOn = padLatched[i].load();
                 const auto& pad = pads[i];
-                if (nowLatched)
+
+                if (isOn)
                 {
-                    midiMessages.addEvent(
+                    // NoteOn: status 0x90 (144) + channel, outputNote, velocity
+                    outputMidi.addEvent(
                         juce::MidiMessage::noteOn(pad.midiChannel, pad.outputNote, (juce::uint8)pad.velocity),
                         0);
                 }
                 else
                 {
-                    midiMessages.addEvent(
-                        juce::MidiMessage::noteOff(pad.midiChannel, pad.outputNote, (juce::uint8)0),
+                    // NoteOff: status 0x80 (128) + channel, outputNote, velocity
+                    outputMidi.addEvent(
+                        juce::MidiMessage::noteOff(pad.midiChannel, pad.outputNote, (juce::uint8)pad.velocity),
                         0);
                 }
             }
@@ -80,11 +87,15 @@ void LatcherProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     }
 
     // =========================================================================
-    // 2) Process incoming MIDI - check for trigger notes
-    //    Pass through non-matching MIDI events
+    // 2) Process incoming MIDI from the MIDI input pin
+    //    TOGGLE LOGIC (per user spec):
+    //      - Incoming NoteOn (status 144, vel > 0) matching a pad's triggerNote:
+    //        * If pad is OFF -> turn ON, send NoteOn(ch, outputNote, vel) per pad settings
+    //        * If pad is ON  -> turn OFF, send NoteOff(ch, outputNote, vel) per pad settings
+    //      - Incoming NoteOff (status 128) or NoteOn-vel0 for mapped note:
+    //        * IGNORED (eaten) — toggle is per-press, not momentary
+    //      - Non-matching MIDI passes through unchanged
     // =========================================================================
-    juce::MidiBuffer outputMidi;
-
     for (const auto metadata : midiMessages)
     {
         auto msg = metadata.getMessage();
@@ -92,41 +103,59 @@ void LatcherProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         bool consumed = false;
 
-        if (msg.isNoteOn())
+        // Only NoteOn with velocity > 0 triggers a toggle
+        // (NoteOn vel=0 is treated as NoteOff by MIDI spec — must be ignored)
+        if (msg.isNoteOn())  // JUCE: isNoteOn() returns false for vel=0
         {
             int inNote = msg.getNoteNumber();
 
-            // Check if this note matches any pad's trigger note
             for (int i = 0; i < NumPads; i++)
             {
                 if (pads[i].triggerNote == inNote)
                 {
-                    // Toggle this pad
-                    bool wasLatched = padLatched[i].load();
-                    bool nowLatched = !wasLatched;
-                    padLatched[i].store(nowLatched);
+                    // Toggle this pad on NoteOn only
+                    bool wasOn = padLatched[i].load();
+                    bool nowOn = !wasOn;
+                    padLatched[i].store(nowOn);
 
                     const auto& pad = pads[i];
-                    if (nowLatched)
+
+                    if (nowOn)
                     {
+                        // Send: 144 + (ch-1), outputNote, velocity
                         outputMidi.addEvent(
                             juce::MidiMessage::noteOn(pad.midiChannel, pad.outputNote, (juce::uint8)pad.velocity),
                             sample);
                     }
                     else
                     {
+                        // Send: 128 + (ch-1), outputNote, velocity
                         outputMidi.addEvent(
-                            juce::MidiMessage::noteOff(pad.midiChannel, pad.outputNote, (juce::uint8)0),
+                            juce::MidiMessage::noteOff(pad.midiChannel, pad.outputNote, (juce::uint8)pad.velocity),
                             sample);
                     }
 
                     consumed = true;
-                    break;  // One trigger note per pad - first match wins
+                    break;  // First matching pad wins
+                }
+            }
+        }
+        else if (msg.isNoteOff())
+        {
+            // Eat NoteOff (128) AND NoteOn-vel0 for mapped trigger notes
+            // Key release must NOT toggle — only key press does
+            int inNote = msg.getNoteNumber();
+            for (int i = 0; i < NumPads; i++)
+            {
+                if (pads[i].triggerNote == inNote)
+                {
+                    consumed = true;
+                    break;
                 }
             }
         }
 
-        // Pass through events that weren't consumed as triggers
+        // Pass through non-consumed MIDI (CC, pitchbend, sysex, etc.)
         if (!consumed)
         {
             outputMidi.addEvent(msg, sample);
@@ -137,30 +166,34 @@ void LatcherProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 }
 
 // =============================================================================
-// UI toggle - queue a toggle for the audio thread
+// UI toggle - flip visual state immediately, queue MIDI for audio thread
 // =============================================================================
 void LatcherProcessor::togglePadFromUI(int index)
 {
     if (index >= 0 && index < NumPads)
     {
-        // Set the bit for this pad - atomic OR
+        // Flip state immediately for instant UI feedback
+        bool newState = !padLatched[index].load();
+        padLatched[index].store(newState);
+
+        // Queue MIDI message generation for the audio thread
         uint32_t bit = 1u << index;
         pendingToggles.fetch_or(bit);
     }
 }
 
 // =============================================================================
-// All notes off - unlatch all pads
+// All notes off - unlatch all pads immediately, queue NoteOff MIDI
 // =============================================================================
 void LatcherProcessor::allNotesOff()
 {
-    // Queue all currently-latched pads for toggle off
     for (int i = 0; i < NumPads; i++)
     {
         if (padLatched[i].load())
         {
+            padLatched[i].store(false);        // Immediate visual feedback
             uint32_t bit = 1u << i;
-            pendingToggles.fetch_or(bit);
+            pendingToggles.fetch_or(bit);      // Queue NoteOff in processBlock
         }
     }
 }
@@ -208,7 +241,6 @@ void LatcherProcessor::setStateInformation(const void* data, int sizeInBytes)
         pad.velocity     = juce::jlimit(1, 127, (int)padVT.getProperty("velocity",    100));
         pad.midiChannel  = juce::jlimit(1, 16,  (int)padVT.getProperty("midiChannel", 1));
 
-        // Always start unlatched on restore
         padLatched[idx].store(false);
     }
 }

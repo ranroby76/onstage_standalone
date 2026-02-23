@@ -1194,8 +1194,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // LATCHER button handling (E editor, X delete, All Off, pad clicks)
         // =========================================================================
-        LatcherProcessor* latcher = cache ? cache->latcher
-                                          : dynamic_cast<LatcherProcessor*>(node->getProcessor());
+        LatcherProcessor* latcher = dynamic_cast<LatcherProcessor*>(node->getProcessor());
         if (latcher)
         {
             auto latcherContent = nodeBounds;
@@ -1244,6 +1243,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             {
                 latcher->allNotesOff();
                 needsRepaint = true;
+                repaint();
                 return;
             }
 
@@ -1282,6 +1282,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
                 latcher->togglePadFromUI(padIndex);
                 needsRepaint = true;
+                repaint();
                 return;
             }
 

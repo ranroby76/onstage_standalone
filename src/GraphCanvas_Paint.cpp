@@ -1228,24 +1228,31 @@ void GraphCanvas::paint(juce::Graphics& g)
                     
                     if (latched)
                     {
-                        // Golden ON state
-                        g.setColour(juce::Colour(0xffB8860B));  // dark goldenrod
+                        // ON: golden fill + glow
+                        g.setColour(juce::Colour(0xffB8860B));
                         g.fillRoundedRectangle(padRect, 3.0f);
                         g.setColour(juce::Colour(0xffFFD700).withAlpha(0.3f));
                         g.fillRoundedRectangle(padRect.expanded(1), 4.0f);
+                        // Golden border
+                        g.setColour(juce::Colour(0xffFFD700));
+                        g.drawRoundedRectangle(padRect, 3.0f, 1.0f);
+                        // Golden text
+                        g.setColour(juce::Colour(0xffFFD700));
                     }
                     else
                     {
-                        g.setColour(juce::Colour(50, 50, 60));
+                        // OFF: light gray fill
+                        g.setColour(juce::Colour(180, 180, 185));
                         g.fillRoundedRectangle(padRect, 3.0f);
+                        // Subtle darker border
+                        g.setColour(juce::Colour(140, 140, 145));
+                        g.drawRoundedRectangle(padRect, 3.0f, 0.8f);
+                        // Black text
+                        g.setColour(juce::Colours::black);
                     }
                     
-                    g.setColour(latched ? juce::Colour(0xffFFD700) : juce::Colour(70, 70, 80));
-                    g.drawRoundedRectangle(padRect, 3.0f, 0.8f);
-                    
-                    // Pad number — golden foreground
-                    g.setColour(latched ? juce::Colour(0xffFFD700) : juce::Colours::white.withAlpha(0.35f));
-                    g.setFont(juce::Font(juce::FontOptions(8.0f)));
+                    // Pad number label
+                    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
                     g.drawText(juce::String(padIndex + 1), padRect, juce::Justification::centred);
                 }
             }
@@ -1362,32 +1369,6 @@ void GraphCanvas::drawNodePins(juce::Graphics& g, juce::AudioProcessorGraph::Nod
     
     auto cache = getCachedNodeType(node->nodeID);
     
-    // Latcher: E (editor popup) + X (delete)
-    if (dynamic_cast<LatcherProcessor*>(proc))
-    {
-        auto nodeBounds = getNodeBounds(node);
-        nodeBounds.removeFromTop(Style::nodeTitleHeight);
-        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-
-        // E button (editor)
-        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-        g.setColour(juce::Colours::cyan.darker());
-        g.fillRoundedRectangle(editRect, 3.0f);
-        g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-        g.drawText("E", editRect, juce::Justification::centred);
-        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-
-        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-        g.setColour(juce::Colours::darkred);
-        g.fillRoundedRectangle(deleteRect, 3.0f);
-        g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-        g.drawText("X", deleteRect, juce::Justification::centred);
-        return;
-    }
-
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(proc);
     
     for (int i = 0; i < numIn; ++i) {
@@ -1511,6 +1492,30 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     
     RecorderProcessor* recorder = cache ? cache->recorder
                                          : dynamic_cast<RecorderProcessor*>(proc);
+    
+    // Latcher: E (editor popup) + X (delete)
+    if (dynamic_cast<LatcherProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
     
     if (simpleConnector)
     {
@@ -1793,3 +1798,14 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
 }
+
+
+
+
+
+
+
+
+
+
+

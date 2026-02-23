@@ -123,10 +123,11 @@ private:
         juce::String infoText;
         void mouseDown(const juce::MouseEvent& e) override {
             if (e.mods.isRightButtonDown() && infoText.isNotEmpty()) {
-                auto options = juce::PopupMenu::Options().withTargetComponent(this);
-                juce::PopupMenu menu;
-                menu.addSectionHeader(infoText);
-                menu.showMenuAsync(options);
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    "Save as Default",
+                    infoText,
+                    "OK");
                 return;
             }
             juce::TextButton::mouseDown(e);

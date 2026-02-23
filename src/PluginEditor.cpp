@@ -95,7 +95,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     addAndMakeVisible(floatMixerButton);
     floatMixerButton.addListener(this);
     floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));  // dark yellow/goldenrod
-    floatMixerButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    floatMixerButton.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
     
     // Workspace selector buttons
     for (int i = 0; i < 16; ++i)
