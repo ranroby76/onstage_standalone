@@ -144,9 +144,9 @@ private:
             : DocumentWindow("Colosseum Mixer", 
                              juce::Colour(0xff1e1e1e), 
                              DocumentWindow::allButtons),
-              mixer(p)
+              mixerWrapper(p)
         {
-            setContentNonOwned(&mixer, false);
+            setContentNonOwned(&mixerWrapper, false);
             setResizable(true, true);
             setResizeLimits(400, 200, 2560, 1440);
             centreWithSize(900, 500);
@@ -158,14 +158,35 @@ private:
         ~FloatingMixerWindow() override {}
         
         void closeButtonPressed() override {
-            // Notify parent to clean up
             if (onClose) onClose();
         }
         
         std::function<void()> onClose;
         
     private:
-        MixerView mixer;
+        // Wrapper that draws a resize grip triangle over the mixer
+        struct MixerWithGrip : public juce::Component {
+            MixerWithGrip(SubterraneumAudioProcessor& p) : mixer(p) {
+                addAndMakeVisible(mixer);
+            }
+            void resized() override { mixer.setBounds(getLocalBounds()); }
+            void paintOverChildren(juce::Graphics& g) override {
+                const int sz = 16;
+                float r = (float)getWidth();
+                float b = (float)getHeight();
+                juce::Path triangle;
+                triangle.addTriangle(r, b - sz, r - sz, b, r, b);
+                g.setColour(juce::Colour(100, 100, 110));
+                g.fillPath(triangle);
+                // Inner highlight lines for grip look
+                g.setColour(juce::Colour(140, 140, 150));
+                g.drawLine(r - 4.0f, b, r, b - 4.0f, 1.0f);
+                g.drawLine(r - 8.0f, b, r, b - 8.0f, 1.0f);
+                g.drawLine(r - 12.0f, b, r, b - 12.0f, 1.0f);
+            }
+            MixerView mixer;
+        };
+        MixerWithGrip mixerWrapper;
     };
     
     std::unique_ptr<FloatingMixerWindow> floatingMixerWindow;
