@@ -1,12 +1,10 @@
-
-
-
 // FIX: Plugin Browser Panel is now a fixed 240px panel on the right side of content
 // No toggle button - always visible on Rack tab, hidden on other tabs
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
 // FIX: Added Recorder to onToolDropped handler
 // FIX: Removed yellow right panel - utility buttons relocated to left green panel
 // FIX: Added MIDI Panic button under Keys button
+// FIX: Added Latcher and MidiMultiFilter to onToolDropped handler
 
 #include "PluginEditor.h"
 #include "SimpleConnectorProcessor.h"
@@ -18,6 +16,8 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
+#include "MidiMultiFilterProcessor.h"
 
 #if JUCE_WINDOWS
 #include <windows.h>
@@ -112,6 +112,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
             // Sync zoom to restored workspace value
             zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
             updateWorkspaceButtonColors();
+            updateInstrumentSelector();  // FIX: Refresh instruments for new workspace
         };
         workspaceButtons[i].onStateChange = [this, i]() {
             // Right-click detection via mouse event
@@ -155,7 +156,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     
     // Zoom slider for Rack tab
     zoomSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    zoomSlider.setRange(0.25, 1.0, 0.75 / 75.0);  // 76 positions (25% to 100%), 75 steps
+    zoomSlider.setRange(0.10, 2.0, 0.01);  // 10% to 200%, 1% steps
     zoomSlider.setValue(1.0, juce::dontSendNotification);
     zoomSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     zoomSlider.setColour(juce::Slider::trackColourId, juce::Colour(80, 80, 90));
@@ -211,6 +212,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     tabs.setOutline(0);
     tabs.setTabBarDepth(0);
     tabs.setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
+    
     tabs.addTab("Rack", Style::colBackground, &graphCanvas, false); 
     tabs.addTab("Mixer", Style::colBackground, &mixerView, false);
     tabs.addTab("Settings", Style::colBackground, &audioSettingsTab, false);  // Now includes tempo/metronome
@@ -261,10 +263,20 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
             case SystemToolType::TransientSplitter:
                 nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
                 break;
+            case SystemToolType::Latcher:
+                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
+                break;
+            case SystemToolType::MidiMultiFilter:
+                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMultiFilterProcessor()));
+                break;
             case SystemToolType::VST2Plugin:
                 // VST2 opens file chooser via GraphCanvas
                 graphCanvas.loadVST2Plugin(juce::Point<float>((float)pos.x, (float)pos.y));
                 return;  // No node created directly
+            case SystemToolType::VST3Plugin:
+                // VST3 opens file chooser via GraphCanvas
+                graphCanvas.loadVST3Plugin(juce::Point<float>((float)pos.x, (float)pos.y));
+                return;
             default:
                 return;
         }
@@ -289,6 +301,9 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
         juce::MessageManager::callAsync([this]() {
             if (pluginBrowserPanel)
                 pluginBrowserPanel->refresh();
+            
+            // Startup quick scan — checks for new/updated plugins
+            pluginManagerTab.runStartupQuickScan();
         });
     });
     
@@ -348,6 +363,24 @@ void SubterraneumAudioProcessorEditor::timerCallback() {
         cpuPercent = SubterraneumAudioProcessor::standaloneDeviceManager->getCpuUsage() * 100.0;
     }
     cpuLabel.setText("CPU: " + juce::String(cpuPercent, 1) + "%", juce::dontSendNotification);
+    
+    // =========================================================================
+    // NEW: Handle pending MIDI CC workspace switch
+    // =========================================================================
+    int pendingWS = audioProcessor.pendingWorkspaceSwitch.exchange(-1);
+    if (pendingWS >= 0 && pendingWS < 16)
+    {
+        if (audioProcessor.isWorkspaceEnabled(pendingWS) && pendingWS != audioProcessor.getActiveWorkspace())
+        {
+            graphCanvas.closeAllPluginWindows();
+            audioProcessor.switchWorkspace(pendingWS);
+            graphCanvas.refreshCache();
+            graphCanvas.repaint();
+            zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
+            updateWorkspaceButtonColors();
+            updateInstrumentSelector();  // FIX: Refresh instruments for new workspace
+        }
+    }
 }
 
 void SubterraneumAudioProcessorEditor::updateInstrumentSelector() { 
@@ -678,6 +711,15 @@ void SubterraneumAudioProcessorEditor::resized() {
     
     // Update visibility based on current tab
     updatePluginBrowserVisibility();
+    
+    // =========================================================================
+    // FIX: Keep browser panel and instrument selector on top of zoomed canvas
+    // setTransform(scale) on GraphCanvas can overflow its bounds — these must
+    // always render in front so zoom doesn't cover them
+    // =========================================================================
+    instrumentSelector.toFront(false);
+    if (pluginBrowserPanel)
+        pluginBrowserPanel->toFront(false);
 }
 
 void SubterraneumAudioProcessorEditor::updateTabButtonColors() {
@@ -739,6 +781,11 @@ void SubterraneumAudioProcessorEditor::showWorkspaceContextMenu(int idx)
     
     bool isEnabled = audioProcessor.isWorkspaceEnabled(idx);
     bool isActive = (idx == audioProcessor.getActiveWorkspace());
+    
+    // NEW: Show MIDI CC info at top of context menu
+    int midiCC = SubterraneumAudioProcessor::midiCCWorkspaceBase + idx;
+    menu.addSectionHeader("MIDI CC " + juce::String(midiCC) + "  (value > 63 = switch)");
+    menu.addSeparator();
     
     // Enable / Disable toggle
     if (!isEnabled)
@@ -832,6 +879,7 @@ void SubterraneumAudioProcessorEditor::showWorkspaceContextMenu(int idx)
                 {
                     graphCanvas.refreshCache();
                     graphCanvas.repaint();
+                    updateInstrumentSelector();  // FIX: Refresh instruments after clear
                 }
                 updateWorkspaceButtonColors();
             }
@@ -845,6 +893,7 @@ void SubterraneumAudioProcessorEditor::showWorkspaceContextMenu(int idx)
                 {
                     graphCanvas.refreshCache();
                     graphCanvas.repaint();
+                    updateInstrumentSelector();  // FIX: Refresh instruments after duplicate
                 }
                 updateWorkspaceButtonColors();
             }
@@ -880,10 +929,5 @@ SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::VirtualKeyboardWindow(S
 
 SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::~VirtualKeyboardWindow() {}
 void SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::closeButtonPressed() { setVisible(false); }
-
-
-
-
-
 
 

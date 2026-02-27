@@ -1,9 +1,10 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\LatcherEditorComponent.h
+// LatcherEditorComponent.h
 // THE LATCHER EDITOR - CallOutBox popup editor for LatcherProcessor
 // Layout:
 //   TOP:    Title bar with "The Latcher" + All Notes Off button
 //   CENTER: 4x4 pad grid (clickable toggle pads with latch state)
 //   BOTTOM: Selected pad settings (Trigger Note, Output Note, Velocity, Channel)
+// FIX: Button label text is always black
 
 #pragma once
 
@@ -50,7 +51,8 @@ public:
         g.fillRoundedRectangle(allNotesOffRect, 5.0f);
         g.setColour(juce::Colour(180, 60, 60));
         g.drawRoundedRectangle(allNotesOffRect, 5.0f, 1.0f);
-        g.setColour(juce::Colours::white);
+        // FIX: Button text is always BLACK
+        g.setColour(juce::Colours::black);
         g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("ALL OFF", allNotesOffRect, juce::Justification::centred);
 

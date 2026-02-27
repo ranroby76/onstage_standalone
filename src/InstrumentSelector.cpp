@@ -2,6 +2,8 @@
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
 // BUG FIX: Suspend audio processing during mode switching to prevent crashes and silence
+// NEW: MIDI CC control for instrument selection (CC 20-51 = Instruments 1-32)
+// FIX: Instrument list refreshes when workspace switches via MIDI CC
 
 #include "InstrumentSelector.h"
 #include "PluginProcessor.h"
@@ -21,7 +23,7 @@ InstrumentSelector::InstrumentSelector(SubterraneumAudioProcessor& p) : processo
     multiModeBtn.setToggleState(processor.instrumentSelectorMultiMode, juce::dontSendNotification);
     addAndMakeVisible(multiModeBtn);
     
-    // FIX: Increased from 16 to 32 instruments (2 rows × 16 columns)
+    // FIX: Increased from 16 to 32 instruments (2 rows x 16 columns)
     for (int i=0; i<32; ++i) { 
         auto* btn = instButtons.add(new juce::TextButton(juce::String(i+1))); 
         btn->setClickingTogglesState(false);
@@ -37,11 +39,10 @@ InstrumentSelector::InstrumentSelector(SubterraneumAudioProcessor& p) : processo
         btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xffC0C0C0)); // Light silver
         btn->setColour(juce::TextButton::textColourOffId, juce::Colour(0xff2d2d2d)); // Dark grey text
         
-        // FIX: MIDI note mapping changed from 24-39 (C1-D#2) to 1-32
-        // These low MIDI notes are intercepted for instrument selection
-        int midiNote = 1 + i;  // MIDI notes 1-32
+        // MIDI CC mapping: CC 20-51 for instruments 1-32
+        int midiCC = SubterraneumAudioProcessor::midiCCInstrumentBase + i;
         juce::String tooltip = "Instrument " + juce::String(i + 1) + 
-                               " (MIDI Note " + juce::String(midiNote) + ")";
+                               " (MIDI CC " + juce::String(midiCC) + ")";
         btn->setTooltip(tooltip);
         
         btn->addListener(this); 
@@ -145,7 +146,7 @@ void InstrumentSelector::resized() {
     multiModeBtn.setBounds(topRow.removeFromLeft(80)); 
     area.removeFromTop(5);
     
-    // FIX: 2 rows × 16 columns layout for 32 instruments
+    // FIX: 2 rows x 16 columns layout for 32 instruments
     float btnW = (float)area.getWidth() / 16.0f;
     float rowHeight = (float)area.getHeight() / 2.0f;
     
@@ -169,23 +170,21 @@ void InstrumentSelector::mouseDown(const juce::MouseEvent& e) {
     if (e.mods.isRightButtonDown()) { 
         for (int i = 0; i < instButtons.size(); ++i) { 
             if (e.eventComponent == instButtons[i] || e.originalComponent == instButtons[i]) { 
-                // FIX: Using MIDI notes 1-32 for instrument selection
+                int midiCC = SubterraneumAudioProcessor::midiCCInstrumentBase + i;
                 juce::String message = 
-                    "MIDI Controller Integration\n\n"
-                    "The instrument selector buttons can be controlled via MIDI!\n\n"
-                    "MIDI Note Mapping:\n"
-                    "- Press MIDI Note 1 -> Selects Instrument 1\n"
-                    "- Press MIDI Note 2 -> Selects Instrument 2\n"
-                    "- Press MIDI Note 3 -> Selects Instrument 3\n"
-                    "- Press MIDI Note 4 -> Selects Instrument 4\n"
-                    "- ... and so on up to Instrument 32 (MIDI Note 32)\n\n"
-                    "Note: MIDI notes 1-32 are reserved for instrument selection\n"
-                    "and will not play as regular notes.\n\n"
-                    "Perfect for instant switching with MIDI pad controllers!";
+                    "MIDI CC Control for Instrument " + juce::String(i + 1) + "\n\n"
+                    "MIDI CC " + juce::String(midiCC) + "  (value > 63 = select)\n\n"
+                    "Full Instrument CC Mapping:\n"
+                    "  Instruments 1-32  =  CC " + 
+                    juce::String(SubterraneumAudioProcessor::midiCCInstrumentBase) + "-" +
+                    juce::String(SubterraneumAudioProcessor::midiCCInstrumentBase + 31) + "\n\n"
+                    "Send CC value > 63 to select/toggle this instrument.\n"
+                    "Works on any MIDI channel.\n\n"
+                    "Perfect for instant switching with MIDI controllers!";
                 
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::InfoIcon,
-                    "Instrument Selector - MIDI Control",
+                    "Instrument " + juce::String(i + 1) + " - MIDI CC " + juce::String(midiCC),
                     message,
                     "Got it!");
                 return;
@@ -307,6 +306,16 @@ void InstrumentSelector::timerCallback() {
         multiModeBtn.setToggleState(pMulti, juce::dontSendNotification);
     } 
     if (!processor.mainGraph) return; 
+    
+    // =========================================================================
+    // NEW: Handle pending MIDI CC instrument selection
+    // =========================================================================
+    int pendingInst = processor.pendingInstrumentSelect.exchange(-1);
+    if (pendingInst >= 0 && pendingInst < (int)nodeIDs.size()) {
+        handleInstrumentClick(pendingInst);
+    }
+    
+    // Sync button toggle states with actual bypass states
     for (int i = 0; i < (int)nodeIDs.size(); ++i) { 
         if (auto* node = processor.mainGraph->getNodeForId(nodeIDs[i])) { 
             bool isActive = !node->isBypassed();
@@ -315,4 +324,3 @@ void InstrumentSelector::timerCallback() {
         } 
     } 
 }
-

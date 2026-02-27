@@ -1,10 +1,8 @@
-
-
-
-
+// AudioSettingsTab.h
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Added timeSigValueLabel to display current time signature
 // FIX: Added recording folder selection button
+// FIX: Green slider for metronome
 
 #pragma once
 
@@ -63,6 +61,44 @@ private:
     juce::Colour goldColor;
     juce::Colour darkGoldColor;
     juce::Colour blackColor;
+};
+
+// Green slider for metronome (matches metronome frame color)
+class GreenSliderLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
+                          float sliderPos, float /*minSliderPos*/, float /*maxSliderPos*/,
+                          juce::Slider::SliderStyle /*style*/, juce::Slider& /*slider*/) override
+    {
+        auto trackWidth = juce::jmin(6.0f, (float)height * 0.25f);
+        
+        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + (float)height * 0.5f - trackWidth * 0.5f,
+                                                   (float)width, trackWidth);
+        
+        // Track background (dark green)
+        g.setColour(juce::Colour(40, 80, 40));
+        g.fillRoundedRectangle(trackBounds, trackWidth * 0.5f);
+        
+        // Filled portion (light green)
+        auto onTrack = trackBounds.withWidth(sliderPos - trackBounds.getX());
+        g.setColour(juce::Colours::lightgreen);
+        g.fillRoundedRectangle(onTrack, trackWidth * 0.5f);
+        
+        // Draw thumb (green circle with darker center)
+        float thumbRadius = 12.0f;
+        float thumbX = sliderPos;
+        float thumbY = y + height * 0.5f;
+        
+        // Outer green circle
+        g.setColour(juce::Colours::lightgreen);
+        g.fillEllipse(thumbX - thumbRadius, thumbY - thumbRadius, thumbRadius * 2, thumbRadius * 2);
+        
+        // Inner highlight
+        float innerRadius = thumbRadius * 0.5f;
+        g.setColour(juce::Colours::white.withAlpha(0.3f));
+        g.fillEllipse(thumbX - innerRadius, thumbY - innerRadius, innerRadius * 2, innerRadius * 2);
+    }
 };
 
 class AudioSettingsTab : public juce::Component, 
@@ -206,6 +242,9 @@ private:
     // Custom gold look and feel for sliders
     GoldSliderLookAndFeel goldSliderLookAndFeel;
     
+    // Green slider look and feel for metronome
+    GreenSliderLookAndFeel greenSliderLookAndFeel;
+    
     // Helper methods
     void enforceDriverType(); 
     void updateDeviceList(); 
@@ -238,16 +277,3 @@ private:
     // MIDI reconnection
     void reconnectMidiDevices();
 };
-
-
-
-
-
-
-
-
-
-
-
-
-

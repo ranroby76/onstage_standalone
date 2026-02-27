@@ -14,20 +14,39 @@
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
 #include "LatcherProcessor.h"
+#include "MidiMultiFilterProcessor.h"
 
 void GraphCanvas::paint(juce::Graphics& g)
 {
     g.fillAll(Style::colBackground);
 
-    // Simplified grid - draw fewer lines for better performance
-    g.setColour(juce::Colours::white.withAlpha(0.03f));
-    const int gridSize = 40; // Larger grid = fewer lines to draw
-    for (int x = 0; x < getWidth(); x += gridSize)
-        g.drawVerticalLine(x, 0.0f, (float)getHeight());
-    for (int y = 0; y < getHeight(); y += gridSize)
-        g.drawHorizontalLine(y, 0.0f, (float)getWidth());
+    // Save pixel-coord state so overlays can restore it later (bulletproof)
+    g.saveState();
 
-    if (!processor.mainGraph) return;
+    // =========================================================================
+    // Paint-level zoom + pan: virtual coord (vx,vy) → pixel ((vx-panX)*zoom, (vy-panY)*zoom)
+    // Component stays within parent bounds — no setTransform overflow
+    // =========================================================================
+    g.addTransform(juce::AffineTransform::scale(zoomLevel)
+                    .translated(-panOffsetX * zoomLevel, -panOffsetY * zoomLevel));
+
+    // Grid across the full virtual canvas
+    // Skip lines when they'd be too dense at low zoom (minimum 8px apart on screen)
+    g.setColour(juce::Colours::white.withAlpha(0.03f));
+    int gridSize = 40;
+    while (gridSize * zoomLevel < 8.0f) gridSize *= 2;  // double grid spacing when too dense
+    for (int x = 0; x < (int)virtualCanvasWidth; x += gridSize)
+        g.drawVerticalLine(x, 0.0f, virtualCanvasHeight);
+    for (int y = 0; y < (int)virtualCanvasHeight; y += gridSize)
+        g.drawHorizontalLine(y, 0.0f, virtualCanvasWidth);
+
+    if (!processor.mainGraph)
+    {
+        g.restoreState();
+        drawScrollbars(g);
+        drawMinimap(g);
+        return;
+    }
     // FIX: verifyPositions() moved to rebuildNodeTypeCache() — runs once per structure change,
     // not 20 times/sec during meter animation
 
@@ -1282,6 +1301,15 @@ void GraphCanvas::paint(juce::Graphics& g)
             drawAudioIOToggle(g, node);
         }
     }
+    
+    // =========================================================================
+    // NEW: Draw overlays in raw component pixel coords
+    // restoreState() guarantees pixel-space regardless of zoom/pan
+    // =========================================================================
+    g.restoreState();
+    
+    drawScrollbars(g);
+    drawMinimap(g);
 }
 
 void GraphCanvas::drawWire(juce::Graphics& g, juce::Point<float> start, juce::Point<float> end, juce::Colour col, float thickness)
@@ -1492,7 +1520,47 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     
     RecorderProcessor* recorder = cache ? cache->recorder
                                          : dynamic_cast<RecorderProcessor*>(proc);
-    
+
+    // =========================================================================
+    // MidiMultiFilter: E (editor popup) + P (pass-through) + X (delete)
+    // =========================================================================
+    MidiMultiFilterProcessor* midiMultiFilter = cache ? cache->midiMultiFilter
+                                                       : dynamic_cast<MidiMultiFilterProcessor*>(proc);
+    if (midiMultiFilter)
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // P button (pass-through)
+        bool isPass = midiMultiFilter->passThrough;
+        auto passRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(isPass ? juce::Colours::yellow : juce::Colours::grey.darker());
+        g.fillRoundedRectangle(passRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("P", passRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // X button (delete)
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+
     // Latcher: E (editor popup) + X (delete)
     if (dynamic_cast<LatcherProcessor*>(proc))
     {
@@ -1799,13 +1867,173 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
 }
 
+// =============================================================================
+// NEW: Minimap overlay — shows full canvas with node dots and viewport rect
+// Drawn in component PIXEL coords (after undoing zoom+pan transform)
+// =============================================================================
+void GraphCanvas::drawMinimap(juce::Graphics& g)
+{
+    auto mmRect = getMinimapRect();
+    
+    // Background
+    g.setColour(juce::Colour(0xDD101018));
+    g.fillRoundedRectangle(mmRect, 4.0f);
+    
+    // Border
+    g.setColour(juce::Colour(0xFF505060));
+    g.drawRoundedRectangle(mmRect, 4.0f, 1.0f);
+    
+    // Scale factors: virtual canvas -> minimap pixels
+    float scaleX = mmRect.getWidth()  / virtualCanvasWidth;
+    float scaleY = mmRect.getHeight() / virtualCanvasHeight;
+    
+    // Draw grid hint (every 4800 virtual units = one "old canvas" block)
+    g.setColour(juce::Colours::white.withAlpha(0.06f));
+    for (int gx = 0; gx <= 4; ++gx)
+    {
+        float lx = mmRect.getX() + gx * (4800.0f * scaleX);
+        g.drawVerticalLine((int)lx, mmRect.getY(), mmRect.getBottom());
+    }
+    for (int gy = 0; gy <= 4; ++gy)
+    {
+        float ly = mmRect.getY() + gy * (3200.0f * scaleY);
+        g.drawHorizontalLine((int)ly, mmRect.getX(), mmRect.getRight());
+    }
+    
+    // Draw nodes as small colored dots
+    if (processor.mainGraph)
+    {
+        for (auto* node : processor.mainGraph->getNodes())
+        {
+            if (!shouldShowNode(node)) continue;
+            
+            auto bounds = getNodeBounds(node);
+            float nx = mmRect.getX() + bounds.getCentreX() * scaleX;
+            float ny = mmRect.getY() + bounds.getCentreY() * scaleY;
+            
+            // Color based on type
+            auto* cache = getCachedNodeType(node->nodeID);
+            juce::Colour dotColor = juce::Colour(0xFF00AAFF);  // default blue
+            
+            if (cache)
+            {
+                if (cache->isIO)
+                    dotColor = juce::Colour(0xFFFFD700);  // gold for I/O
+                else if (cache->isInstrument)
+                    dotColor = juce::Colour(0xFF00FF88);  // green for instruments
+                else if (cache->simpleConnector || cache->stereoMeter || cache->midiMonitor ||
+                         cache->recorder || cache->manualSampler || cache->autoSampler ||
+                         cache->midiPlayer || cache->ccStepper || cache->transientSplitter ||
+                         cache->latcher)
+                    dotColor = juce::Colour(0xFFFF8800);  // orange for system tools
+                else if (node->isBypassed())
+                    dotColor = juce::Colour(0xFF666666);  // gray for bypassed
+            }
+            
+            float dotSize = 4.0f;
+            g.setColour(dotColor);
+            g.fillEllipse(nx - dotSize / 2, ny - dotSize / 2, dotSize, dotSize);
+        }
+    }
+    
+    // Draw viewport rectangle (current visible area)
+    float visW = getVisibleWidth();
+    float visH = getVisibleHeight();
+    
+    float vpX = mmRect.getX() + panOffsetX * scaleX;
+    float vpY = mmRect.getY() + panOffsetY * scaleY;
+    float vpW = visW * scaleX;
+    float vpH = visH * scaleY;
+    
+    // Clamp viewport rect to minimap bounds
+    vpW = juce::jmin(vpW, mmRect.getWidth());
+    vpH = juce::jmin(vpH, mmRect.getHeight());
+    
+    auto vpRect = juce::Rectangle<float>(vpX, vpY, vpW, vpH);
+    
+    // Viewport fill (semi-transparent)
+    g.setColour(juce::Colour(0x20FFFFFF));
+    g.fillRect(vpRect);
+    
+    // Viewport border (bright)
+    g.setColour(juce::Colour(0xCCFFFFFF));
+    g.drawRect(vpRect, 1.5f);
+    
+    // Label
+    g.setColour(juce::Colour(0x99FFFFFF));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+    int zoomPct = juce::roundToInt(zoomLevel * 100.0f);
+    g.drawText("MAP " + juce::String(zoomPct) + "%", 
+               mmRect.getX() + 4, mmRect.getY() + 2, 80, 12, 
+               juce::Justification::centredLeft);
+}
 
-
-
-
-
-
-
-
-
-
+// =============================================================================
+// NEW: Scrollbars — horizontal and vertical, drawn in component PIXEL coords
+// =============================================================================
+void GraphCanvas::drawScrollbars(juce::Graphics& g)
+{
+    float visW = getVisibleWidth();   // virtual visible area (for thumb ratio)
+    float visH = getVisibleHeight();
+    
+    // ---- Horizontal Scrollbar ----
+    {
+        auto hBar = getHScrollbarRect();
+        
+        // Track background
+        g.setColour(juce::Colour(0xAA181820));
+        g.fillRect(hBar);
+        g.setColour(juce::Colour(0xFF383840));
+        g.drawRect(hBar, 1.0f);
+        
+        // Thumb
+        float thumbRatio = visW / virtualCanvasWidth;
+        if (thumbRatio < 1.0f)
+        {
+            float thumbW = juce::jmax(20.0f, hBar.getWidth() * thumbRatio);
+            float maxPan = virtualCanvasWidth - visW;
+            float thumbX = hBar.getX();
+            if (maxPan > 0.0f)
+                thumbX += (panOffsetX / maxPan) * (hBar.getWidth() - thumbW);
+            
+            auto thumbRect = juce::Rectangle<float>(thumbX, hBar.getY() + 2, thumbW, hBar.getHeight() - 4);
+            
+            g.setColour(isDraggingHScrollbar ? juce::Colour(0xFFAABBCC) : juce::Colour(0xFF667788));
+            g.fillRoundedRectangle(thumbRect, 3.0f);
+        }
+    }
+    
+    // ---- Vertical Scrollbar ----
+    {
+        auto vBar = getVScrollbarRect();
+        
+        // Track background
+        g.setColour(juce::Colour(0xAA181820));
+        g.fillRect(vBar);
+        g.setColour(juce::Colour(0xFF383840));
+        g.drawRect(vBar, 1.0f);
+        
+        // Thumb
+        float thumbRatio = visH / virtualCanvasHeight;
+        if (thumbRatio < 1.0f)
+        {
+            float thumbH = juce::jmax(20.0f, vBar.getHeight() * thumbRatio);
+            float maxPan = virtualCanvasHeight - visH;
+            float thumbY = vBar.getY();
+            if (maxPan > 0.0f)
+                thumbY += (panOffsetY / maxPan) * (vBar.getHeight() - thumbH);
+            
+            auto thumbRect = juce::Rectangle<float>(vBar.getX() + 2, thumbY, vBar.getWidth() - 4, thumbH);
+            
+            g.setColour(isDraggingVScrollbar ? juce::Colour(0xFFAABBCC) : juce::Colour(0xFF667788));
+            g.fillRoundedRectangle(thumbRect, 3.0f);
+        }
+    }
+    
+    // ---- Corner square (bottom-right where scrollbars meet) ----
+    float pixW = (float)getWidth();
+    float pixH = (float)getHeight();
+    g.setColour(juce::Colour(0xFF181820));
+    g.fillRect(juce::Rectangle<float>(pixW - scrollbarThickness, pixH - scrollbarThickness, 
+                                       scrollbarThickness, scrollbarThickness));
+}

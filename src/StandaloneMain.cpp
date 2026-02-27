@@ -7,6 +7,15 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "PluginScanWorker.h"
+#include "OutOfProcessScanner.h"
+
+// =============================================================================
+// Debug logging disabled - was writing colosseum_child_startup.txt to Desktop
+// =============================================================================
+static void logChild(const juce::String& /*message*/)
+{
+    // No-op for release
+}
 
 class SubterraneumApplication : public juce::JUCEApplication
 {
@@ -19,6 +28,11 @@ public:
 
     void initialise(const juce::String& commandLine) override
     {
+        logChild("=== CHILD STARTUP ===");
+        logChild("Raw commandLine: " + commandLine);
+        logChild("commandLine length: " + juce::String(commandLine.length()));
+        logChild("Contains --scan-plugin: " + juce::String(commandLine.contains("--scan-plugin") ? "YES" : "NO"));
+        
         // =================================================================
         // OUT-OF-PROCESS SCAN MODE
         // Usage: Colosseum --scan-plugin <pluginPath> <formatName> <outputFile>
@@ -26,12 +40,20 @@ public:
         // =================================================================
         if (commandLine.contains("--scan-plugin"))
         {
+            logChild("Entering scan mode");
             scanMode = true;
             
             // Parse arguments
             juce::StringArray args = juce::StringArray::fromTokens(commandLine, true);
             
+            logChild("Parsed args count: " + juce::String(args.size()));
+            for (int i = 0; i < args.size(); ++i)
+                logChild("  arg[" + juce::String(i) + "]: " + args[i]);
+            
             int scanIdx = args.indexOf("--scan-plugin");
+            logChild("scanIdx: " + juce::String(scanIdx));
+            logChild("Check: scanIdx + 3 < args.size() => " + juce::String(scanIdx + 3) + " < " + juce::String(args.size()));
+            
             if (scanIdx >= 0 && scanIdx + 3 < args.size())
             {
                 juce::String pluginPath = args[scanIdx + 1];
@@ -43,14 +65,28 @@ public:
                 formatName = formatName.unquoted();
                 outputFile = outputFile.unquoted();
                 
+                logChild("pluginPath: " + pluginPath);
+                logChild("formatName: " + formatName);
+                logChild("outputFile: " + outputFile);
+                logChild("Calling PluginScanWorker::runScan()...");
+                
                 // Run scan worker (headless, no GUI)
                 PluginScanWorker::runScan(pluginPath, formatName, outputFile);
+                
+                logChild("PluginScanWorker::runScan() returned");
+            }
+            else
+            {
+                logChild("ERROR: Not enough arguments!");
             }
             
+            logChild("Calling quit()");
             // Exit immediately after scan
             quit();
             return;
         }
+        
+        logChild("Not scan mode - launching GUI");
         
         // =================================================================
         // NORMAL MODE — Launch GUI
@@ -60,7 +96,9 @@ public:
 
     void shutdown() override
     {
+        logChild("shutdown() called, scanMode=" + juce::String(scanMode ? "true" : "false"));
         mainWindow = nullptr;
+        OutOfProcessScanner::cleanupTempFiles();
         
         if (!scanMode)
             juce::Process::terminate();

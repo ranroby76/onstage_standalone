@@ -1,13 +1,15 @@
 
 
 
-// #D:\Workspace\Subterraneum_plugins_daw\src\AudioSettingsTab.cpp
+
+// AudioSettingsTab.cpp
 // MIDI CHANNEL DUPLICATION: Select target channels to duplicate hardware MIDI to
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Redesigned layout - Time Sig narrow on left, Tempo/Metronome controls on single rows
 // FIX: Added timeSigValueLabel to display current time signature prominently
 // FIX: Added recording folder selection button (right-aligned in Driver Settings)
 // FIX: Added ASIO latency info (In/Out/Total) to status label
+// FIX: Green slider for metronome (matches frame color)
 
 #include "AudioSettingsTab.h"
 #include "RecorderProcessor.h"
@@ -212,7 +214,7 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     metronomeVolumeSlider.setValue(0.7);
     metronomeVolumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     metronomeVolumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    metronomeVolumeSlider.setLookAndFeel(&goldSliderLookAndFeel);
+    metronomeVolumeSlider.setLookAndFeel(&greenSliderLookAndFeel);  // FIX: Green slider to match frame
     
     addAndMakeVisible(metronomeVolumeLabel);
     metronomeVolumeLabel.setJustificationType(juce::Justification::centredRight);
@@ -1131,9 +1133,6 @@ void AudioSettingsTab::reconnectMidiDevices()
         }
     });
 }
-
-
-
 
 
 

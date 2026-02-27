@@ -1,10 +1,9 @@
-
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
 // Solution: Query ONCE at construction using static helper, cache forever.
 // NEW: Added VST2 support with format identification helpers
+// NEW: Added MIDI CC remote control for workspaces and instruments
 
 #pragma once
 
@@ -628,6 +627,18 @@ public:
     bool instrumentSelectorMultiMode = true;  // FIX #2: Multi-mode is now default
     float rackZoomLevel = 1.0f;  // Zoom level for Rack tab (0.25 - 2.0)
     
+    // =========================================================================
+    // MIDI CC Remote Control — fixed CC mapping for live performance
+    // Workspaces 1-16:  CC 102-117 (value > 63 triggers switch)
+    // Instruments 1-32: CC 20-51   (value > 63 triggers select/toggle)
+    // =========================================================================
+    static constexpr int midiCCWorkspaceBase = 102;    // CC 102 = Workspace 1, CC 117 = Workspace 16
+    static constexpr int midiCCInstrumentBase = 20;    // CC 20 = Instrument 1, CC 51 = Instrument 32
+
+    // Pending triggers (set in processBlock audio thread, consumed in UI timers)
+    std::atomic<int> pendingWorkspaceSwitch { -1 };
+    std::atomic<int> pendingInstrumentSelect { -1 };
+    
     static juce::AudioDeviceManager* standaloneDeviceManager;
     
     juce::MidiKeyboardState keyboardState;
@@ -667,9 +678,3 @@ private:
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
-
-
-
-
-
-

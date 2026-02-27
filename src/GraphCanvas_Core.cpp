@@ -20,6 +20,7 @@
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
 #include "LatcherProcessor.h"
+#include "MidiMultiFilterProcessor.h"
 #include <fstream>
 #include <chrono>
 #include <ctime>
@@ -219,6 +220,7 @@ void GraphCanvas::rebuildNodeTypeCache()
         cache.ccStepper = dynamic_cast<CCStepperProcessor*>(proc);
         cache.transientSplitter = dynamic_cast<TransientSplitterProcessor*>(proc);
         cache.latcher = dynamic_cast<LatcherProcessor*>(proc);
+        cache.midiMultiFilter = dynamic_cast<MidiMultiFilterProcessor*>(proc);
         
         // FIX: Track if stereo meter exists
         if (cache.stereoMeter) {
@@ -533,11 +535,3 @@ void GraphCanvas::verifyPositions()
         if (!node->properties.contains("y")) node->properties.set("y", 100.0);
     }
 }
-
-
-
-
-
-
-
-

@@ -20,13 +20,46 @@
 #include "TransientSplitterEditorComponent.h"
 #include "LatcherProcessor.h"
 #include "LatcherEditorComponent.h"
+#include "MidiMultiFilterProcessor.h"
+#include "MidiMultiFilterEditorComponent.h"
 #include "AutoSamplerEditorComponent.h"
 #include "MidiSelectors.h"
 #include "TransportOverrideComponent.h"
 
 void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 {
-    auto pos = e.position;
+    // =========================================================================
+    // NEW: Check minimap and scrollbar hits FIRST (in local coords, not virtual)
+    // =========================================================================
+    if (e.mods.isLeftButtonDown())
+    {
+        if (isPointInMinimap(e.position))
+        {
+            isDraggingMinimap = true;
+            navigateMinimapTo(e.position);
+            return;
+        }
+        
+        if (isPointInHScrollbar(e.position))
+        {
+            isDraggingHScrollbar = true;
+            scrollbarDragStartOffset = e.position.x;
+            scrollbarDragStartPan = panOffsetX;
+            return;
+        }
+        
+        if (isPointInVScrollbar(e.position))
+        {
+            isDraggingVScrollbar = true;
+            scrollbarDragStartOffset = e.position.y;
+            scrollbarDragStartPan = panOffsetY;
+            return;
+        }
+    }
+    
+    auto pos = toVirtual(e.position);
+    // Screen-space click position for popup menu placement
+    auto screenClickPos = e.getScreenPosition();
 
     // Check for pin or connection
     auto pinAtPos = findPinAt(pos);
@@ -166,15 +199,14 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Right-click: Show tooltips only
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 
                 if (muteRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("M - Mute/Unmute audio output", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -184,8 +216,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("X - Delete this connector module", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -195,8 +227,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Volume - Drag up/down to adjust gain (-inf to +25dB)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -265,7 +297,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Right-click: Show tooltips only
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 
                 if (deleteRect.contains(pos))
                 {
@@ -274,8 +305,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip(tooltipText, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -288,8 +319,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip(tooltipText, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -370,7 +401,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Right-click: Show tooltips for buttons or context menu
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 
                 // Record button tooltip
                 if (recordBtnArea.contains(pos))
@@ -378,8 +408,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Record - Start recording audio to file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -390,8 +420,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Stop - Stop recording and save file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -402,8 +432,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Open Folder - Open recording folder in file explorer", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -414,8 +444,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Recording Name - Click to edit filename prefix", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -426,8 +456,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("Sync Mode - When ON, all synced recorders start/stop together", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -441,8 +471,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("X - Delete recorder module", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -456,7 +486,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Name textbox click - open name editor
             if (nameBoxArea.contains(pos))
             {
-                auto screenBounds = getScreenBounds();
                 auto* editor = new juce::TextEditor();
                 editor->setSize(300, 24);
                 editor->setText(recorder->getRecorderName());
@@ -479,8 +508,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 juce::CallOutBox::launchAsynchronously(
                     std::unique_ptr<juce::Component>(editor),
                     juce::Rectangle<int>(
-                        screenBounds.getX() + (int)nameBoxArea.getCentreX(),
-                        screenBounds.getY() + (int)nameBoxArea.getCentreY(),
+                        virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).x,
+                        virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).y,
                         1, 1),
                     nullptr);
                 return;
@@ -593,13 +622,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
                 
@@ -612,7 +640,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             
             if (nameBoxArea.contains(pos))
             {
-                auto screenBounds = getScreenBounds();
                 auto* editor = new juce::TextEditor();
                 editor->setSize(300, 24);
                 editor->setText(manualSampler->getFamilyName());
@@ -631,8 +658,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 };
                 juce::CallOutBox::launchAsynchronously(
                     std::unique_ptr<juce::Component>(editor),
-                    juce::Rectangle<int>(screenBounds.getX() + (int)nameBoxArea.getCentreX(),
-                                         screenBounds.getY() + (int)nameBoxArea.getCentreY(), 1, 1),
+                    juce::Rectangle<int>(virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).x,
+                                         virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).y, 1, 1),
                     nullptr);
                 return;
             }
@@ -705,13 +732,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
                 
@@ -725,7 +751,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             
             if (nameBoxArea.contains(pos))
             {
-                auto screenBounds = getScreenBounds();
                 auto* editor = new juce::TextEditor();
                 editor->setSize(300, 24);
                 editor->setText(autoSampler->getFamilyName());
@@ -744,8 +769,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 };
                 juce::CallOutBox::launchAsynchronously(
                     std::unique_ptr<juce::Component>(editor),
-                    juce::Rectangle<int>(screenBounds.getX() + (int)nameBoxArea.getCentreX(),
-                                         screenBounds.getY() + (int)nameBoxArea.getCentreY(), 1, 1),
+                    juce::Rectangle<int>(virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).x,
+                                         virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).y, 1, 1),
                     nullptr);
                 return;
             }
@@ -762,12 +787,11 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                         if (err.contains("Connect"))
                         {
                             // No valid chain - show error tooltip
-                            auto screenBounds = getScreenBounds();
                             auto* tooltip = new StatusToolTip(err, false);
                             juce::CallOutBox::launchAsynchronously(
                                 std::unique_ptr<juce::Component>(tooltip),
-                                juce::Rectangle<int>(screenBounds.getX() + (int)pos.x,
-                                                     screenBounds.getY() + (int)pos.y, 1, 1),
+                                juce::Rectangle<int>(screenClickPos.x,
+                                                     screenClickPos.y, 1, 1),
                                 nullptr);
                         }
                         else
@@ -871,13 +895,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Right-click: Show tooltips
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
                 
@@ -1058,13 +1081,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
                 
@@ -1148,13 +1170,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
                 if (tsEditRect.contains(pos))   { launchTip("E - Open Transient Splitter editor"); return; }
@@ -1190,6 +1211,74 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // END TRANSIENT SPLITTER button handling
         // =========================================================================
 
+        // =========================================================================
+        // MIDI MULTI FILTER button handling (E, P, X buttons)
+        // =========================================================================
+        MidiMultiFilterProcessor* midiMultiFilter = dynamic_cast<MidiMultiFilterProcessor*>(node->getProcessor());
+        if (midiMultiFilter)
+        {
+            nodeBounds.removeFromTop(Style::nodeTitleHeight);
+            float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+            float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+            auto mmfEditRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+            auto mmfPassRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+            auto mmfDeleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+
+            if (e.mods.isRightButtonDown())
+            {
+                auto launchTip = [&](const juce::String& text) {
+                    auto* tooltip = new StatusToolTip(text, true);
+                    juce::CallOutBox::launchAsynchronously(
+                        std::unique_ptr<juce::Component>(tooltip),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
+                        nullptr);
+                };
+
+                if (mmfEditRect.contains(pos))   { launchTip("E - Open MIDI Multi Filter editor"); return; }
+                if (mmfPassRect.contains(pos))    { launchTip("P - Pass-through (bypass all filtering, yellow when active)"); return; }
+                if (mmfDeleteRect.contains(pos))  { launchTip("X - Delete this MIDI Multi Filter"); return; }
+                return;
+            }
+
+            if (mmfEditRect.contains(pos))
+            {
+                showMidiMultiFilterEditor(node);
+                return;
+            }
+
+            if (mmfPassRect.contains(pos))
+            {
+                midiMultiFilter->passThrough = !midiMultiFilter->passThrough;
+                needsRepaint = true;
+                repaint();
+                return;
+            }
+
+            if (mmfDeleteRect.contains(pos))
+            {
+                auto nodeID = node->nodeID;
+                auto windowIt = activePluginWindows.find(nodeID);
+                if (windowIt != activePluginWindows.end())
+                    activePluginWindows.erase(windowIt);
+                disconnectNode(node);
+                processor.removeNode(nodeID);
+                updateParentSelector();
+                markDirty();
+                return;
+            }
+
+            draggingNodeID = node->nodeID;
+            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
+            startTimer(MouseInteractionTimerID, 16);
+            return;
+        }
+        // =========================================================================
+        // END MIDI MULTI FILTER button handling
+        // =========================================================================
 
         // =========================================================================
         // LATCHER button handling (E editor, X delete, All Off, pad clicks)
@@ -1221,13 +1310,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 auto launchTip = [&](const juce::String& text) {
                     auto* tooltip = new StatusToolTip(text, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10,
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                 };
 
@@ -1353,15 +1441,14 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             // Right-click: Show tooltips only
             if (e.mods.isRightButtonDown())
             {
-                auto screenBounds = getScreenBounds();
                 
                 if (hasEditBtn && editRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("E - Open plugin editor window", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1371,8 +1458,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("CH - MIDI channel filter (select which channels this instrument receives)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1382,8 +1469,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("M - Mute/Bypass plugin (yellow when muted)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1393,8 +1480,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("P - Pass-through mode (bypass processing, pass audio through)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1404,8 +1491,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("T - Per-plugin transport override (custom tempo/time signature)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1415,8 +1502,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("L - Load/Replace VST2 plugin from file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1426,8 +1513,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("X - Delete plugin from rack", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1516,15 +1603,14 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             {
                 if (toggleRect.contains(pos))
                 {
-                    auto screenBounds = getScreenBounds();
                     juce::String tooltipText = isAudioInput 
                         ? "ON/OFF - Enable/Disable audio input from hardware"
                         : "ON/OFF - Enable/Disable audio output to hardware";
                     auto* tooltip = new StatusToolTip(tooltipText, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenBounds.getX() + (int)pos.x + 10, 
-                                             screenBounds.getY() + (int)pos.y + 10, 1, 1),
+                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                                             screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
@@ -1557,10 +1643,19 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
     else if (e.mods.isRightButtonDown())
     {
         // FIX #3: Store right-click position for new node placement
-        lastRightClickPos = e.position;
+        lastRightClickPos = pos;
         
         // Empty canvas - show add plugin menu
         showPluginMenu();
+    }
+    else if (e.mods.isLeftButtonDown())
+    {
+        // Left click on empty canvas space — start drag-to-pan
+        isPanning = true;
+        panMouseScreenStart = e.getScreenPosition();
+        panStartOffsetX = panOffsetX;
+        panStartOffsetY = panOffsetY;
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
     }
 }
 
@@ -1657,8 +1752,8 @@ void GraphCanvas::disconnectNode(juce::AudioProcessorGraph::Node* node)
 
 void GraphCanvas::mouseMove(const juce::MouseEvent& e)
 {
-    highlightPin = findPinAt(e.position);
-    hoveredConnection = getConnectionAt(e.position);
+    highlightPin = findPinAt(toVirtual(e.position));
+    hoveredConnection = getConnectionAt(toVirtual(e.position));
     // Don't force repaint here - timerCallback will check if state changed
 }
 
@@ -1770,9 +1865,71 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
 
 void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
 {
+    // =========================================================================
+    // NEW: Minimap drag — navigate by dragging viewport in minimap
+    // =========================================================================
+    if (isDraggingMinimap)
+    {
+        navigateMinimapTo(e.position);
+        return;
+    }
+    
+    // =========================================================================
+    // NEW: Scrollbar drag
+    // =========================================================================
+    if (isDraggingHScrollbar)
+    {
+        float visW = getVisibleWidth();
+        float maxPan = virtualCanvasWidth - visW;
+        if (maxPan > 0.0f)
+        {
+            auto hBar = getHScrollbarRect();
+            float thumbRatio = visW / virtualCanvasWidth;
+            float thumbW = juce::jmax(20.0f, hBar.getWidth() * thumbRatio);
+            float trackRange = hBar.getWidth() - thumbW;
+            
+            float delta = e.position.x - scrollbarDragStartOffset;
+            float panDelta = (delta / trackRange) * maxPan;
+            panOffsetX = juce::jlimit(0.0f, maxPan, scrollbarDragStartPan + panDelta);
+            repaint();
+        }
+        return;
+    }
+    
+    if (isDraggingVScrollbar)
+    {
+        float visH = getVisibleHeight();
+        float maxPan = virtualCanvasHeight - visH;
+        if (maxPan > 0.0f)
+        {
+            auto vBar = getVScrollbarRect();
+            float thumbRatio = visH / virtualCanvasHeight;
+            float thumbH = juce::jmax(20.0f, vBar.getHeight() * thumbRatio);
+            float trackRange = vBar.getHeight() - thumbH;
+            
+            float delta = e.position.y - scrollbarDragStartOffset;
+            float panDelta = (delta / trackRange) * maxPan;
+            panOffsetY = juce::jlimit(0.0f, maxPan, scrollbarDragStartPan + panDelta);
+            repaint();
+        }
+        return;
+    }
+    
+    // Drag-to-pan: move view by screen delta
+    if (isPanning)
+    {
+        auto screenDelta = e.getScreenPosition() - panMouseScreenStart;
+        panOffsetX = panStartOffsetX - (float)screenDelta.x / zoomLevel;
+        panOffsetY = panStartOffsetY - (float)screenDelta.y / zoomLevel;
+        clampPanOffset();
+        repaint();
+        return;
+    }
+    
     if (midiSliderDragging && midiSliderDragPlayer)
     {
-        float normalised = juce::jlimit(0.0f, 1.0f, (e.position.x - midiSliderTrackX) / midiSliderTrackW);
+        auto pos = toVirtual(e.position);
+        float normalised = juce::jlimit(0.0f, 1.0f, (pos.x - midiSliderTrackX) / midiSliderTrackW);
         midiSliderDragPlayer->setPositionNormalized((double)normalised);
         needsRepaint = true;
         return;
@@ -1800,8 +1957,8 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
     
     if (dragCable.active)
     {
-        dragCable.currentDragPos = e.position;
-        highlightPin = findPinAt(e.position);
+        dragCable.currentDragPos = toVirtual(e.position);
+        highlightPin = findPinAt(toVirtual(e.position));
         needsRepaint = true;
         // CRITICAL FIX: DO NOT restart timer here! It's already running at 60Hz from mouseDown
         // Restarting hundreds of times causes high CPU usage
@@ -1810,9 +1967,9 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
     {
         if (auto* node = processor.mainGraph->getNodeForId(draggingNodeID))
         {
-            auto p = e.position - nodeDragOffset;
-            float clampedX = juce::jmax(10.0f, juce::jmin(p.x, (float)getWidth()  - Style::nodeWidth  - 10.0f));
-            float clampedY = juce::jmax(10.0f, juce::jmin(p.y, (float)getHeight() - Style::nodeHeight - 10.0f));
+            auto p = toVirtual(e.position) - nodeDragOffset;
+            float clampedX = juce::jmax(10.0f, juce::jmin(p.x, virtualCanvasWidth  - Style::nodeWidth  - 10.0f));
+            float clampedY = juce::jmax(10.0f, juce::jmin(p.y, virtualCanvasHeight - Style::nodeHeight - 10.0f));
             
             // Magnetic snap: align with connected nodes when close
             if (!e.mods.isShiftDown())  // Hold Shift to disable snap
@@ -1829,6 +1986,34 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
 
 void GraphCanvas::mouseUp(const juce::MouseEvent& e)
 {
+    // =========================================================================
+    // NEW: End minimap / scrollbar drag
+    // =========================================================================
+    if (isDraggingMinimap)
+    {
+        isDraggingMinimap = false;
+        return;
+    }
+    if (isDraggingHScrollbar)
+    {
+        isDraggingHScrollbar = false;
+        repaint();
+        return;
+    }
+    if (isDraggingVScrollbar)
+    {
+        isDraggingVScrollbar = false;
+        repaint();
+        return;
+    }
+    
+    // End drag-to-pan
+    if (isPanning)
+    {
+        isPanning = false;
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    }
+    
     if (midiSliderDragging)
     {
         midiSliderDragging = false;
@@ -1852,7 +2037,7 @@ void GraphCanvas::mouseUp(const juce::MouseEvent& e)
     
     if (dragCable.active)
     {
-        auto hovered = findPinAt(e.position);
+        auto hovered = findPinAt(toVirtual(e.position));
         if (hovered.isValid() && canConnect(dragCable.sourcePin, hovered))
             createConnection(dragCable.sourcePin, hovered);
 
@@ -1876,15 +2061,15 @@ void GraphCanvas::mouseDoubleClick(const juce::MouseEvent& e)
         return;
         
     // Don't open if double-clicking on pins or connections
-    if (findPinAt(e.position).isValid())
+    if (findPinAt(toVirtual(e.position)).isValid())
         return;
         
-    if (getConnectionAt(e.position).source.nodeID.uid != 0)
+    if (getConnectionAt(toVirtual(e.position)).source.nodeID.uid != 0)
         return;
     
     // FIX: Don't open plugin windows for I/O nodes (Audio In/Out, MIDI In/Out)
     // Double-clicking these nodes should do nothing - prevents them from disappearing
-    if (auto* node = findNodeAt(e.position))
+    if (auto* node = findNodeAt(toVirtual(e.position)))
     {
         auto* cache = getCachedNodeType(node->nodeID);
         bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
@@ -1952,10 +2137,9 @@ void GraphCanvas::showMidiChannelFilter(juce::AudioProcessorGraph::Node* node) {
         });
         
         // Convert to screen coordinates
-        auto screenBounds = getScreenBounds();
         juce::Rectangle<int> targetArea(
-            screenBounds.getX() + chButtonCenter.x, 
-            screenBounds.getY() + chButtonCenter.y, 
+            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).x, 
+            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).y, 
             1, 1);
         
         juce::CallOutBox::launchAsynchronously(
@@ -1979,13 +2163,12 @@ void GraphCanvas::showTransportOverride(juce::AudioProcessorGraph::Node* node)
     auto* transportComp = new TransportOverrideComponent(meteringProc);
     
     auto nodeBounds = getNodeBounds(node);
-    auto screenBounds = getScreenBounds();
     
     juce::CallOutBox::launchAsynchronously(
         std::unique_ptr<juce::Component>(transportComp),
         juce::Rectangle<int>(
-            screenBounds.getX() + (int)nodeBounds.getCentreX(),
-            screenBounds.getY() + (int)nodeBounds.getY(),
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getY()).y,
             1, 1),
         nullptr);
 }
@@ -2389,6 +2572,126 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
     #endif
 }
 
+// =========================================================================
+// Load VST3 plugin from file browser → create new node at position
+// Allows loading blacklisted or unscanned VST3 plugins manually
+// =========================================================================
+void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
+{
+    #if JUCE_PLUGINHOST_VST3
+    auto startFolder = getVST3DefaultFolder();
+    
+    #if JUCE_WINDOWS
+    juce::String filter = "*.vst3";
+    #elif JUCE_MAC
+    juce::String filter = "*.vst3";
+    #else
+    juce::String filter = "*.vst3";
+    #endif
+    
+    pluginFileChooser = std::make_unique<juce::FileChooser>(
+        "Select VST3 Plugin",
+        startFolder,
+        filter);
+    
+    juce::Component::SafePointer<GraphCanvas> safeThis(this);
+    auto nodePos = position;
+    
+    pluginFileChooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
+        [safeThis, nodePos](const juce::FileChooser& fc)
+        {
+            if (!safeThis) return;
+            
+            auto result = fc.getResult();
+            if (!result.exists()) return;
+            
+            // Save last browsed directory
+            safeThis->lastBrowsedDirectory = result.getParentDirectory();
+            safeThis->saveLastBrowsedDirectory();
+            
+            // Use VST3PluginFormat to scan this single file for descriptions
+            juce::VST3PluginFormat vst3Format;
+            juce::OwnedArray<juce::PluginDescription> descriptions;
+            vst3Format.findAllTypesForFile(descriptions, result.getFullPathName());
+            
+            if (descriptions.size() == 0)
+            {
+                juce::NativeMessageBox::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "VST3 Load Failed",
+                    "Could not identify a valid VST3 plugin in:\n" + result.getFullPathName());
+                return;
+            }
+            
+            // If multiple types found (e.g. instrument + effect variants), let user choose
+            juce::PluginDescription* chosen = descriptions[0];
+            if (descriptions.size() > 1)
+            {
+                // For now, use the first one — could show a popup later
+                DBG("VST3 has " + juce::String(descriptions.size()) + " types, using first: " + descriptions[0]->name);
+            }
+            
+            juce::String error;
+            auto instance = safeThis->processor.formatManager.createPluginInstance(
+                *chosen,
+                safeThis->processor.getSampleRate(),
+                safeThis->processor.getBlockSize(),
+                error);
+            
+            if (!instance)
+            {
+                juce::NativeMessageBox::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "VST3 Load Failed",
+                    "Failed to load VST3 plugin:\n" + result.getFileName() + "\n\nError: " + error);
+                return;
+            }
+            
+            // Wrap in MeteringProcessor and add to graph
+            auto meteringProc = std::make_unique<MeteringProcessor>(std::move(instance));
+            auto nodePtr = safeThis->processor.mainGraph->addNode(std::move(meteringProc));
+            
+            if (nodePtr)
+            {
+                nodePtr->properties.set("x", (double)nodePos.x);
+                nodePtr->properties.set("y", (double)nodePos.y);
+                safeThis->updateParentSelector();
+                safeThis->markDirty();
+            }
+        });
+    #endif
+}
+
+// =========================================================================
+// VST3 default folder helper
+// =========================================================================
+juce::File GraphCanvas::getVST3DefaultFolder() const
+{
+    if (auto* settings = processor.appProperties.getUserSettings())
+    {
+        juce::String savedPaths = settings->getValue("VST3Folders", "");
+        if (savedPaths.isNotEmpty())
+        {
+            auto folders = juce::StringArray::fromTokens(savedPaths, "|", "");
+            for (const auto& path : folders)
+            {
+                juce::File folder(path);
+                if (folder.exists() && folder.isDirectory())
+                    return folder;
+            }
+        }
+    }
+    
+    #if JUCE_WINDOWS
+    return juce::File("C:\\Program Files\\Common Files\\VST3");
+    #elif JUCE_MAC
+    return juce::File("/Library/Audio/Plug-Ins/VST3");
+    #else
+    return juce::File("/usr/lib/vst3");
+    #endif
+}
+
 // =============================================================================
 // Step Seq Editor Popup
 // =============================================================================
@@ -2402,13 +2705,12 @@ void GraphCanvas::showStepSeqEditor(juce::AudioProcessorGraph::Node* node)
     auto* editorComp = new CCStepperEditorComponent(ccStepper);
 
     auto nodeBounds = getNodeBounds(node);
-    auto screenBounds = getScreenBounds();
 
     juce::CallOutBox::launchAsynchronously(
         std::unique_ptr<juce::Component>(editorComp),
         juce::Rectangle<int>(
-            screenBounds.getX() + (int)nodeBounds.getCentreX(),
-            screenBounds.getY() + (int)nodeBounds.getY(),
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getY()).y,
             1, 1),
         nullptr);
 }
@@ -2425,13 +2727,12 @@ void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
         if (node->getProcessor() == proc)
         {
             auto nodeBounds = getNodeBounds(node);
-            auto screenBounds = getScreenBounds();
 
             juce::CallOutBox::launchAsynchronously(
                 std::unique_ptr<juce::Component>(editorComp),
                 juce::Rectangle<int>(
-                    screenBounds.getX() + (int)nodeBounds.getCentreX(),
-                    screenBounds.getY() + (int)nodeBounds.getY(),
+                    virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+                    virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getY()).y,
                     1, 1),
                 nullptr);
             return;
@@ -2445,6 +2746,24 @@ void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
         nullptr);
 }
 
+void GraphCanvas::showMidiMultiFilterEditor(juce::AudioProcessorGraph::Node* node)
+{
+    if (!node) return;
+    auto* mmf = dynamic_cast<MidiMultiFilterProcessor*>(node->getProcessor());
+    if (!mmf) return;
+
+    auto* editorComp = mmf->createEditor();
+    auto nodeBounds = getNodeBounds(node);
+
+    juce::CallOutBox::launchAsynchronously(
+        std::unique_ptr<juce::Component>(editorComp),
+        juce::Rectangle<int>(
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).y,
+            1, 1),
+        nullptr);
+}
+
 void GraphCanvas::showLatcherEditor(juce::AudioProcessorGraph::Node* node)
 {
     if (!node) return;
@@ -2452,14 +2771,94 @@ void GraphCanvas::showLatcherEditor(juce::AudioProcessorGraph::Node* node)
     if (!latcher) return;
 
     auto* editorComp = new LatcherEditorComponent(latcher);
-    auto screenBounds = getScreenBounds();
     auto nodeBounds = getNodeBounds(node);
 
     juce::CallOutBox::launchAsynchronously(
         std::unique_ptr<juce::Component>(editorComp),
         juce::Rectangle<int>(
-            screenBounds.getX() + (int)nodeBounds.getCentreX(),
-            screenBounds.getY() + (int)nodeBounds.getCentreY(),
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).y,
             1, 1),
         nullptr);
+}
+
+// =============================================================================
+// NEW: Mouse Wheel — scroll canvas or zoom
+// Ctrl+Wheel = zoom, Shift+Wheel = horizontal scroll, plain = vertical scroll
+// =============================================================================
+void GraphCanvas::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    // Ctrl + wheel = zoom (centered on mouse position)
+    if (e.mods.isCtrlDown())
+    {
+        float zoomDelta = wheel.deltaY * 0.15f;
+        float newZoom = juce::jlimit(0.10f, 2.0f, zoomLevel + zoomDelta);
+        
+        if (std::abs(newZoom - zoomLevel) > 0.001f)
+        {
+            // Zoom toward mouse position: keep the virtual point under cursor fixed
+            auto mouseVirtual = toVirtual(e.position);
+            
+            zoomLevel = newZoom;
+            // NOTE: No setTransform() — zoom is paint-level only
+            
+            // Adjust pan so mouseVirtual stays under cursor
+            // virtual = pixel/zoom + pan → pan = virtual - pixel/zoom
+            panOffsetX = mouseVirtual.x - e.position.x / zoomLevel;
+            panOffsetY = mouseVirtual.y - e.position.y / zoomLevel;
+            clampPanOffset();
+            
+            repaint();
+            if (auto* parent = getParentComponent())
+                parent->repaint();
+        }
+        return;
+    }
+    
+    // Scroll speed in virtual canvas units
+    float scrollSpeed = 120.0f;
+    
+    if (e.mods.isShiftDown())
+    {
+        // Shift + wheel = horizontal scroll
+        panOffsetX -= wheel.deltaY * scrollSpeed;
+        clampPanOffset();
+        repaint();
+    }
+    else
+    {
+        // Plain wheel = vertical scroll (deltaX for horizontal if trackpad)
+        panOffsetY -= wheel.deltaY * scrollSpeed;
+        panOffsetX -= wheel.deltaX * scrollSpeed;
+        clampPanOffset();
+        repaint();
+    }
+}
+
+// =============================================================================
+// NEW: Navigate minimap — set pan so viewport centers on clicked point
+// =============================================================================
+void GraphCanvas::navigateMinimapTo(juce::Point<float> localClickPos)
+{
+    auto mmRect = getMinimapRect();
+    
+    // Convert click position to virtual canvas position
+    float relX = (localClickPos.x - mmRect.getX()) / mmRect.getWidth();
+    float relY = (localClickPos.y - mmRect.getY()) / mmRect.getHeight();
+    
+    relX = juce::jlimit(0.0f, 1.0f, relX);
+    relY = juce::jlimit(0.0f, 1.0f, relY);
+    
+    float targetVirtualX = relX * virtualCanvasWidth;
+    float targetVirtualY = relY * virtualCanvasHeight;
+    
+    // Center the viewport on the clicked position
+    float visW = getVisibleWidth();
+    float visH = getVisibleHeight();
+    
+    panOffsetX = targetVirtualX - visW * 0.5f;
+    panOffsetY = targetVirtualY - visH * 0.5f;
+    clampPanOffset();
+    
+    repaint();
 }

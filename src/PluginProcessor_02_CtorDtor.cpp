@@ -17,7 +17,7 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
 {
     initializePluginFormats();
     
-    options.applicationName = "Colosseum";
+    options.applicationName = "Colosseum_1_2";
     options.filenameSuffix = ".settings";
     options.osxLibrarySubFolder = "Application Support";
     options.folderName = "Fanan";

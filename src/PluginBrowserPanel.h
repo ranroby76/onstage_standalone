@@ -3,6 +3,7 @@
 // FIX: Collapsible vendor/folder groups, title header, no vendor in items
 // FIX: Added Recorder to SystemToolType
 // NEW: Favorites mode - toggle title to browse saved .subt patches
+// NEW: Added MidiMultiFilter system tool
 
 #pragma once
 
@@ -13,7 +14,7 @@
 #include <map>
 
 // =============================================================================
-// System Tool Type - FIXED: Added Recorder
+// System Tool Type - FIXED: Added Recorder, MidiMultiFilter
 // =============================================================================
 enum class SystemToolType {
     None,
@@ -27,7 +28,9 @@ enum class SystemToolType {
     StepSeq,
     TransientSplitter,
     Latcher,
-    VST2Plugin
+    MidiMultiFilter,   // NEW: MIDI Multi Filter tool
+    VST2Plugin,
+    VST3Plugin
 };
 
 // =============================================================================
@@ -116,6 +119,7 @@ public:
     void setSystemTools();
     void setFavorites(const juce::Array<juce::File>& patchFiles);
     void paint(juce::Graphics& g) override;
+    int getNumItems() const { return items.size(); }
     
     void toggleGroup(const juce::String& groupName);
     
@@ -219,9 +223,3 @@ private:
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginBrowserPanel)
 };
-
-
-
-
-
-
