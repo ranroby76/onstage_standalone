@@ -473,6 +473,7 @@ void GraphCanvas::showPluginMenu()
                     
                     if (dllFile.existsAsFile())
                     {
+                    #if JUCE_WINDOWS
                         // Try loading the DLL directly to get Windows error code
                         HMODULE hMod = LoadLibraryExW(
                             dllFile.getFullPathName().toWideCharPointer(),
@@ -591,6 +592,9 @@ void GraphCanvas::showPluginMenu()
                                 LocalFree(msgBuf);
                             }
                         }
+                    #else
+                        LOG("  (LoadLibrary diagnostics are Windows-only, skipping on this platform)");
+                    #endif
                     }
                 }
                 
