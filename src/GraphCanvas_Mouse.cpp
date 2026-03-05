@@ -1,4 +1,3 @@
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Mouse.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
@@ -235,10 +234,59 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             return;
         }
 
+        // NEW: If the clicked pin already has connections, disconnect the last one
+        // and drag from its other end — allows rewiring without going back to start
+        PinID dragSourcePin = pinAtPos;
+        if (auto* ag = getActiveGraph())
+        {
+            juce::AudioProcessorGraph::Connection lastConn = {
+                {juce::AudioProcessorGraph::NodeID(), 0},
+                {juce::AudioProcessorGraph::NodeID(), 0}
+            };
+            bool foundConn = false;
+            for (auto& conn : ag->getConnections())
+            {
+                bool matchesSrc = (!pinAtPos.isInput &&
+                                   conn.source.nodeID == pinAtPos.nodeID &&
+                                   conn.source.channelIndex == pinAtPos.pinIndex);
+                bool matchesDst = (pinAtPos.isInput &&
+                                   conn.destination.nodeID == pinAtPos.nodeID &&
+                                   conn.destination.channelIndex == pinAtPos.pinIndex);
+                if (matchesSrc || matchesDst)
+                {
+                    lastConn = conn;
+                    foundConn = true;
+                    // Keep iterating — we want the last connection in the list
+                }
+            }
+            if (foundConn)
+            {
+                ag->removeConnection(lastConn);
+                markDirty();
+                // Drag from the other end of the removed connection
+                if (pinAtPos.isInput)
+                {
+                    // Clicked the destination → anchor at source
+                    dragSourcePin.nodeID    = lastConn.source.nodeID;
+                    dragSourcePin.pinIndex  = lastConn.source.channelIndex;
+                    dragSourcePin.isInput   = false;
+                    dragSourcePin.isMidi    = pinAtPos.isMidi;
+                }
+                else
+                {
+                    // Clicked the source → anchor at destination
+                    dragSourcePin.nodeID    = lastConn.destination.nodeID;
+                    dragSourcePin.pinIndex  = lastConn.destination.channelIndex;
+                    dragSourcePin.isInput   = true;
+                    dragSourcePin.isMidi    = pinAtPos.isMidi;
+                }
+            }
+        }
+
         dragCable.active = true;
-        dragCable.sourcePin = pinAtPos;
+        dragCable.sourcePin = dragSourcePin;
         dragCable.currentDragPos = pos;
-        dragCable.dragColor = getPinColor(pinAtPos, getActiveGraph() ? getActiveGraph()->getNodeForId(pinAtPos.nodeID) : nullptr);
+        dragCable.dragColor = getPinColor(dragSourcePin, getActiveGraph() ? getActiveGraph()->getNodeForId(dragSourcePin.nodeID) : nullptr);
 
         // CRITICAL FIX: Start high-frequency timer ONCE when drag begins
         startTimer(MouseInteractionTimerID, 16);  // 60 Hz for smooth dragging
