@@ -1,8 +1,10 @@
+// #D:\Workspace\Subterraneum_plugins_daw\src\AudioSettingsTab.h
 // AudioSettingsTab.h
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Added timeSigValueLabel to display current time signature
 // FIX: Added recording folder selection button
 // FIX: Green slider for metronome
+// NEW: Added container folder selection button
 
 #pragma once
 
@@ -151,6 +153,10 @@ private:
     juce::TextButton samplerFolderBtn { "Set Sampler Folder..." };
     juce::Label samplerFolderLabel { "sampFolder", "" };
     
+    // Container folder selection (dark purple theme)
+    juce::TextButton containerFolderBtn { "Set Container Folder..." };
+    juce::Label containerFolderLabel { "contFolder", "" };
+    
     // Default patch auto-load
     // Save as Default button with right-click info popup
     class InfoButton : public juce::TextButton {
@@ -268,6 +274,10 @@ private:
     // Sampler folder helpers
     void selectSamplerFolder();
     void updateSamplerFolderLabel();
+    
+    // Container folder helpers
+    void selectContainerFolder();
+    void updateContainerFolderLabel();
     
     // Default patch helpers
     void saveAsDefault();

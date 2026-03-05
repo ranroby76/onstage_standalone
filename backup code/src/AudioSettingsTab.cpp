@@ -1,12 +1,11 @@
-
-
-// #D:\Workspace\Subterraneum_plugins_daw\src\AudioSettingsTab.cpp
+// AudioSettingsTab.cpp
 // MIDI CHANNEL DUPLICATION: Select target channels to duplicate hardware MIDI to
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
 // FIX: Redesigned layout - Time Sig narrow on left, Tempo/Metronome controls on single rows
 // FIX: Added timeSigValueLabel to display current time signature prominently
 // FIX: Added recording folder selection button (right-aligned in Driver Settings)
 // FIX: Added ASIO latency info (In/Out/Total) to status label
+// FIX: Green slider for metronome (matches frame color)
 
 #include "AudioSettingsTab.h"
 #include "RecorderProcessor.h"
@@ -66,6 +65,25 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     samplerFolderLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     samplerFolderLabel.setJustificationType(juce::Justification::centredRight);
     updateSamplerFolderLabel();
+    
+    // Default patch buttons
+    addAndMakeVisible(saveDefaultBtn);
+    saveDefaultBtn.addListener(this);
+    saveDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(40, 80, 40));
+    saveDefaultBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgreen);
+    saveDefaultBtn.setTooltip("Right-click for info");
+    saveDefaultBtn.infoText = "Saves the current rack state and audio\nsettings as the default patch loaded\nautomatically on startup.";
+    
+    addAndMakeVisible(clearDefaultBtn);
+    clearDefaultBtn.addListener(this);
+    clearDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(80, 40, 40));
+    clearDefaultBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(255, 150, 150));
+    
+    addAndMakeVisible(defaultPatchLabel);
+    defaultPatchLabel.setFont(juce::Font(11.0f));
+    defaultPatchLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    defaultPatchLabel.setJustificationType(juce::Justification::centredRight);
+    updateDefaultPatchLabel();
     
     // =========================================================================
     // MIDI Inputs Group (Red Frame)
@@ -192,7 +210,7 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     metronomeVolumeSlider.setValue(0.7);
     metronomeVolumeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     metronomeVolumeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    metronomeVolumeSlider.setLookAndFeel(&goldSliderLookAndFeel);
+    metronomeVolumeSlider.setLookAndFeel(&greenSliderLookAndFeel);  // FIX: Green slider to match frame
     
     addAndMakeVisible(metronomeVolumeLabel);
     metronomeVolumeLabel.setJustificationType(juce::Justification::centredRight);
@@ -271,7 +289,7 @@ void AudioSettingsTab::resized() {
     // =========================================================================
     // Driver Settings - Top row (increased height for folder controls)
     // =========================================================================
-    auto driverArea = area.removeFromTop(130); 
+    auto driverArea = area.removeFromTop(160); 
     driverGroup.setBounds(driverArea);
     driverArea.reduce(10, 25); 
     
@@ -314,6 +332,16 @@ void AudioSettingsTab::resized() {
     auto row3 = driverArea.removeFromTop(20);
     auto samplerLabelArea = row3.removeFromRight(350);
     samplerFolderLabel.setBounds(samplerLabelArea);
+    
+    driverArea.removeFromTop(2);
+    
+    // Fourth row: Default patch buttons (left) + label (right)
+    auto row4 = driverArea.removeFromTop(24);
+    saveDefaultBtn.setBounds(row4.removeFromLeft(130));
+    row4.removeFromLeft(5);
+    clearDefaultBtn.setBounds(row4.removeFromLeft(100));
+    row4.removeFromLeft(10);
+    defaultPatchLabel.setBounds(row4);
     
     area.removeFromTop(10);
     
@@ -513,6 +541,70 @@ void AudioSettingsTab::updateSamplerFolderLabel() {
     }
     
     samplerFolderLabel.setText("Samp: " + path, juce::dontSendNotification);
+}
+
+void AudioSettingsTab::saveAsDefault() {
+    auto defaultFile = processor.getDefaultPatchFile();
+    
+    // Ensure parent directory exists
+    defaultFile.getParentDirectory().createDirectory();
+    
+    processor.saveUserPreset(defaultFile);
+    
+    // Also save current audio device name as default
+    processor.saveAudioSettings();
+    
+    updateDefaultPatchLabel();
+    
+    // Flash the button to confirm
+    saveDefaultBtn.setButtonText("Saved!");
+    saveDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(20, 120, 20));
+    
+    auto safeThis = juce::Component::SafePointer<AudioSettingsTab>(this);
+    juce::Timer::callAfterDelay(1500, [safeThis]() {
+        if (safeThis) {
+            safeThis->saveDefaultBtn.setButtonText("Save as Default");
+            safeThis->saveDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(40, 80, 40));
+        }
+    });
+}
+
+void AudioSettingsTab::clearDefault() {
+    auto defaultFile = processor.getDefaultPatchFile();
+    
+    if (defaultFile.existsAsFile()) {
+        defaultFile.deleteFile();
+        
+        updateDefaultPatchLabel();
+        
+        // Flash the button to confirm
+        clearDefaultBtn.setButtonText("Cleared!");
+        clearDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(120, 20, 20));
+        
+        auto safeThis = juce::Component::SafePointer<AudioSettingsTab>(this);
+        juce::Timer::callAfterDelay(1500, [safeThis]() {
+            if (safeThis) {
+                safeThis->clearDefaultBtn.setButtonText("Clear Default");
+                safeThis->clearDefaultBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(80, 40, 40));
+            }
+        });
+    }
+}
+
+void AudioSettingsTab::updateDefaultPatchLabel() {
+    auto defaultFile = processor.getDefaultPatchFile();
+    
+    if (defaultFile.existsAsFile()) {
+        auto modTime = defaultFile.getLastModificationTime();
+        juce::String timeStr = modTime.toString(true, true, false);
+        defaultPatchLabel.setText("Default patch saved: " + timeStr, juce::dontSendNotification);
+        defaultPatchLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
+        clearDefaultBtn.setEnabled(true);
+    } else {
+        defaultPatchLabel.setText("No default patch set", juce::dontSendNotification);
+        defaultPatchLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+        clearDefaultBtn.setEnabled(false);
+    }
 }
 
 void AudioSettingsTab::handleTapTempo() {
@@ -970,6 +1062,12 @@ void AudioSettingsTab::buttonClicked(juce::Button* b) {
     else if (b == &reconnectMidiBtn) {
         reconnectMidiDevices();
     }
+    else if (b == &saveDefaultBtn) {
+        saveAsDefault();
+    }
+    else if (b == &clearDefaultBtn) {
+        clearDefault();
+    }
 }
 
 
@@ -1031,7 +1129,3 @@ void AudioSettingsTab::reconnectMidiDevices()
         }
     });
 }
-
-
-
-

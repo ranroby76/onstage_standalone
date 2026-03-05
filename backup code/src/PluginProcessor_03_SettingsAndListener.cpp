@@ -47,10 +47,10 @@ void SubterraneumAudioProcessor::loadAudioSettings() {
 // =============================================================================
 void SubterraneumAudioProcessor::changeListenerCallback(juce::ChangeBroadcaster* source) {
     if (source == &knownPluginList) {
-        if (auto* userSettings = appProperties.getUserSettings()) {
+        if (auto* pluginSettings = pluginProperties.getUserSettings()) {
             if (auto xml = knownPluginList.createXml()) {
-                userSettings->setValue("KnownPluginsV2", xml.get());
-                userSettings->saveIfNeeded();
+                pluginSettings->setValue("KnownPluginsV2", xml.get());
+                pluginSettings->saveIfNeeded();
             }
         }
     }
@@ -88,59 +88,49 @@ void SubterraneumAudioProcessor::sendMidiPanicToAllInstruments() {
 // =============================================================================
 void SubterraneumAudioProcessor::updateHardwareMidiChannelMasks() {
     // =========================================================================
-    // FIX #3: REMOVED sendMidiPanicToAllInstruments() - causes crashes!
-    // Problem: It calls processBlock() from UI thread → race condition → crash
-    // Solution: Panic is unnecessary when just changing MIDI channel routing
+    // THREAD-SAFE FIX: Build new map locally, then swap under suspension.
+    // Pre-compute combined mask as atomic so audio thread never touches the map.
     // =========================================================================
     
-    const juce::MessageManagerLock mmLock;
-    suspendProcessing(true);
+    std::map<juce::String, int> newMasks;
+    int newCombined = 0xFFFF;  // Default: all channels pass through
     
-    hardwareMidiChannelMasks.clear();
-    
-    if (!standaloneDeviceManager) {
-        suspendProcessing(false);
-        return;
-    }
-    
-    auto* userSettings = appProperties.getUserSettings();
-    if (!userSettings) {
-        suspendProcessing(false);
-        return;
-    }
-    
-    auto midiInputs = juce::MidiInput::getAvailableDevices();
-    
-    for (auto& info : midiInputs) {
-        if (standaloneDeviceManager->isMidiInputDeviceEnabled(info.identifier)) {
-            juce::String maskKey = "MidiMask_" + info.identifier.replaceCharacters(" :/\\", "____");
+    if (standaloneDeviceManager) {
+        auto* userSettings = appProperties.getUserSettings();
+        if (userSettings) {
+            auto midiInputs = juce::MidiInput::getAvailableDevices();
+            bool hasAnyMask = false;
+            int combined = 0;
             
-            // FIX: Default to ALL channels (0xFFFF) = pass-through mode (no duplication)
-            // When specific channels selected: Incoming MIDI duplicated to those channels
-            int mask = userSettings->getIntValue(maskKey, 0xFFFF);
-            
-            if (mask != 0) {
-                hardwareMidiChannelMasks[info.identifier] = mask;
+            for (auto& info : midiInputs) {
+                if (standaloneDeviceManager->isMidiInputDeviceEnabled(info.identifier)) {
+                    juce::String maskKey = "MidiMask_" + info.identifier.replaceCharacters(" :/\\", "____");
+                    int mask = userSettings->getIntValue(maskKey, 0xFFFF);
+                    
+                    if (mask != 0) {
+                        newMasks[info.identifier] = mask;
+                        combined |= mask;
+                        hasAnyMask = true;
+                    }
+                }
             }
+            
+            if (hasAnyMask)
+                newCombined = combined;
         }
     }
     
-    // Reset tracking when masks are updated - default to all channels
+    // Swap under suspension — audio thread reads only the atomic, never the map
+    suspendProcessing(true);
+    hardwareMidiChannelMasks.swap(newMasks);
+    cachedCombinedHardwareMask.store(newCombined);
     lastHardwareMidiMask = 0xFFFF;
-    
     suspendProcessing(false);
 }
 
 void SubterraneumAudioProcessor::applyHardwareMidiChannelFiltering(juce::MidiBuffer& midiMessages) {
-    // Default: ALL channels (0xFFFF) - hardware MIDI passes through unchanged by default
-    int combinedHardwareMask = 0xFFFF;
-    
-    if (!hardwareMidiChannelMasks.empty()) {
-        combinedHardwareMask = 0;
-        for (const auto& pair : hardwareMidiChannelMasks) {
-            combinedHardwareMask |= pair.second;
-        }
-    }
+    // THREAD-SAFE: Read only the pre-computed atomic — never touch the map on audio thread
+    int combinedHardwareMask = cachedCombinedHardwareMask.load();
     
     // Track mask changes for panic messages
     bool maskChanged = (lastHardwareMidiMask != combinedHardwareMask);

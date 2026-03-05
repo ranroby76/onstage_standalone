@@ -1,8 +1,10 @@
+// #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_AutoScanner.cpp
 // PluginManagerTab_AutoScanner.cpp
 // AutoPluginScanner — Single-pass scanner UI with continuous visual feedback
 // UI timer reads atomics from background OutOfProcessScanner — NEVER blocks
 // FIX: Sea blue gradient progress bar
 // FIX: Quick scan now properly compares against known plugins and timestamps
+// FIX: Shared container dedup — don't remove VSTi/FX variants from same bundle
 
 #include "PluginManagerTab.h"
 #include "OutOfProcessScanner.h"
@@ -253,7 +255,7 @@ void AutoPluginScanner::startQuickScan() {
     
     // Load saved timestamps
     std::map<juce::String, juce::int64> savedModTimes;
-    if (auto* settings = processor.appProperties.getUserSettings()) {
+    if (auto* settings = processor.pluginProperties.getUserSettings()) {
         juce::String timestamps = settings->getValue("PluginTimestamps", "");
         if (timestamps.isNotEmpty()) {
             juce::StringArray lines;
@@ -321,7 +323,7 @@ void AutoPluginScanner::startQuickScan() {
         
         // Save cleaned list if we removed anything
         if (removedCount > 0) {
-            if (auto* userSettings = processor.appProperties.getUserSettings()) {
+            if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
                 if (auto xml = processor.knownPluginList.createXml())
                     userSettings->setValue("KnownPluginsV2", xml.get());
                 userSettings->saveIfNeeded();
@@ -499,7 +501,7 @@ void AutoPluginScanner::finishScan() {
     }
     
     // Save the plugin list
-    if (auto* settings = processor.appProperties.getUserSettings()) {
+    if (auto* settings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml()) {
             settings->setValue("KnownPluginsV2", xml.get());
             settings->saveIfNeeded();
@@ -526,23 +528,30 @@ void AutoPluginScanner::finishScan() {
 }
 
 void AutoPluginScanner::removeDuplicatePlugins() {
-    // Remove duplicate plugin entries (same file path)
+    // Remove duplicate plugin entries (same file path + name + uniqueId)
+    // NOTE: Shared container VST3 bundles (e.g. Serum 2) contain MULTIPLE
+    // plugins in one .vst3 file — VSTi + FX versions share the same
+    // fileOrIdentifier path. We must include name and uniqueId in the key
+    // so they are treated as distinct plugins.
     auto types = processor.knownPluginList.getTypes();
-    std::set<juce::String> seenPaths;
+    std::set<juce::String> seenPlugins;
     
     for (const auto& plugin : types) {
-        juce::String key = normalizePath(plugin.fileOrIdentifier) + "|" + plugin.pluginFormatName;
-        if (seenPaths.count(key) > 0) {
+        juce::String key = normalizePath(plugin.fileOrIdentifier) + "|" 
+                         + plugin.pluginFormatName + "|"
+                         + plugin.name + "|"
+                         + juce::String(plugin.uniqueId);
+        if (seenPlugins.count(key) > 0) {
             processor.knownPluginList.removeType(plugin);
         } else {
-            seenPaths.insert(key);
+            seenPlugins.insert(key);
         }
     }
 }
 
 void AutoPluginScanner::savePluginTimestamps(const juce::Array<OutOfProcessScanner::PluginToScan>& files) {
     // Save last modified timestamps for quick scan (using normalized paths)
-    if (auto* settings = processor.appProperties.getUserSettings()) {
+    if (auto* settings = processor.pluginProperties.getUserSettings()) {
         juce::String timestampData;
         for (const auto& f : files) {
             juce::File file(f.filePath);

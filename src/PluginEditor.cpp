@@ -97,38 +97,6 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));  // dark yellow/goldenrod
     floatMixerButton.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
     
-    // Workspace selector buttons
-    for (int i = 0; i < 16; ++i)
-    {
-        workspaceButtons[i].setButtonText(audioProcessor.getWorkspaceName(i));
-        workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(40, 40, 45));
-        workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(190, 190, 200));
-        workspaceButtons[i].onClick = [this, i]() {
-            if (!audioProcessor.isWorkspaceEnabled(i)) return;
-            graphCanvas.closeAllPluginWindows();
-            audioProcessor.switchWorkspace(i);
-            graphCanvas.refreshCache();
-            graphCanvas.repaint();
-            // Sync zoom to restored workspace value
-            zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
-            updateWorkspaceButtonColors();
-            updateInstrumentSelector();  // FIX: Refresh instruments for new workspace
-        };
-        workspaceButtons[i].onStateChange = [this, i]() {
-            // Right-click detection via mouse event
-        };
-        addAndMakeVisible(workspaceButtons[i]);
-        workspaceButtons[i].addMouseListener(this, false);
-    }
-    
-    // Workspace label
-    workspacesLabel.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
-    workspacesLabel.setJustificationType(juce::Justification::centredLeft);
-    workspacesLabel.setColour(juce::Label::textColourId, juce::Colour(200, 200, 220));
-    addAndMakeVisible(workspacesLabel);
-    
-    updateWorkspaceButtonColors();
-    
     // ASIO LED and label
     addAndMakeVisible(asioLed);
     asioLabel.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
@@ -363,24 +331,6 @@ void SubterraneumAudioProcessorEditor::timerCallback() {
         cpuPercent = SubterraneumAudioProcessor::standaloneDeviceManager->getCpuUsage() * 100.0;
     }
     cpuLabel.setText("CPU: " + juce::String(cpuPercent, 1) + "%", juce::dontSendNotification);
-    
-    // =========================================================================
-    // NEW: Handle pending MIDI CC workspace switch
-    // =========================================================================
-    int pendingWS = audioProcessor.pendingWorkspaceSwitch.exchange(-1);
-    if (pendingWS >= 0 && pendingWS < 16)
-    {
-        if (audioProcessor.isWorkspaceEnabled(pendingWS) && pendingWS != audioProcessor.getActiveWorkspace())
-        {
-            graphCanvas.closeAllPluginWindows();
-            audioProcessor.switchWorkspace(pendingWS);
-            graphCanvas.refreshCache();
-            graphCanvas.repaint();
-            zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
-            updateWorkspaceButtonColors();
-            updateInstrumentSelector();  // FIX: Refresh instruments for new workspace
-        }
-    }
 }
 
 void SubterraneumAudioProcessorEditor::updateInstrumentSelector() { 
@@ -494,7 +444,6 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
                 zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
                 repaint(); 
                 updateInstrumentSelector(); 
-                updateWorkspaceButtonColors();
             } 
         });
     } else if (b == &saveButton) { 
@@ -508,17 +457,16 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
             } 
         });
     } else if (b == &resetButton) { 
-        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Reset", "Reset the entire application to initial state?\nAll workspaces will be cleared.", 
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Reset", "Reset the entire application to initial state?", 
             "Yes", "No", nullptr, juce::ModalCallbackFunction::create([this](int result) { 
                 if (result == 1) { 
                     graphCanvas.closeAllPluginWindows();
-                    audioProcessor.resetAllWorkspaces(); 
+                    audioProcessor.resetGraph(); 
                     graphCanvas.refreshCache();
                     // Reset zoom to default
                     audioProcessor.rackZoomLevel = 1.0f;
                     zoomSlider.setValue(1.0, juce::sendNotificationSync);
                     updateInstrumentSelector(); 
-                    updateWorkspaceButtonColors();
                     repaint(); 
                 } 
         }));
@@ -540,11 +488,6 @@ void SubterraneumAudioProcessorEditor::paint(juce::Graphics& g) {
     // Draw main header
     g.setColour(juce::Colour(0xff1a1a1a));
     g.fillRect(Style::leftMenuWidth, 0, getWidth() - Style::leftMenuWidth, Style::mainHeaderHeight); 
-    
-    // Workspace bar background
-    g.setColour(juce::Colour(25, 25, 30));
-    g.fillRect(Style::leftMenuWidth, Style::mainHeaderHeight, 
-               getWidth() - Style::leftMenuWidth, workspaceBarHeight);
     
     // Draw logos
     int logoY = 5;
@@ -638,24 +581,6 @@ void SubterraneumAudioProcessorEditor::resized() {
     
     auto mainHeader = area.removeFromTop(Style::mainHeaderHeight); 
     
-    // Workspace selector bar
-    auto wsBar = area.removeFromTop(workspaceBarHeight);
-    {
-        int labelW = 80;
-        int gap = 2;
-        int availW = wsBar.getWidth() - labelW - gap * 2;
-        int btnW = (availW - 15 * gap) / 16;
-        if (btnW < 40) btnW = 40;
-        int startX = wsBar.getX();
-        workspacesLabel.setBounds(startX, wsBar.getY(), labelW, workspaceBarHeight);
-        int btnStartX = startX + labelW + gap * 2;
-        for (int i = 0; i < 16; ++i)
-        {
-            workspaceButtons[i].setBounds(btnStartX + i * (btnW + gap), 
-                                           wsBar.getY() + 2, btnW, workspaceBarHeight - 4);
-        }
-    }
-    
     // Status LEDs in header
     int ledSize = 14;
     int ledSpacing = 40;
@@ -743,176 +668,8 @@ void SubterraneumAudioProcessorEditor::updateTabButtonColors() {
     }
 }
 
-void SubterraneumAudioProcessorEditor::updateWorkspaceButtonColors()
-{
-    int active = audioProcessor.getActiveWorkspace();
-    for (int i = 0; i < 16; ++i)
-    {
-        bool isActive = (i == active);
-        bool isEnabled = audioProcessor.isWorkspaceEnabled(i);
-        bool isOccupied = audioProcessor.isWorkspaceOccupied(i);
-        
-        workspaceButtons[i].setButtonText(audioProcessor.getWorkspaceName(i));
-        
-        if (!isEnabled) {
-            // Disabled — dark, dimmer than others but still readable
-            workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(28, 28, 30));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(90, 90, 100));
-        } else if (isActive) {
-            workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(0, 120, 200));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-        } else if (isOccupied) {
-            workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(60, 60, 70));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(220, 220, 230));
-        } else {
-            // Enabled but empty
-            workspaceButtons[i].setColour(juce::TextButton::buttonColourId, juce::Colour(40, 40, 45));
-            workspaceButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colour(190, 190, 200));
-        }
-    }
-}
-
-// =============================================================================
-// Workspace Context Menu (right-click)
-// =============================================================================
-void SubterraneumAudioProcessorEditor::showWorkspaceContextMenu(int idx)
-{
-    juce::PopupMenu menu;
-    
-    bool isEnabled = audioProcessor.isWorkspaceEnabled(idx);
-    bool isActive = (idx == audioProcessor.getActiveWorkspace());
-    
-    // NEW: Show MIDI CC info at top of context menu
-    int midiCC = SubterraneumAudioProcessor::midiCCWorkspaceBase + idx;
-    menu.addSectionHeader("MIDI CC " + juce::String(midiCC) + "  (value > 63 = switch)");
-    menu.addSeparator();
-    
-    // Enable / Disable toggle
-    if (!isEnabled)
-        menu.addItem(1, "Enable");
-    else if (!isActive)
-        menu.addItem(1, "Disable");
-    else
-        menu.addItem(1, "Disable", false); // Can't disable active workspace
-    
-    menu.addItem(2, "Rename");
-    
-    // Clear — only if enabled
-    menu.addItem(3, "Clear", isEnabled);
-    
-    // Duplicate submenu — only if enabled
-    juce::PopupMenu dupMenu;
-    for (int i = 0; i < 16; ++i)
-    {
-        if (i == idx) continue;
-        dupMenu.addItem(100 + i, "Workspace " + audioProcessor.getWorkspaceName(i));
-    }
-    menu.addSubMenu("Duplicate to...", dupMenu, isEnabled);
-    
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&workspaceButtons[idx]),
-        [this, idx](int result)
-        {
-            if (result == 0) return;
-            
-            if (result == 1)
-            {
-                // Toggle enable
-                bool wasEnabled = audioProcessor.isWorkspaceEnabled(idx);
-                audioProcessor.setWorkspaceEnabled(idx, !wasEnabled);
-                updateWorkspaceButtonColors();
-            }
-            else if (result == 2)
-            {
-                // Rename — popup text editor
-                auto* editor = new juce::TextEditor();
-                editor->setSize(200, 26);
-                editor->setText(audioProcessor.getWorkspaceName(idx));
-                editor->selectAll();
-                editor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(45, 45, 50));
-                editor->setColour(juce::TextEditor::textColourId, juce::Colours::white);
-                editor->setColour(juce::TextEditor::outlineColourId, juce::Colour(80, 80, 90));
-                
-                auto* okBtn = new juce::TextButton("OK");
-                okBtn->setSize(50, 26);
-                okBtn->setColour(juce::TextButton::buttonColourId, juce::Colour(0, 120, 200));
-                
-                auto* container = new juce::Component();
-                container->setSize(260, 30);
-                container->addAndMakeVisible(editor);
-                container->addAndMakeVisible(okBtn);
-                editor->setBounds(0, 2, 200, 26);
-                okBtn->setBounds(206, 2, 50, 26);
-                
-                auto screenBounds = workspaceButtons[idx].getScreenBounds();
-                
-                auto* editorPtr = editor;
-                auto& procRef = audioProcessor;
-                auto updateFn = [this]() { updateWorkspaceButtonColors(); };
-                int wsIdx = idx;
-                
-                auto doRename = [editorPtr, &procRef, wsIdx, updateFn]() {
-                    auto newName = editorPtr->getText().trim();
-                    if (newName.isNotEmpty())
-                        procRef.setWorkspaceName(wsIdx, newName.substring(0, 15));
-                    updateFn();
-                    if (auto* callout = editorPtr->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                
-                okBtn->onClick = doRename;
-                editor->onReturnKey = doRename;
-                editor->onEscapeKey = [editorPtr]() {
-                    if (auto* callout = editorPtr->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                
-                juce::CallOutBox::launchAsynchronously(
-                    std::unique_ptr<juce::Component>(container),
-                    screenBounds, nullptr);
-            }
-            else if (result == 3)
-            {
-                // Clear
-                graphCanvas.closeAllPluginWindows();
-                audioProcessor.clearWorkspace(idx);
-                if (idx == audioProcessor.getActiveWorkspace())
-                {
-                    graphCanvas.refreshCache();
-                    graphCanvas.repaint();
-                    updateInstrumentSelector();  // FIX: Refresh instruments after clear
-                }
-                updateWorkspaceButtonColors();
-            }
-            else if (result >= 100 && result < 116)
-            {
-                // Duplicate to workspace (result - 100)
-                int dstIdx = result - 100;
-                graphCanvas.closeAllPluginWindows();
-                audioProcessor.duplicateWorkspace(idx, dstIdx);
-                if (dstIdx == audioProcessor.getActiveWorkspace())
-                {
-                    graphCanvas.refreshCache();
-                    graphCanvas.repaint();
-                    updateInstrumentSelector();  // FIX: Refresh instruments after duplicate
-                }
-                updateWorkspaceButtonColors();
-            }
-        });
-}
-
 void SubterraneumAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
-    if (e.mods.isRightButtonDown())
-    {
-        for (int i = 0; i < 16; ++i)
-        {
-            if (e.eventComponent == &workspaceButtons[i])
-            {
-                showWorkspaceContextMenu(i);
-                return;
-            }
-        }
-    }
     juce::AudioProcessorEditor::mouseDown(e);
 }
 

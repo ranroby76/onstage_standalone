@@ -1,9 +1,8 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
 // Solution: Query ONCE at construction using static helper, cache forever.
 // NEW: Added VST2 support with format identification helpers
-// NEW: Added MIDI CC remote control for workspaces and instruments
+// NEW: Added MIDI CC remote control for instruments
 
 #pragma once
 
@@ -540,22 +539,9 @@ public:
     void restoreMultiStates();
     void resetBlacklist();
     
-    // =========================================================================
-    // Workspace System — 16 switchable sessions
-    // =========================================================================
-    static constexpr int maxWorkspaces = 16;
-    int getActiveWorkspace() const { return activeWorkspace; }
-    bool isWorkspaceOccupied(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceOccupied[i] : false; }
-    bool isWorkspaceEnabled(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceEnabled[i] : false; }
-    juce::String getWorkspaceName(int i) const { return (i >= 0 && i < maxWorkspaces) ? workspaceNames[i] : juce::String(); }
-    void setWorkspaceName(int i, const juce::String& name) { if (i >= 0 && i < maxWorkspaces) workspaceNames[i] = name; }
-    void setWorkspaceEnabled(int i, bool enabled) { if (i >= 0 && i < maxWorkspaces) workspaceEnabled[i] = enabled; }
-    void switchWorkspace(int targetIndex);
-    void clearWorkspace(int index);
-    void duplicateWorkspace(int srcIndex, int dstIndex);
-    void resetAllWorkspaces();
+    // Graph serialization (used by save/load)
     juce::String serializeGraphToXml() const;
-    void restoreGraphFromXml(const juce::String& xmlStr);
+    void restoreGraphFromXml(const juce::String& xmlStr, bool skipClear = false);
     
     juce::StringArray getSupportedFormatNames() const;
     
@@ -570,6 +556,7 @@ public:
     juce::KnownPluginList knownPluginList;
     juce::AudioPluginFormatManager formatManager;
     juce::ApplicationProperties appProperties;
+    juce::ApplicationProperties pluginProperties;  // Separate file for plugin scan data
     juce::PropertiesFile::Options options;
 
     void saveAudioSettings();
@@ -629,17 +616,17 @@ public:
     
     // =========================================================================
     // MIDI CC Remote Control — fixed CC mapping for live performance
-    // Workspaces 1-16:  CC 102-117 (value > 63 triggers switch)
     // Instruments 1-32: CC 20-51   (value > 63 triggers select/toggle)
     // =========================================================================
-    static constexpr int midiCCWorkspaceBase = 102;    // CC 102 = Workspace 1, CC 117 = Workspace 16
     static constexpr int midiCCInstrumentBase = 20;    // CC 20 = Instrument 1, CC 51 = Instrument 32
 
     // Pending triggers (set in processBlock audio thread, consumed in UI timers)
-    std::atomic<int> pendingWorkspaceSwitch { -1 };
     std::atomic<int> pendingInstrumentSelect { -1 };
     
     static juce::AudioDeviceManager* standaloneDeviceManager;
+    
+    // FIX 3: Container counter for auto-numbering ("Container 1", "Container 2", etc.)
+    static std::atomic<int> containerCounter;
     
     juce::MidiKeyboardState keyboardState;
     
@@ -657,22 +644,16 @@ private:
     juce::TimeSliceThread writerThread { "Audio Recorder Thread" };
     juce::File lastRecordingFile;
     
-    // Workspace storage
-    int activeWorkspace = 0;
-    juce::String workspaceData[maxWorkspaces];
-    bool workspaceOccupied[maxWorkspaces] = {};
-    bool workspaceEnabled[maxWorkspaces] = { true }; // Only workspace 0 enabled by default
-    juce::String workspaceNames[maxWorkspaces];
-    
     int meterUpdateCounter = 0;
     static constexpr int meterUpdateInterval = 8;
     
     std::map<juce::String, int> hardwareMidiChannelMasks;
+    std::atomic<int> cachedCombinedHardwareMask { 0xFFFF };  // Thread-safe: audio thread reads only this
     
     // =========================================================================
     // CRITICAL FIX: Per-instance tracking (NOT static!)
     // =========================================================================
-    int lastHardwareMidiMask = 0x0001;
+    std::atomic<int> lastHardwareMidiMask { 0x0001 };  // Written from UI thread (reset) + audio thread (update)
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessor)
 };

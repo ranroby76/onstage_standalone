@@ -1,0 +1,57 @@
+{
+    "code":  "\nuniform vec4  _Color;\nuniform float _Position;\nuniform float _Speed;\nuniform float _Angle;\nuniform float _Frequency;\nuniform float _Amplitude;\n\nconst float PI = 3.14159265359;\n\nvec2 rotate( vec2 uv, vec2 imageSize, float rads ) {\n    rads -= 1.570796;\n    uv -= 0.5;\n    uv.x *= imageSize.x / imageSize.y;\n    uv = mat2( cos( rads ), sin( rads ), -sin( rads ), cos( rads ) ) * uv;\n    uv += 0.5;\n    return uv;\n}\n\nvec4 drawWave( vec2 st, vec4 inputColor, vec4 waveColor, float feather )\n{\n    float animationSpeedAmplitude = _Time * _Speed;\n    float animationSpeedShift = _Time * _Speed * 0.4;\n    \n    // Input _Position should correspond with the percentage of wave coverage in the X direction when _Frequency is 0 and the wave is drawn vertically\n    float coverage = 1.0 - ( ( _Position - 50.0 ) * ( _ImageSize.x / _ImageSize.y ) + 50.0 ) / 100.0;\n    \n    // Input _Frequency should correspond with the num of peaks present when wave is drawn vertically\n    float frequency = _Frequency * 6.25;\n    \n    // Input _Amplitude should correspond with the percentage of horizontal space covered by wave from peak to trough\n    float amplitude = _Amplitude / 50.0;\n    \n    float y = coverage + sin( 1.0 + animationSpeedAmplitude ) * sin( st.x * frequency - animationSpeedShift ) * amplitude * 0.5;\n    return mix( waveColor, inputColor, smoothstep( st.y, st.y + feather, y ) );\n}\n\nvec4 colorAtPoint( vec2 point, vec4 inputColor, vec4 waveColor, float feather )\n{\n    return drawWave( point, inputColor, waveColor, feather );\n}\n\nvoid main() {\n    _FragColor = vec4( 0.0 );\n    vec2 uv = rotate( _TexCoord, _ImageSize, _Angle );\n\n    const float feather = 0.005;\n    _FragColor = mix( _FragColor, colorAtPoint( uv, _FragColor, _Color, feather ), 1.0 );\n} \n  ",
+    "effectDef":  [
+                      {
+                          "name":  "Color",
+                          "type":  "Color",
+                          "value":  "2E2E2E"
+                      },
+                      {
+                          "defaultValue":  50.0,
+                          "maxValue":  100.0,
+                          "minValue":  0.0,
+                          "name":  "Position",
+                          "type":  "double"
+                      },
+                      {
+                          "defaultValue":  1.0,
+                          "maxValue":  10.0,
+                          "minValue":  -10.0,
+                          "name":  "Speed",
+                          "type":  "double"
+                      },
+                      {
+                          "defaultValue":  0.0,
+                          "name":  "Angle",
+                          "type":  "double",
+                          "unitType":  "radians",
+                          "userInterfaceType":  "directional"
+                      },
+                      {
+                          "defaultValue":  2.0,
+                          "maxValue":  10.0,
+                          "minValue":  0.0,
+                          "name":  "Frequency",
+                          "type":  "double"
+                      },
+                      {
+                          "defaultValue":  3.0,
+                          "maxValue":  50.0,
+                          "minValue":  -50.0,
+                          "name":  "Amplitude",
+                          "type":  "double"
+                      }
+                  ],
+    "height":  1080,
+    "localizedName":  {
+                          "en":  "Half Screen Fill"
+                      },
+    "name":  "Half Screen Fill",
+    "signature":  {
+                      "type":  "ES512",
+                      "value":  "MIGHAkIBRw4Sywt3OPL3WFeaoC6OPgjRjTpw4RqidGb4DHlarM0KqgUdp5yF6SsWejSY+QgXayhGU8vbm0AXd0mgSGFnbRMCQRAprg1x9QDkMz5+9ikE4gTFnD7T1KRWyPjVopl0o3UDRwafSwbo6jvaq8eMUuNZNGva5vxIbEJc5z3b2ALvloXJ"
+                  },
+    "version":  1.0,
+    "width":  1920,
+    "copyright":  "Copyright � 2023 TechSmith Corporation. All rights reserved."
+}

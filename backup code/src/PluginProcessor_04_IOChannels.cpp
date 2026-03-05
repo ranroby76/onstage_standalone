@@ -8,6 +8,10 @@
 void SubterraneumAudioProcessor::updateIOChannelCount() {
     if (!mainGraph) return;
     
+    // CRITICAL FIX: Suspend audio processing while modifying graph topology
+    // Without this, the audio thread may access nodes being removed/recreated
+    suspendProcessing(true);
+    
     int numIns = 2;
     int numOuts = 2;
 
@@ -124,6 +128,7 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
         }
     }
     
+    suspendProcessing(false);
 }
 
 void SubterraneumAudioProcessor::updateActiveChannels() {

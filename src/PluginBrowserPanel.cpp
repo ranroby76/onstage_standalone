@@ -1,3 +1,4 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginBrowserPanel.cpp
 // FIX: Removed vendor from items, removed favorites, added title,
 // collapsible vendor/folder groups, custom drag image for visibility
@@ -9,6 +10,7 @@
 // FIX: Added MidiMultiFilter to System Tools
 
 #include "PluginBrowserPanel.h"
+#include "ContainerProcessor.h"
 
 // =============================================================================
 // HELPER: Generic folder names that are NOT useful for ByFolder grouping
@@ -105,6 +107,66 @@ void FavoritePatchItem::mouseDoubleClick(const juce::MouseEvent&) {
 }
 
 // =============================================================================
+// ContainerPresetItem - .container preset file entry in Containers tab
+// =============================================================================
+ContainerPresetItem::ContainerPresetItem(const juce::File& file) : presetFile(file) {
+    setSize(200, 36);
+}
+
+void ContainerPresetItem::paint(juce::Graphics& g) {
+    auto bounds = getLocalBounds().toFloat();
+    
+    if (hovered) {
+        g.setColour(juce::Colour(0xFF3A3A3A));
+        g.fillRoundedRectangle(bounds, 4.0f);
+    }
+    
+    // Purple container badge
+    float x = 6.0f;
+    g.setColour(juce::Colour(80, 40, 100));
+    g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 36, 18, 3.0f);
+    g.setColour(juce::Colour(200, 160, 255));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+    g.drawText("CONT", (int)x, 0, 36, getHeight(), juce::Justification::centred);
+    x += 42.0f;
+    
+    // Preset name (without .container extension)
+    g.setColour(juce::Colours::white);
+    g.setFont(13.0f);
+    g.drawText(presetFile.getFileNameWithoutExtension(), (int)x, 0, getWidth() - (int)x - 8, getHeight(),
+               juce::Justification::centredLeft, true);
+}
+
+void ContainerPresetItem::mouseDrag(const juce::MouseEvent& e) {
+    if (e.getDistanceFromDragStart() > 5) {
+        if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this)) {
+            juce::String dragId = "CONTAINERPRESET:" + presetFile.getFullPathName();
+            juce::String displayName = presetFile.getFileNameWithoutExtension();
+            
+            // Custom drag image with purple theme
+            int imgWidth = 180;
+            int imgHeight = 28;
+            juce::Image dragImage(juce::Image::ARGB, imgWidth, imgHeight, true);
+            juce::Graphics g(dragImage);
+            
+            g.setColour(juce::Colour(0xDD2A1A30));
+            g.fillRoundedRectangle(0, 0, (float)imgWidth, (float)imgHeight, 4.0f);
+            g.setColour(juce::Colour(200, 160, 255));
+            g.drawRoundedRectangle(0.5f, 0.5f, imgWidth - 1.0f, imgHeight - 1.0f, 4.0f, 1.5f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+            g.drawText(displayName, 8, 0, imgWidth - 16, imgHeight, juce::Justification::centredLeft, true);
+            
+            container->startDragging(dragId, this, juce::ScaledImage(dragImage), true);
+        }
+    }
+}
+
+void ContainerPresetItem::mouseDoubleClick(const juce::MouseEvent&) {
+    if (onPresetDoubleClick) onPresetDoubleClick(presetFile);
+}
+
+// =============================================================================
 // PluginBrowserItem - Plugin entry (no favorites, no vendor display)
 // =============================================================================
 PluginBrowserItem::PluginBrowserItem(const juce::PluginDescription& desc)
@@ -185,6 +247,7 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
             case SystemToolType::TransientSplitter: name = "Transient Splitter"; break;
             case SystemToolType::Latcher:            name = "Latcher"; break;
             case SystemToolType::MidiMultiFilter:    name = "MIDI Multi Filter"; break;
+            case SystemToolType::Container:              name = "Container"; break;
             case SystemToolType::VST2Plugin:     name = "VST2 Plugin..."; break;
             case SystemToolType::VST3Plugin:     name = "VST3 Plugin..."; break;
             default: name = "Unknown";
@@ -250,6 +313,10 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
                     case SystemToolType::MidiMultiFilter:
                         dragId = "TOOL:MidiMultiFilter";
                         displayName = "MIDI Multi Filter";
+                        break;
+                    case SystemToolType::Container:
+                        dragId = "TOOL:Container";
+                        displayName = "Container";
                         break;
                     case SystemToolType::VST2Plugin:
                         dragId = "TOOL:VST2Plugin"; 
@@ -402,6 +469,8 @@ void PluginBrowserList::setPlugins(const juce::Array<juce::PluginDescription>& p
     headers.clear();
     flatHeaders.clear();
     groupedPlugins.clear();
+    favoriteItems.clear();
+    containerPresetItems.clear();
     
     currentGroupByVendor = groupByVendor;
     currentGroupByFolder = groupByFolder;
@@ -484,6 +553,8 @@ void PluginBrowserList::setSystemTools() {
     headers.clear();
     flatHeaders.clear();
     groupedPlugins.clear();
+    favoriteItems.clear();
+    containerPresetItems.clear();
     
     int y = 5;
     
@@ -563,6 +634,13 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(mmf);
     y += 34;
     
+    // NEW: Add Container
+    auto* cont = items.add(new PluginBrowserItem(SystemToolType::Container));
+    cont->setBounds(0, y, getWidth(), 32);
+    cont->onToolDoubleClick = onToolDoubleClick;
+    addAndMakeVisible(cont);
+    y += 34;
+    
     auto* v2 = items.add(new PluginBrowserItem(SystemToolType::VST2Plugin));
     v2->setBounds(0, y, getWidth(), 32);
     v2->onToolDoubleClick = onToolDoubleClick;
@@ -584,6 +662,7 @@ void PluginBrowserList::setFavorites(const juce::Array<juce::File>& patchFiles) 
     flatHeaders.clear();
     groupedPlugins.clear();
     favoriteItems.clear();
+    containerPresetItems.clear();
     removeAllChildren();
     
     int y = 5;
@@ -617,11 +696,59 @@ void PluginBrowserList::setFavorites(const juce::Array<juce::File>& patchFiles) 
     setSize(getWidth(), y + 10);
 }
 
+void PluginBrowserList::setContainerPresets(const juce::Array<juce::File>& presetFiles) {
+    items.clear();
+    headers.clear();
+    flatHeaders.clear();
+    groupedPlugins.clear();
+    favoriteItems.clear();
+    containerPresetItems.clear();
+    removeAllChildren();
+    
+    int y = 5;
+    
+    if (presetFiles.isEmpty()) {
+        auto* h = flatHeaders.add(new juce::Label());
+        h->setText("No .container presets found", juce::dontSendNotification);
+        h->setFont(juce::Font(juce::FontOptions(12.0f)));
+        h->setColour(juce::Label::textColourId, juce::Colours::grey);
+        h->setBounds(5, y, getWidth() - 10, 24);
+        addAndMakeVisible(h);
+        y += 26;
+        
+        auto* hint = flatHeaders.add(new juce::Label());
+        hint->setText("Save containers via right-click > Save Container Preset", juce::dontSendNotification);
+        hint->setFont(juce::Font(juce::FontOptions(10.0f)));
+        hint->setColour(juce::Label::textColourId, juce::Colour(120, 120, 120));
+        hint->setBounds(5, y, getWidth() - 10, 20);
+        addAndMakeVisible(hint);
+        y += 22;
+    } else {
+        auto* h = flatHeaders.add(new juce::Label());
+        h->setText("Container Presets", juce::dontSendNotification);
+        h->setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+        h->setColour(juce::Label::textColourId, juce::Colour(200, 160, 255));
+        h->setBounds(5, y, getWidth() - 10, 24);
+        addAndMakeVisible(h);
+        y += 26;
+        
+        for (const auto& file : presetFiles) {
+            auto* item = containerPresetItems.add(new ContainerPresetItem(file));
+            item->setBounds(0, y, getWidth(), 36);
+            item->onPresetDoubleClick = onContainerPresetDoubleClick;
+            addAndMakeVisible(item);
+            y += 38;
+        }
+    }
+    
+    setSize(getWidth(), y + 10);
+}
+
 // =============================================================================
 // PluginBrowserPanel
 // =============================================================================
 PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processor(p) {
-    // Mode selector buttons: Add Plugins | Favorites
+    // Mode selector buttons: Add Plugins | Favorites | Containers
     addPluginsBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::cyan.darker());
     addPluginsBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     addPluginsBtn.addListener(this);
@@ -631,6 +758,11 @@ PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processo
     favoritesBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
     favoritesBtn.addListener(this);
     addAndMakeVisible(favoritesBtn);
+    
+    containersBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2A2A2A));
+    containersBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    containersBtn.addListener(this);
+    addAndMakeVisible(containersBtn);
     
     // Search box
     searchBox.setTextToShowWhenEmpty("Search plugins...", juce::Colours::grey);
@@ -699,6 +831,10 @@ PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processo
     pluginList->onPatchDoubleClick = [this](const juce::File& file) {
         showWorkspaceSelector(file);
     };
+    pluginList->onContainerPresetDoubleClick = [this](const juce::File& file) {
+        if (onContainerPresetLoad)
+            onContainerPresetLoad(file, juce::Point<int>(400, 300));
+    };
     
     viewport.setViewedComponent(pluginList.get(), false);
     viewport.setScrollBarsShown(true, false);
@@ -721,11 +857,14 @@ void PluginBrowserPanel::paint(juce::Graphics& g) {
 void PluginBrowserPanel::resized() {
     auto area = getLocalBounds().reduced(6);
     
-    // Mode selector row: [Add Plugins] [Favorites]
+    // Mode selector row: [Add Plugins] [Favorites] [Containers]
     auto modeRow = area.removeFromTop(24);
-    addPluginsBtn.setBounds(modeRow.removeFromLeft(modeRow.getWidth() / 2 - 2));
-    modeRow.removeFromLeft(4);
-    favoritesBtn.setBounds(modeRow);
+    int tabW = modeRow.getWidth() / 3;
+    addPluginsBtn.setBounds(modeRow.removeFromLeft(tabW - 1));
+    modeRow.removeFromLeft(2);
+    favoritesBtn.setBounds(modeRow.removeFromLeft(tabW - 1));
+    modeRow.removeFromLeft(2);
+    containersBtn.setBounds(modeRow);
     area.removeFromTop(6);
     
     if (favoritesMode) {
@@ -749,7 +888,7 @@ void PluginBrowserPanel::resized() {
     area.removeFromTop(6);
     
     // Type filter row (only in plugin mode)
-    if (!favoritesMode) {
+    if (!favoritesMode && !containersMode) {
         auto typeRow = area.removeFromTop(22);
         int btnW = typeRow.getWidth() / 4;
         allBtn.setBounds(typeRow.removeFromLeft(btnW));
@@ -784,15 +923,16 @@ void PluginBrowserPanel::resized() {
     setFavFolderBtn.setVisible(favoritesMode);
     favFolderLabel.setVisible(favoritesMode);
     
-    // Show/hide type/view buttons
-    allBtn.setVisible(!favoritesMode);
-    instrumentsBtn.setVisible(!favoritesMode);
-    effectsBtn.setVisible(!favoritesMode);
-    toolsBtn.setVisible(!favoritesMode);
-    flatBtn.setVisible(!favoritesMode);
-    vendorBtn.setVisible(!favoritesMode);
-    folderBtn.setVisible(!favoritesMode);
-    formatBtn.setVisible(!favoritesMode);
+    // Show/hide type/view buttons (hidden in favorites and containers modes)
+    bool showPluginControls = !favoritesMode && !containersMode;
+    allBtn.setVisible(showPluginControls);
+    instrumentsBtn.setVisible(showPluginControls);
+    effectsBtn.setVisible(showPluginControls);
+    toolsBtn.setVisible(showPluginControls);
+    flatBtn.setVisible(showPluginControls);
+    vendorBtn.setVisible(showPluginControls);
+    folderBtn.setVisible(showPluginControls);
+    formatBtn.setVisible(showPluginControls);
 }
 
 void PluginBrowserPanel::visibilityChanged() {
@@ -808,13 +948,21 @@ bool PluginBrowserPanel::keyPressed(const juce::KeyPress& key) {
 void PluginBrowserPanel::buttonClicked(juce::Button* btn) {
     if (btn == &addPluginsBtn) {
         favoritesMode = false;
+        containersMode = false;
         updateButtons();
         applyFilters();
         resized();
     } else if (btn == &favoritesBtn) {
         favoritesMode = true;
+        containersMode = false;
         updateButtons();
         loadFavoritesList();
+        resized();
+    } else if (btn == &containersBtn) {
+        favoritesMode = false;
+        containersMode = true;
+        updateButtons();
+        loadContainerPresetsList();
         resized();
     } else if (btn == &allBtn) {
         typeFilter = TypeFilter::All;
@@ -858,6 +1006,8 @@ void PluginBrowserPanel::textEditorTextChanged(juce::TextEditor&) {
     searchText = searchBox.getText();
     if (favoritesMode)
         loadFavoritesList();
+    else if (containersMode)
+        loadContainerPresetsList();
     else
         applyFilters();
 }
@@ -873,6 +1023,8 @@ void PluginBrowserPanel::refresh() {
     updateButtons();
     if (favoritesMode)
         loadFavoritesList();
+    else if (containersMode)
+        loadContainerPresetsList();
     else
         applyFilters();
     pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
@@ -880,8 +1032,10 @@ void PluginBrowserPanel::refresh() {
 
 void PluginBrowserPanel::updateButtons() {
     // Mode selector highlights
-    addPluginsBtn.setColour(juce::TextButton::buttonColourId, !favoritesMode ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
+    addPluginsBtn.setColour(juce::TextButton::buttonColourId, (!favoritesMode && !containersMode) ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
     favoritesBtn.setColour(juce::TextButton::buttonColourId, favoritesMode ? juce::Colour(0xFFB8860B) : juce::Colour(0xFF2A2A2A));
+    containersBtn.setColour(juce::TextButton::buttonColourId, containersMode ? juce::Colour(80, 40, 100) : juce::Colour(0xFF2A2A2A));
+    containersBtn.setColour(juce::TextButton::textColourOffId, containersMode ? juce::Colour(200, 160, 255) : juce::Colours::lightgrey);
     
     allBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::All ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
     instrumentsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Instruments ? juce::Colours::gold.darker() : juce::Colour(0xFF2A2A2A));
@@ -1005,36 +1159,33 @@ void PluginBrowserPanel::loadFavoritesList() {
     viewport.setViewPosition(0, 0);
 }
 
-void PluginBrowserPanel::showWorkspaceSelector(const juce::File& patchFile) {
-    juce::PopupMenu menu;
-    menu.addSectionHeader("Load into workspace:");
+void PluginBrowserPanel::loadContainerPresetsList() {
+    auto folder = ContainerProcessor::getEffectiveDefaultFolder();
+    juce::Array<juce::File> presets;
     
-    for (int i = 0; i < 16; ++i) {
-        menu.addItem(i + 1, "Workspace " + juce::String(i + 1));
+    if (folder.isDirectory()) {
+        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.container");
+        files.sort();
+        
+        for (const auto& f : files) {
+            if (searchText.isNotEmpty()) {
+                if (!f.getFileNameWithoutExtension().containsIgnoreCase(searchText))
+                    continue;
+            }
+            presets.add(f);
+        }
     }
     
-    menu.addSeparator();
-    menu.addItem(100, "Load into CURRENT workspace");
+    pluginList->setContainerPresets(presets);
+    countLabel.setText(juce::String(presets.size()) + " preset" + (presets.size() != 1 ? "s" : ""), juce::dontSendNotification);
+    pluginList->setSize(viewport.getWidth() - viewport.getScrollBarThickness(), pluginList->getHeight());
+    viewport.setViewPosition(0, 0);
+}
+
+void PluginBrowserPanel::showWorkspaceSelector(const juce::File& patchFile) {
+    // Load patch directly
+    processor.loadUserPreset(patchFile);
     
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(getScreenBounds().reduced(20)),
-        [this, patchFile](int result) {
-            if (result == 0) return;  // dismissed
-            
-            if (result == 100) {
-                // Load into current workspace
-                processor.loadUserPreset(patchFile);
-                
-                // Refresh editor
-                if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getTopLevelComponent()))
-                    editor->resized();
-            } else {
-                int wsIndex = result - 1;
-                // Switch to target workspace first, then load
-                processor.switchWorkspace(wsIndex);
-                processor.loadUserPreset(patchFile);
-                
-                if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getTopLevelComponent()))
-                    editor->resized();
-            }
-        });
+    if (auto* editor = dynamic_cast<juce::AudioProcessorEditor*>(getTopLevelComponent()))
+        editor->resized();
 }

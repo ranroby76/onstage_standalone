@@ -6,6 +6,7 @@
 // FIX: Flushes log after each write to ensure visibility on crash
 
 #include "PluginScanWorker.h"
+#include "VST3ModuleScanner.h"
 
 // =============================================================================
 // Debug logging disabled - was writing colosseum_scan_debug.txt to Desktop
@@ -176,10 +177,63 @@ void PluginScanWorker::runScan(const juce::String& pluginPath,
     }
     
     // =========================================================================
-    // Phase 2: For plugins with incomplete metadata, INSTANTIATE to get real data
+    // Phase 1.5: For VST3 plugins with incomplete metadata, try moduleinfo.json
+    // FIRST — this is safe (no DLL loading) and gives us fallback data
     // =========================================================================
-    logDebug("Phase 2 - checking for incomplete metadata...");
+    logDebug("Phase 1.5 - checking moduleinfo.json for incomplete metadata...");
     
+    for (int i = 0; i < results.size(); ++i)
+    {
+        auto* desc = results[i];
+        
+        if (hasIncompleteMetadata(*desc) && formatName == "VST3")
+        {
+            juce::File vst3File(pluginPath);
+            if (VST3ModuleScanner::hasModuleInfo(vst3File))
+            {
+                auto allModulePlugins = VST3ModuleScanner::scanAllPlugins(vst3File);
+                
+                // Find the matching module plugin by name
+                for (const auto& moduleInfo : allModulePlugins)
+                {
+                    if (moduleInfo.isValid && moduleInfo.name.equalsIgnoreCase(desc->name))
+                    {
+                        logDebug("  moduleinfo.json enrichment for: " + desc->name);
+                        if (desc->manufacturerName.isEmpty() || desc->manufacturerName == "Unknown")
+                            desc->manufacturerName = moduleInfo.vendor;
+                        if (desc->category.isEmpty() || desc->category == "Unknown")
+                            desc->category = moduleInfo.category;
+                        if (desc->version.isEmpty() || desc->version == "Unknown")
+                            desc->version = moduleInfo.version;
+                        if (!desc->isInstrument && moduleInfo.isInstrument)
+                            desc->isInstrument = true;
+                        logDebug("  After enrichment: vendor=" + desc->manufacturerName 
+                                 + ", category=" + desc->category
+                                 + ", isInstrument=" + juce::String(desc->isInstrument ? "true" : "false"));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // =========================================================================
+    // SAFETY NET: Write preliminary JSON BEFORE attempting instantiation
+    // If Phase 2 crashes the worker, the parent still gets moduleinfo data
+    // =========================================================================
+    if (!results.isEmpty())
+    {
+        logDebug("Writing preliminary JSON (safety net before instantiation)");
+        writeJsonResult(outputFile, results);
+    }
+    
+    // =========================================================================
+    // Phase 2: For plugins STILL with incomplete metadata, INSTANTIATE to get real data
+    // This is the dangerous part — the worker may crash here
+    // =========================================================================
+    logDebug("Phase 2 - checking for remaining incomplete metadata...");
+    
+    bool anyImproved = false;
     for (int i = 0; i < results.size(); ++i)
     {
         auto* desc = results[i];
@@ -215,6 +269,7 @@ void PluginScanWorker::runScan(const juce::String& pluginPath,
                 desc->uniqueId = realDesc.uniqueId;
                 desc->deprecatedUid = realDesc.deprecatedUid;
                 desc->hasSharedContainer = realDesc.hasSharedContainer;
+                anyImproved = true;
                 
                 instance->releaseResources();
                 instance.reset();
@@ -269,7 +324,7 @@ void PluginScanWorker::runScan(const juce::String& pluginPath,
     }
     
     // =========================================================================
-    // Write JSON result (slow path - only if we didn't write earlier)
+    // Write final JSON result (overwrites preliminary if Phase 2 improved data)
     // =========================================================================
     writeJsonResult(outputFile, results);
     logDebug("=== SCAN END ===\n");

@@ -1,9 +1,11 @@
+
 // Plugin Browser Panel - ALL plugin and tool selection happens here
 // Filters: All | Instruments | Effects | Tools (removed Favorites)
 // FIX: Collapsible vendor/folder groups, title header, no vendor in items
 // FIX: Added Recorder to SystemToolType
 // NEW: Favorites mode - toggle title to browse saved .subt patches
 // NEW: Added MidiMultiFilter system tool
+// NEW: Added Container system tool
 
 #pragma once
 
@@ -14,7 +16,7 @@
 #include <map>
 
 // =============================================================================
-// System Tool Type - FIXED: Added Recorder, MidiMultiFilter
+// System Tool Type - FIXED: Added Recorder, MidiMultiFilter, Container
 // =============================================================================
 enum class SystemToolType {
     None,
@@ -29,6 +31,7 @@ enum class SystemToolType {
     TransientSplitter,
     Latcher,
     MidiMultiFilter,   // NEW: MIDI Multi Filter tool
+    Container,         // NEW: Container (sub-graph) tool
     VST2Plugin,
     VST3Plugin
 };
@@ -50,6 +53,27 @@ public:
     
 private:
     juce::File patchFile;
+    bool hovered = false;
+};
+
+// =============================================================================
+// Container Preset Item - displays a .container file in Containers tab
+// =============================================================================
+class ContainerPresetItem : public juce::Component {
+public:
+    ContainerPresetItem(const juce::File& file);
+    void paint(juce::Graphics& g) override;
+    void mouseEnter(const juce::MouseEvent&) override { hovered = true; repaint(); }
+    void mouseExit(const juce::MouseEvent&) override { hovered = false; repaint(); }
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    
+    const juce::File& getFile() const { return presetFile; }
+    
+    std::function<void(const juce::File&)> onPresetDoubleClick;
+    
+private:
+    juce::File presetFile;
     bool hovered = false;
 };
 
@@ -118,6 +142,7 @@ public:
                     bool groupByVendor, bool groupByFolder, bool groupByFormat);
     void setSystemTools();
     void setFavorites(const juce::Array<juce::File>& patchFiles);
+    void setContainerPresets(const juce::Array<juce::File>& presetFiles);
     void paint(juce::Graphics& g) override;
     int getNumItems() const { return items.size(); }
     
@@ -126,12 +151,14 @@ public:
     std::function<void(const juce::PluginDescription&)> onPluginDoubleClick;
     std::function<void(SystemToolType)> onToolDoubleClick;
     std::function<void(const juce::File&)> onPatchDoubleClick;
+    std::function<void(const juce::File&)> onContainerPresetDoubleClick;
     
 private:
     juce::OwnedArray<PluginBrowserItem> items;
     juce::OwnedArray<PluginGroupHeader> headers;
     juce::OwnedArray<juce::Label> flatHeaders;
     juce::OwnedArray<FavoritePatchItem> favoriteItems;
+    juce::OwnedArray<ContainerPresetItem> containerPresetItems;
     
     std::set<juce::String> expandedGroups;
     
@@ -171,13 +198,18 @@ public:
     // Callback for loading a favorite patch into a workspace
     std::function<void(const juce::File&, int workspaceIndex)> onFavoritePatchLoad;
     
+    // Callback for loading a container preset onto the graph
+    std::function<void(const juce::File&, juce::Point<int>)> onContainerPresetLoad;
+    
 private:
     SubterraneumAudioProcessor& processor;
     
-    // Title row: two mode selector buttons
+    // Title row: three mode selector buttons
     juce::TextButton addPluginsBtn { "Add Plugins" };
     juce::TextButton favoritesBtn { "Favorites" };
+    juce::TextButton containersBtn { "Containers" };
     bool favoritesMode = false;
+    bool containersMode = false;
     
     juce::TextEditor searchBox;
     
@@ -220,6 +252,9 @@ private:
     void loadFavoritesList();
     void showWorkspaceSelector(const juce::File& patchFile);
     juce::File getFavoritesFolder() const;
+    
+    // Container presets helpers
+    void loadContainerPresetsList();
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginBrowserPanel)
 };

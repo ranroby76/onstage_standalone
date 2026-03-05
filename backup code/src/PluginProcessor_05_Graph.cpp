@@ -149,10 +149,10 @@ void SubterraneumAudioProcessor::restoreMultiStates() {
 
 void SubterraneumAudioProcessor::resetBlacklist() {
     knownPluginList.clearBlacklistedFiles();
-    if (auto* userSettings = appProperties.getUserSettings()) {
+    if (auto* pluginSettings = pluginProperties.getUserSettings()) {
         if (auto xml = knownPluginList.createXml())
-            userSettings->setValue("KnownPluginsV2", xml.get());
-        userSettings->saveIfNeeded();
+            pluginSettings->setValue("KnownPluginsV2", xml.get());
+        pluginSettings->saveIfNeeded();
     }
 }
 

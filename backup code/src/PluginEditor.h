@@ -1,4 +1,3 @@
-
 // FIX: Plugin Browser Panel is now a fixed panel (288px) to the left of yellow menu
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
 // FIX: Added MIDI Panic button under Keys button
@@ -93,7 +92,7 @@ private:
     ZoomSlider zoomSlider;
     juce::Label zoomLabel { "zoomLbl", "100%" };
     
-    GraphCanvas graphCanvas; 
+    GraphCanvas graphCanvas;
     MixerView mixerView;
     AudioSettingsTab audioSettingsTab;  // Now includes tempo/metronome
     PluginManagerTab pluginManagerTab;
@@ -116,15 +115,6 @@ private:
     // NEW: Send MIDI panic to all instruments
     void sendMidiPanic();
     
-    // =========================================================================
-    // Workspace Selector Bar — 16 switchable sessions
-    // =========================================================================
-    static constexpr int workspaceBarHeight = 28;
-    juce::TextButton workspaceButtons[16];
-    juce::Label workspacesLabel { "wsLabel", "WORKSPACES" };
-    void updateWorkspaceButtonColors();
-    void showWorkspaceContextMenu(int workspaceIndex);
-    
     class VirtualKeyboardWindow : public juce::DocumentWindow { 
     public: 
         VirtualKeyboardWindow(SubterraneumAudioProcessor& p);
@@ -136,11 +126,63 @@ private:
     
     std::unique_ptr<VirtualKeyboardWindow> keyboardWindow;
     
+    // =========================================================================
+    // Floating Mixer Window — detachable resizable mixer
+    // =========================================================================
+    class FloatingMixerWindow : public juce::DocumentWindow {
+    public:
+        FloatingMixerWindow(SubterraneumAudioProcessor& p)
+            : DocumentWindow("Colosseum Mixer", 
+                             juce::Colour(0xff1e1e1e), 
+                             DocumentWindow::allButtons),
+              mixerWrapper(p)
+        {
+            setContentNonOwned(&mixerWrapper, false);
+            setResizable(true, true);
+            setResizeLimits(400, 200, 2560, 1440);
+            centreWithSize(900, 500);
+            setVisible(true);
+            setAlwaysOnTop(false);
+            setUsingNativeTitleBar(true);
+        }
+        
+        ~FloatingMixerWindow() override {}
+        
+        void closeButtonPressed() override {
+            if (onClose) onClose();
+        }
+        
+        std::function<void()> onClose;
+        
+    private:
+        // Wrapper that draws a resize grip triangle over the mixer
+        struct MixerWithGrip : public juce::Component {
+            MixerWithGrip(SubterraneumAudioProcessor& p) : mixer(p) {
+                addAndMakeVisible(mixer);
+            }
+            void resized() override { mixer.setBounds(getLocalBounds()); }
+            void paintOverChildren(juce::Graphics& g) override {
+                const int sz = 16;
+                float r = (float)getWidth();
+                float b = (float)getHeight();
+                juce::Path triangle;
+                triangle.addTriangle(r, b - sz, r - sz, b, r, b);
+                g.setColour(juce::Colour(100, 100, 110));
+                g.fillPath(triangle);
+                // Inner highlight lines for grip look
+                g.setColour(juce::Colour(140, 140, 150));
+                g.drawLine(r - 4.0f, b, r, b - 4.0f, 1.0f);
+                g.drawLine(r - 8.0f, b, r, b - 8.0f, 1.0f);
+                g.drawLine(r - 12.0f, b, r, b - 12.0f, 1.0f);
+            }
+            MixerView mixer;
+        };
+        MixerWithGrip mixerWrapper;
+    };
+    
+    std::unique_ptr<FloatingMixerWindow> floatingMixerWindow;
+    juce::TextButton floatMixerButton { "Floating\nMixer" };  // Detach mixer to floating window
+    void toggleFloatingMixer();
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessorEditor) 
 };
-
-
-
-
-
-

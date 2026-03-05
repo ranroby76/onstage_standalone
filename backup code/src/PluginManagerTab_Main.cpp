@@ -1,4 +1,9 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_Main.cpp
+// Plugin Manager Tab — Main UI, tree view, plugin info, scan buttons
+// FIX: buildTree() preserves expand/collapse state
+// NEW: Eye toggle - hide/show plugins from Add menus
+// NEW: "Scan All Plugins" — full disk scan (VST2+VST3+AU) via OOP scanner
+// NEW: "Rescan Existing" — only re-scans registered plugin paths (fast)
 // Main Plugin Manager Tab implementation
 // FIX: Added "Rescan Existing" button for plugin version updates
 // FIX: Folder dialog now closes properly with X button
@@ -10,6 +15,7 @@
 // FIX: Darker folder/vendor header rectangles
 // NEW: Eye toggle - hide/show plugins from Add menus (persisted to settings)
 // NEW: rescanExistingPlugins uses safe OOP scanner (no more message-thread freezes)
+// FIX: scanDialog onCloseRequest → cancelScan(), dialog height 270 for cancel button
 
 #include "PluginManagerTab.h"
 #include "BackgroundPluginScanner.h"
@@ -121,6 +127,7 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
     // Buttons
     scanBtn.addListener(this);
     scanBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
+    scanBtn.setTooltip("Clear and rescan ALL plugin folders (VST2, VST3, AU)");
     addAndMakeVisible(scanBtn);
     
     // Rescan Existing button - dark orange-purple
@@ -146,6 +153,10 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
     
     resetBlacklistBtn.addListener(this);
     addAndMakeVisible(resetBlacklistBtn);
+    
+    showBlacklistBtn.addListener(this);
+    showBlacklistBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF4A4A60));
+    addAndMakeVisible(showBlacklistBtn);
     
     processor.knownPluginList.addChangeListener(this);
     
@@ -192,7 +203,7 @@ void PluginManagerTab::resized() {
     
     // Bottom row - buttons
     auto bottomRow = area.removeFromBottom(35);
-    scanBtn.setBounds(bottomRow.removeFromLeft(110));
+    scanBtn.setBounds(bottomRow.removeFromLeft(130));
     bottomRow.removeFromLeft(8);
     rescanExistingBtn.setBounds(bottomRow.removeFromLeft(120));
     bottomRow.removeFromLeft(8);
@@ -201,6 +212,8 @@ void PluginManagerTab::resized() {
     clearBtn.setBounds(bottomRow.removeFromLeft(90));
     bottomRow.removeFromLeft(8);
     resetBlacklistBtn.setBounds(bottomRow.removeFromLeft(110));
+    bottomRow.removeFromLeft(8);
+    showBlacklistBtn.setBounds(bottomRow.removeFromLeft(90));
     
     // Center the rescan status label in remaining space
     if (bottomRow.getWidth() > 0)
@@ -240,20 +253,24 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
     } else if (b == &collapseAllBtn) {
         collapseAllItems();
     } else if (b == &scanBtn) {
+        if (scanDialog && scanDialog->isVisible()) return;
         showScanDialog();
     } else if (b == &rescanExistingBtn) {
+        if (scanDialog && scanDialog->isVisible()) return;
         rescanExistingPlugins();
     } else if (b == &foldersBtn) {
         showFoldersDialog();
     } else if (b == &resetBlacklistBtn) {
         processor.knownPluginList.clearBlacklistedFiles();
-        if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
             if (auto xml = processor.knownPluginList.createXml())
                 userSettings->setValue("KnownPluginsV2", xml.get());
             userSettings->saveIfNeeded();
         }
         juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
             "Blacklist Reset", "Blacklisted plugins cleared. Please rescan.");
+    } else if (b == &showBlacklistBtn) {
+        showBlacklistDialog();
     } else if (b == &clearBtn) {
         juce::AlertWindow::showOkCancelBox(
             juce::MessageBoxIconType::WarningIcon,
@@ -265,7 +282,7 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
             juce::ModalCallbackFunction::create([this](int result) {
                 if (result == 1) {
                     processor.knownPluginList.clear();
-                    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+                    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
                         userSettings->removeValue("KnownPluginsV2");
                         userSettings->saveIfNeeded();
                     }
@@ -289,47 +306,93 @@ void PluginManagerTab::rescanExistingPlugins() {
         juce::NativeMessageBox::showMessageBoxAsync(
             juce::MessageBoxIconType::InfoIcon,
             "No Plugins",
-            "No plugins in list to rescan. Use 'Scan Plugins' first.");
+            "No plugins in list to rescan. Use 'Scan All Plugins' first.");
         return;
     }
     
-    // Clear existing list so rescan gets fresh metadata
+    // Collect file paths from the EXISTING known plugin list
+    juce::Array<OutOfProcessScanner::PluginToScan> existingPlugins;
+    std::set<juce::String> seenPaths;
+    
+    for (const auto& desc : types) {
+        juce::String pathKey = desc.fileOrIdentifier.toLowerCase() + "|" + desc.pluginFormatName;
+        if (seenPaths.count(pathKey) > 0) continue;
+        seenPaths.insert(pathKey);
+        existingPlugins.add({ desc.fileOrIdentifier, desc.pluginFormatName });
+    }
+    
+    // Clear existing list so rescan gets fresh metadata from the real DLL
     processor.knownPluginList.clear();
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
     }
     
-    // Launch the safe OOP scanner dialog (scans all formats from disk)
+    // Launch OOP scanner with ONLY the previously-registered plugin paths
     auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
     
     auto* scanner = new AutoPluginScanner(processor, [safeThis]() {
         if (safeThis) {
             safeThis->buildTree();
+            if (safeThis->scanDialog) safeThis->scanDialog->setVisible(false);
+            safeThis->updateScanButtonStates();
             
             int newCount = safeThis->processor.knownPluginList.getNumTypes();
             juce::NativeMessageBox::showMessageBoxAsync(
                 juce::MessageBoxIconType::InfoIcon,
                 "Rescan Complete",
-                "Found " + juce::String(newCount) + " plugins.");
+                "Rescanned " + juce::String(newCount) + " registered plugins.");
         }
     });
     
-    scanDialog = std::make_unique<juce::DialogWindow>(
-        "Rescanning Plugins...",
+    scanDialog = std::make_unique<CloseableDialogWindow>(
+        "Rescanning Existing Plugins...",
         juce::Colour(0xFF1E1E1E),
-        true,
         true
     );
+    scanDialog->onCloseRequest = [scanner]() { scanner->cancelScan(); };
     scanDialog->setContentOwned(scanner, true);
     scanDialog->setUsingNativeTitleBar(true);
     scanDialog->setResizable(false, false);
-    scanDialog->centreWithSize(500, 240);
+    scanDialog->centreWithSize(500, 270);
     scanDialog->setVisible(true);
     
-    scanner->startScan();
+    updateScanButtonStates();
+    scanner->startRescanExisting(existingPlugins);
+}
+
+// =============================================================================
+// Startup Quick Scan — called on app launch, scans only new/updated plugins
+// Shows a small dialog that auto-closes if nothing new is found
+// =============================================================================
+void PluginManagerTab::runStartupQuickScan() {
+    auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
+    
+    auto* scanner = new AutoPluginScanner(processor, [safeThis]() {
+        if (safeThis) {
+            safeThis->buildTree();
+            if (safeThis->scanDialog)
+                safeThis->scanDialog->setVisible(false);
+            safeThis->updateScanButtonStates();
+        }
+    });
+    
+    scanDialog = std::make_unique<CloseableDialogWindow>(
+        "Startup Plugin Check",
+        juce::Colour(0xFF1E1E1E),
+        true
+    );
+    scanDialog->onCloseRequest = [scanner]() { scanner->cancelScan(); };
+    scanDialog->setContentOwned(scanner, true);
+    scanDialog->setUsingNativeTitleBar(true);
+    scanDialog->setResizable(false, false);
+    scanDialog->centreWithSize(500, 270);
+    scanDialog->setVisible(true);
+    
+    updateScanButtonStates();
+    scanner->startQuickScan();
 }
 
 // =============================================================================
@@ -441,24 +504,46 @@ void PluginManagerTab::buildTree() {
 }
 
 void PluginManagerTab::showScanDialog() {
-    auto* panel = new ScanProgressPanel(processor, [this]() {
-        if (scanDialog) scanDialog->setVisible(false);
-        buildTree();
+    // Clear existing list for a fresh full scan
+    processor.knownPluginList.clear();
+    
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
+        if (auto xml = processor.knownPluginList.createXml())
+            userSettings->setValue("KnownPluginsV2", xml.get());
+        userSettings->saveIfNeeded();
+    }
+    
+    // Launch the OOP scanner for ALL formats (VST2 + VST3 + AU + LADSPA)
+    auto safeThis = juce::Component::SafePointer<PluginManagerTab>(this);
+    
+    auto* scanner = new AutoPluginScanner(processor, [safeThis]() {
+        if (safeThis) {
+            safeThis->buildTree();
+            if (safeThis->scanDialog) safeThis->scanDialog->setVisible(false);
+            safeThis->updateScanButtonStates();
+            
+            int newCount = safeThis->processor.knownPluginList.getNumTypes();
+            juce::NativeMessageBox::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Scan Complete",
+                "Found " + juce::String(newCount) + " plugins (all formats).");
+        }
     });
     
-    scanDialog = std::make_unique<juce::DialogWindow>(
-        "Scan VST3 Plugins", 
-        juce::Colours::darkgrey, 
-        true, 
+    scanDialog = std::make_unique<CloseableDialogWindow>(
+        "Scanning All Plugins...",
+        juce::Colour(0xFF1E1E1E),
         true
     );
-    scanDialog->setContentOwned(panel, true);
+    scanDialog->onCloseRequest = [scanner]() { scanner->cancelScan(); };
+    scanDialog->setContentOwned(scanner, true);
     scanDialog->setUsingNativeTitleBar(true);
     scanDialog->setResizable(false, false);
-    scanDialog->centreWithSize(400, 180);
+    scanDialog->centreWithSize(500, 270);
     scanDialog->setVisible(true);
     
-    panel->startScan();
+    updateScanButtonStates();
+    scanner->startScan();
 }
 
 // =============================================================================
@@ -485,6 +570,31 @@ void PluginManagerTab::showFoldersDialog() {
     foldersDialog->setVisible(true);
 }
 
+void PluginManagerTab::updateScanButtonStates() {
+    bool active = scanDialog && scanDialog->isVisible();
+    scanBtn.setEnabled(!active);
+    rescanExistingBtn.setEnabled(!active);
+    scanBtn.setColour(juce::TextButton::buttonColourId, active ? juce::Colours::darkgrey : juce::Colours::darkgreen);
+    rescanExistingBtn.setColour(juce::TextButton::buttonColourId, active ? juce::Colours::darkgrey : juce::Colour(0xFF6B3FA0));
+}
+
+void PluginManagerTab::showBlacklistDialog() {
+    auto blacklisted = processor.knownPluginList.getBlacklistedFiles();
+    juce::String msg;
+    if (blacklisted.isEmpty()) {
+        msg = "No blacklisted plugins.\nAll scanned plugins are available.";
+    } else {
+        msg = "Blacklisted plugins:\n\n";
+        for (int i = 0; i < blacklisted.size(); ++i) {
+            juce::File f(blacklisted[i]);
+            msg += juce::String(i + 1) + ". " + f.getFileNameWithoutExtension() + "\n   " + blacklisted[i] + "\n\n";
+        }
+        msg += "Use 'Reset Blacklist' to clear and rescan.";
+    }
+    juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+        "Blacklisted Plugins (" + juce::String(blacklisted.size()) + ")", msg);
+}
+
 void PluginManagerTab::expandAllItems() {
     if (auto* root = pluginTree.getRootItem()) {
         for (int i = 0; i < root->getNumSubItems(); ++i) {
@@ -504,7 +614,7 @@ void PluginManagerTab::collapseAllItems() {
 void PluginManagerTab::removePluginFromList(const juce::PluginDescription& desc) {
     processor.knownPluginList.removeType(desc);
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();

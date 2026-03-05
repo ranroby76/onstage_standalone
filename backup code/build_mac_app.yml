@@ -82,10 +82,10 @@ jobs:
           sips -z 512 512   "$SOURCE_IMG" --out Icon.iconset/icon_512x512.png
           sips -z 1024 1024 "$SOURCE_IMG" --out Icon.iconset/icon_512x512@2x.png
 
-          iconutil -c icns Icon.iconset -o assets/Colosseum.icns
+          iconutil -c icns Icon.iconset -o assets/Icon.icns
           rm -rf Icon.iconset
 
-          echo "Created assets/Colosseum.icns"
+          echo "Created assets/Icon.icns"
 
       - name: Import Signing Certificate
         if: ${{ env.SIGNING_ENABLED != '' }}

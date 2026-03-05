@@ -1,10 +1,70 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab_Scanner.cpp
+
+// PluginManagerTab_Scanner.cpp
 // ScanProgressPanel — Simple VST3-only scan dialog 
 // NOW uses OutOfProcessScanner instead of JUCE's PluginDirectoryScanner
 // ZERO freezes, ZERO crashes — same 3-phase approach as the full scanner
+// FIX: Sea blue gradient progress bar
 
 #include "PluginManagerTab.h"
 #include "OutOfProcessScanner.h"
+
+// =============================================================================
+// Sea Blue Gradient Progress Bar LookAndFeel
+// =============================================================================
+class SeaBlueProgressBarLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawProgressBar(juce::Graphics& g, juce::ProgressBar& /*bar*/,
+                         int width, int height, double progress,
+                         const juce::String& textToShow) override
+    {
+        auto bounds = juce::Rectangle<float>(0, 0, (float)width, (float)height);
+        
+        // Background
+        g.setColour(juce::Colour(30, 35, 45));
+        g.fillRoundedRectangle(bounds, 4.0f);
+        
+        // Border
+        g.setColour(juce::Colour(60, 80, 100));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 4.0f, 1.0f);
+        
+        // Progress fill with sea blue gradient
+        if (progress > 0.0)
+        {
+            auto fillWidth = (float)(progress * width);
+            auto fillBounds = bounds.withWidth(fillWidth).reduced(1.0f);
+            
+            // Sea blue gradient: dark teal to bright cyan
+            juce::ColourGradient gradient(
+                juce::Colour(20, 80, 120),    // Dark sea blue
+                0.0f, 0.0f,
+                juce::Colour(40, 180, 220),   // Bright cyan
+                fillWidth, 0.0f,
+                false
+            );
+            gradient.addColour(0.5, juce::Colour(30, 140, 180));  // Mid teal
+            
+            g.setGradientFill(gradient);
+            g.fillRoundedRectangle(fillBounds, 3.0f);
+            
+            // Subtle highlight on top
+            auto highlight = fillBounds.removeFromTop(fillBounds.getHeight() * 0.4f);
+            g.setColour(juce::Colours::white.withAlpha(0.1f));
+            g.fillRoundedRectangle(highlight, 3.0f);
+        }
+        
+        // Text
+        if (textToShow.isNotEmpty())
+        {
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(11.0f));
+            g.drawText(textToShow, bounds, juce::Justification::centred);
+        }
+    }
+};
+
+// Static instance for ScanProgressPanel
+static SeaBlueProgressBarLookAndFeel scannerSeaBlueProgressLF;
 
 // =============================================================================
 // ScanProgressPanel — kept for the simple "Scan VST3" entry point
@@ -28,6 +88,8 @@ ScanProgressPanel::ScanProgressPanel(SubterraneumAudioProcessor& p, std::functio
     pluginLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(pluginLabel);
     
+    // Apply sea blue gradient look and feel to progress bar
+    progressBar.setLookAndFeel(&scannerSeaBlueProgressLF);
     addAndMakeVisible(progressBar);
     
     setSize(400, 180);
@@ -35,6 +97,7 @@ ScanProgressPanel::ScanProgressPanel(SubterraneumAudioProcessor& p, std::functio
 
 ScanProgressPanel::~ScanProgressPanel() {
     stopTimer();
+    progressBar.setLookAndFeel(nullptr);
     if (oopScanner) {
         oopScanner->stopScanning();
         oopScanner = nullptr;
@@ -117,6 +180,10 @@ void ScanProgressPanel::startScan() {
                 }
             }
             if (!isNested && !addedPaths.contains(f.getFullPathName())) {
+                // Skip 32-bit plugins
+                if (OutOfProcessScanner::is32BitPlugin(f.getFullPathName()))
+                    continue;
+                    
                 addedPaths.add(f.getFullPathName());
                 pluginFiles.add({ f.getFullPathName(), "VST3" });
             }
@@ -189,7 +256,7 @@ void ScanProgressPanel::finishScan() {
     }
     
     // Save the plugin list
-    if (auto* settings = processor.appProperties.getUserSettings()) {
+    if (auto* settings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml()) {
             settings->setValue("KnownPluginsV2", xml.get());
             settings->saveIfNeeded();

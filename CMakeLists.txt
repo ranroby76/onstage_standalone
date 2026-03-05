@@ -1,7 +1,9 @@
+# #D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
 # =============================================================================
 # Colosseum - Modular DAW / Plugin Host
 # CMakeLists.txt
 # FIX: Added MidiMultiFilterProcessor.cpp to System Tools
+# NEW: Added ContainerProcessor.cpp to System Tools
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.22)
@@ -142,6 +144,7 @@ target_sources(SubterraneumApp PRIVATE
     src/TransientSplitterProcessor.cpp
     src/LatcherProcessor.cpp
     src/MidiMultiFilterProcessor.cpp
+    src/ContainerProcessor.cpp
 
     # -------------------------------------------------------------------------
     # Core / Standalone

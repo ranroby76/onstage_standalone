@@ -7,6 +7,7 @@
 // FIX: MIDI Monitor only repaints when MIDI changes
 // FIXED: Added RecorderProcessor support
 // NEW: Added ManualSamplerProcessor, AutoSamplerProcessor, MidiPlayerProcessor support
+// NEW: ContainerProcessor support with dive-in navigation
 
 #include "GraphCanvas.h"
 #include "PluginEditor.h"
@@ -21,6 +22,7 @@
 #include "TransientSplitterProcessor.h"
 #include "LatcherProcessor.h"
 #include "MidiMultiFilterProcessor.h"
+#include "ContainerProcessor.h"
 #include <fstream>
 #include <chrono>
 #include <ctime>
@@ -199,8 +201,14 @@ void GraphCanvas::rebuildNodeTypeCache()
         return;
     }
     
+    auto* activeGraph = getActiveGraph();
+    if (!activeGraph) {
+        cachedConnections.clear();
+        return;
+    }
+    
     int nodeCount = 0;
-    for (auto* node : processor.mainGraph->getNodes())
+    for (auto* node : activeGraph->getNodes())
     {
         nodeCount++;
         LOG("  Processing node " + juce::String(nodeCount) + " ID: " + juce::String(node->nodeID.uid));
@@ -221,6 +229,7 @@ void GraphCanvas::rebuildNodeTypeCache()
         cache.transientSplitter = dynamic_cast<TransientSplitterProcessor*>(proc);
         cache.latcher = dynamic_cast<LatcherProcessor*>(proc);
         cache.midiMultiFilter = dynamic_cast<MidiMultiFilterProcessor*>(proc);
+        cache.container = dynamic_cast<ContainerProcessor*>(proc);
         
         // FIX: Track if stereo meter exists
         if (cache.stereoMeter) {
@@ -257,10 +266,19 @@ void GraphCanvas::rebuildNodeTypeCache()
         }
         
         LOG("    Checking if I/O node...");
-        cache.isAudioInput  = (node == processor.audioInputNode.get());
-        cache.isAudioOutput = (node == processor.audioOutputNode.get());
-        cache.isMidiInput   = (node == processor.midiInputNode.get());
-        cache.isMidiOutput  = (node == processor.midiOutputNode.get());
+        // When inside a container, I/O nodes are the container's inner I/O nodes
+        if (isInsideContainer()) {
+            auto* currentContainer = containerStack.back();
+            cache.isAudioInput  = (node == currentContainer->getInnerAudioInputNode());
+            cache.isAudioOutput = (node == currentContainer->getInnerAudioOutputNode());
+            cache.isMidiInput   = (node == currentContainer->getInnerMidiInputNode());
+            cache.isMidiOutput  = (node == currentContainer->getInnerMidiOutputNode());
+        } else {
+            cache.isAudioInput  = (node == processor.audioInputNode.get());
+            cache.isAudioOutput = (node == processor.audioOutputNode.get());
+            cache.isMidiInput   = (node == processor.midiInputNode.get());
+            cache.isMidiOutput  = (node == processor.midiOutputNode.get());
+        }
         cache.isIO = cache.isAudioInput || cache.isAudioOutput || cache.isMidiInput || cache.isMidiOutput;
         
         // =========================================================================
@@ -319,11 +337,11 @@ void GraphCanvas::rebuildNodeTypeCache()
         LOG("  Node cached successfully");
     }
     
-    lastNodeCount = processor.mainGraph->getNumNodes();
+    lastNodeCount = activeGraph->getNumNodes();
     
     // FIX: Cache connections vector here (once per structure change)
     // instead of copying it every paint() call at 20fps
-    cachedConnections = processor.mainGraph->getConnections();
+    cachedConnections = activeGraph->getConnections();
     lastConnectionCount = cachedConnections.size();
     
     // FIX: Moved from paint() — only needs to run when graph structure changes
@@ -359,11 +377,17 @@ void GraphCanvas::rebuildNodeTypeCache()
             if (visited.count(currentID.uid)) break;
             visited.insert(currentID.uid);
             
-            auto* chainNode = processor.mainGraph->getNodeForId(currentID);
+            auto* chainNode = activeGraph->getNodeForId(currentID);
             if (!chainNode) break;
             
             // Stop at Audio Output node
-            if (chainNode == processor.audioOutputNode.get()) break;
+            bool isOutput = false;
+            if (isInsideContainer()) {
+                isOutput = (chainNode == containerStack.back()->getInnerAudioOutputNode());
+            } else {
+                isOutput = (chainNode == processor.audioOutputNode.get());
+            }
+            if (isOutput) break;
             
             // Mark this node as in sampling chain
             auto cacheIt = nodeTypeCache.find(currentID);
@@ -427,8 +451,9 @@ void GraphCanvas::timerCallback(int timerID)
         // Check for graph structure changes
         if (processor.mainGraph)
         {
-            size_t cn = processor.mainGraph->getNumNodes();
-            size_t cc = processor.mainGraph->getConnections().size();
+            auto* activeGraph = getActiveGraph();
+            size_t cn = activeGraph ? activeGraph->getNumNodes() : 0;
+            size_t cc = activeGraph ? activeGraph->getConnections().size() : 0;
             if (cn != lastNodeCount || cc != lastConnectionCount) {
                 LOG("  Node/connection count changed - rebuilding cache...");
                 rebuildNodeTypeCache();
@@ -462,8 +487,8 @@ void GraphCanvas::timerCallback(int timerID)
                 needsRepaint = true;
             
             // FIX: MIDI Monitor only repaints when MIDI has changed
-            if (processor.mainGraph) {
-                for (auto* node : processor.mainGraph->getNodes()) {
+            if (auto* ag = getActiveGraph()) {
+                for (auto* node : ag->getNodes()) {
                     if (auto* midiMonitor = dynamic_cast<MidiMonitorProcessor*>(node->getProcessor())) {
                         if (midiMonitor->hasChanged()) {
                             midiMonitor->clearChanged();
@@ -530,8 +555,104 @@ void GraphCanvas::scanPlugins() {}
 void GraphCanvas::verifyPositions()
 {
     if (!processor.mainGraph) return;
-    for (auto* node : processor.mainGraph->getNodes()) {
+    auto* graph = getActiveGraph();
+    if (!graph) return;
+    for (auto* node : graph->getNodes()) {
         if (!node->properties.contains("x")) node->properties.set("x", 100.0);
         if (!node->properties.contains("y")) node->properties.set("y", 100.0);
     }
+}
+
+// =============================================================================
+// Container Dive-In Navigation
+// =============================================================================
+juce::AudioProcessorGraph* GraphCanvas::getActiveGraph() const
+{
+    if (containerStack.empty())
+        return processor.mainGraph.get();
+    
+    // Return the innerGraph of the deepest container in the stack
+    auto* deepest = containerStack.back();
+    return deepest ? deepest->getInnerGraphPtr() : processor.mainGraph.get();
+}
+
+// updateContainerHeaderBounds removed — no longer using a TextEditor child component.
+
+void GraphCanvas::diveIntoContainer(ContainerProcessor* container)
+{
+    if (!container) return;
+    
+    // Block nested containers — only one level of dive allowed
+    if (isInsideContainer())
+    {
+        auto* tooltip = new StatusToolTip("Nested containers are not supported.\nDive out first.", true);
+        juce::CallOutBox::launchAsynchronously(
+            std::unique_ptr<juce::Component>(tooltip),
+            juce::Rectangle<int>(getScreenX() + getWidth() / 2 - 10,
+                                 getScreenY() + 60, 1, 1),
+            nullptr);
+        return;
+    }
+    
+    // Close all plugin windows before switching graph context
+    closeAllPluginWindows();
+    
+    containerStack.push_back(container);
+    
+    // Reset view for the inner graph
+    panOffsetX = 0.0f;
+    panOffsetY = 0.0f;
+    zoomLevel = 1.0f;
+    
+    // Rebuild cache for the new active graph
+    rebuildNodeTypeCache();
+    markDirty();
+    repaint();
+}
+
+void GraphCanvas::diveOut()
+{
+    if (containerStack.empty()) return;
+    
+    // Close all plugin windows before switching graph context
+    closeAllPluginWindows();
+    
+    containerStack.pop_back();
+    
+    // Reset view
+    panOffsetX = 0.0f;
+    panOffsetY = 0.0f;
+    zoomLevel = 1.0f;
+    
+    // Rebuild cache for the parent graph
+    rebuildNodeTypeCache();
+    markDirty();
+    repaint();
+}
+
+void GraphCanvas::diveToMain()
+{
+    if (containerStack.empty()) return;
+    
+    closeAllPluginWindows();
+    containerStack.clear();
+    
+    panOffsetX = 0.0f;
+    panOffsetY = 0.0f;
+    zoomLevel = 1.0f;
+    
+    rebuildNodeTypeCache();
+    markDirty();
+    repaint();
+}
+
+juce::String GraphCanvas::getBreadcrumbText() const
+{
+    juce::String text = "Main Graph";
+    for (auto* c : containerStack)
+    {
+        if (c)
+            text += " > " + c->getContainerName();
+    }
+    return text;
 }

@@ -1,7 +1,3 @@
-
-
-
-
 // AudioSettingsTab.cpp
 // MIDI CHANNEL DUPLICATION: Select target channels to duplicate hardware MIDI to
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
@@ -1133,7 +1129,3 @@ void AudioSettingsTab::reconnectMidiDevices()
         }
     });
 }
-
-
-
-

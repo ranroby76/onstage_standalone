@@ -1,0 +1,49 @@
+Here's the consolidated changelog:
+
+---
+
+**Colosseum — Session Changelog** 27/2/26
+
+**1. VST3 Manual Plugin Loader**
+File chooser for loading VST3 bundles directly from disk. Handles multi-type bundles. Accessible via System Tools panel, right-click context menu, and drag-drop from browser to canvas.
+
+**2. CLAP Tool Removed**
+Cleaned out all CLAP-related code paths — enum entries, browser items, menu handlers, drag-drop handlers, and the loadCLAPPlugin() method.
+
+**3. 4× Virtual Canvas (19200×12800)**
+Canvas expanded from 4800×3200 to 19200×12800. Transform-based panning via g.addTransform(). All mouse interactions, node placement, cable dragging, and popup positioning converted to virtual coordinate system.
+
+**4. Paint-Level Zoom**
+Zoom range expanded to 0.10–2.0. Zoom applied via Graphics transform instead of component-level setTransform(), preventing overflow into adjacent UI panels. Adaptive grid doubles spacing when lines would be too dense on screen.
+
+**5. Minimap Navigator**
+220×147px minimap overlay showing full canvas with color-coded node dots (gold=I/O, green=instruments, orange=system tools, blue=plugins, gray=bypassed). Shows viewport rectangle, zoom percentage, and grid hints. Click to navigate, drag to scroll. Fixed to component pixel coords via g.saveState()/restoreState() — stays pinned at any zoom level.
+
+**6. Scrollbars**
+Horizontal and vertical scrollbars with proportional thumb sizing. Draggable thumbs for precise navigation. Corner square at intersection.
+
+**7. Left-Click Drag-to-Pan**
+Left-click on empty canvas starts panning. Cursor changes to dragging hand. Pan delta divided by zoomLevel for consistent feel at all zoom levels.
+
+**8. Ctrl+Wheel Zoom-to-Cursor**
+Zooming centers on mouse position. Shift+wheel for horizontal scroll, plain wheel for vertical scroll.
+
+**9. Thread-Safe Plugin Scanner**
+All knownPluginList mutations marshalled to message thread via MessageManager::callAsync + WaitableEvent. Prevents concurrent read/write corruption that caused phantom blacklisting of successfully scanned plugins like Serum.
+
+**10. Stale Blacklist Clearing**
+Scanner now calls clearBlacklistedFiles() at scan start and after each removeType() call, preventing leftover blacklist entries from previous scan systems.
+
+**11. Scan Button Locking**
+Both "Scan All Plugins" and "Rescan Existing" buttons are disabled and greyed out while any scan is active. Re-enabled automatically on completion.
+
+**12. Show Blacklist Dialog**
+New button next to "Reset Blacklist" that opens a popup listing all blacklisted plugin files with full paths, or confirms no plugins are blacklisted.
+
+**13. Multi-Version Plugin Support in Menus**
+Right-click canvas menu now detects plugins available in multiple formats and appends [VST2]/[VST3]/[AU] suffix to disambiguate. Both versions are independently selectable. Single-format plugins show without suffix.
+
+**14. Dynamic System Tools Count**
+Tools count label uses actual item count instead of hardcoded value.
+
+Multi midi filter - 5 types of midi filters in single node

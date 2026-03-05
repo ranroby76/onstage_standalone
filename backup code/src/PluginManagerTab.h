@@ -1,8 +1,12 @@
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginManagerTab.h
 // Plugin Manager Tab with scanning, tree view, and plugin info
 // FIX: buildTree() preserves expand/collapse state
 // NEW: Eye toggle - hide/show plugins from Add menus
-// NEW: 3-phase out-of-process scanning — zero freezes, zero crashes
+// NEW: OOP scanning only — no moduleinfo.json, no skip-known shortcuts
+// NEW: "Scan All Plugins" and "Rescan Existing" both use OOP deep scan
+// FIX: scanDialog type matches CloseableDialogWindow (was juce::DialogWindow)
+// NEW: Cancel button support for scan dialog
 
 #pragma once
 
@@ -135,7 +139,13 @@ class CloseableDialogWindow : public juce::DialogWindow {
 public:
     CloseableDialogWindow(const juce::String& title, juce::Colour bg, bool escapeCloses)
         : DialogWindow(title, bg, escapeCloses, true) { setUsingNativeTitleBar(true); }
-    void closeButtonPressed() override { setVisible(false); }
+    void closeButtonPressed() override {
+        if (onCloseRequest)
+            onCloseRequest();
+        else
+            setVisible(false);
+    }
+    std::function<void()> onCloseRequest;
 };
 
 // =============================================================================
@@ -165,7 +175,7 @@ private:
 };
 
 // =============================================================================
-// AutoPluginScanner — 3-phase scanner UI with continuous visual feedback
+// AutoPluginScanner — Single-pass scanner UI with continuous visual feedback
 // UI timer reads atomics from background OutOfProcessScanner — NEVER blocks
 // =============================================================================
 class AutoPluginScanner : public juce::Component, private juce::Timer {
@@ -175,6 +185,9 @@ public:
     void paint(juce::Graphics& g) override;
     void resized() override;
     void startScan();
+    void startRescanExisting(const juce::Array<OutOfProcessScanner::PluginToScan>& plugins);
+    void startQuickScan();
+    void cancelScan();
     
     // Settings (kept for API compat with ScanOptionsPanel)
     void setTrustAllMode(bool) {}
@@ -193,15 +206,20 @@ private:
     juce::Label pluginLabel { "plugin", "" };
     juce::Label statsLabel { "stats", "" };
     juce::ProgressBar progressBar { progress };
+    juce::TextButton cancelBtn { "Cancel" };
     double progress = 0.0;
     
     // The background scanner (does all work on its own thread)
     std::unique_ptr<OutOfProcessScanner> oopScanner;
     
+    // Quick scan: stored for timestamp saving after scan completes
+    juce::Array<OutOfProcessScanner::PluginToScan> quickScanAllFiles;
+    
     void timerCallback() override;
     void collectPluginFiles();
     void finishScan();
     void removeDuplicatePlugins();
+    void savePluginTimestamps(const juce::Array<OutOfProcessScanner::PluginToScan>& files);
     juce::FileSearchPath getSearchPathForFormat(const juce::String& formatName);
 };
 
@@ -257,6 +275,7 @@ public:
     
     void removePluginFromList(const juce::PluginDescription& desc);
     void checkForCrashedScan();
+    void runStartupQuickScan();
     
     bool isPluginHidden(const juce::PluginDescription& desc);
     void setPluginHidden(const juce::PluginDescription& desc, bool hidden);
@@ -278,22 +297,26 @@ private:
     
     juce::TextEditor infoPanel;
     
-    juce::TextButton scanBtn { "Scan Plugins" };
+    juce::TextButton scanBtn { "Scan All Plugins" };
     juce::TextButton rescanExistingBtn { "Rescan Existing" };
     juce::Label rescanStatusLabel;
     juce::TextButton foldersBtn { "Plugin Folders..." };
     juce::TextButton clearBtn { "Clear All" };
     juce::TextButton resetBlacklistBtn { "Reset Blacklist" };
+    juce::TextButton showBlacklistBtn { "Blacklist..." };
     
     std::unique_ptr<CloseableDialogWindow> foldersDialog;
-    std::unique_ptr<juce::DialogWindow> scanDialog;
+    // FIX: Must be CloseableDialogWindow to match the make_unique<CloseableDialogWindow>() calls
+    std::unique_ptr<CloseableDialogWindow> scanDialog;
     
     std::set<juce::String> expandedFolders;
     
     void buildTree();
     void showScanDialog();
     void showFoldersDialog();
+    void showBlacklistDialog();
     void rescanExistingPlugins();
+    void updateScanButtonStates();
     void expandAllItems();
     void collapseAllItems();
     

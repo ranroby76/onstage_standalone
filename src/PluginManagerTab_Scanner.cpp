@@ -1,3 +1,4 @@
+
 // PluginManagerTab_Scanner.cpp
 // ScanProgressPanel — Simple VST3-only scan dialog 
 // NOW uses OutOfProcessScanner instead of JUCE's PluginDirectoryScanner
@@ -255,7 +256,7 @@ void ScanProgressPanel::finishScan() {
     }
     
     // Save the plugin list
-    if (auto* settings = processor.appProperties.getUserSettings()) {
+    if (auto* settings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml()) {
             settings->setValue("KnownPluginsV2", xml.get());
             settings->saveIfNeeded();

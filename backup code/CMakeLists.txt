@@ -1,4 +1,11 @@
-# D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
+# #D:\Workspace\Subterraneum_plugins_daw\CMakeLists.txt
+# =============================================================================
+# Colosseum - Modular DAW / Plugin Host
+# CMakeLists.txt
+# FIX: Added MidiMultiFilterProcessor.cpp to System Tools
+# NEW: Added ContainerProcessor.cpp to System Tools
+# =============================================================================
+
 cmake_minimum_required(VERSION 3.22)
 project(Colosseum VERSION 1.0.0)
 
@@ -10,61 +17,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # =============================================================================
 if(WIN32)
     set(PLATFORM_WINDOWS TRUE)
-    message(STATUS "Building for Windows")
 elseif(APPLE)
     set(PLATFORM_MAC TRUE)
-    message(STATUS "Building for macOS")
-elseif(UNIX)
+else()
     set(PLATFORM_LINUX TRUE)
-    message(STATUS "Building for Linux")
 endif()
 
 # =============================================================================
-# Parallel Compilation
+# JUCE Setup
 # =============================================================================
-if(MSVC)
-    add_compile_options(/MP)
-    message(STATUS "Multi-processor compilation enabled (/MP)")
-endif()
+add_subdirectory(JUCE)
 
 # =============================================================================
-# Paths - Customize these for your system
+# macOS Icon
 # =============================================================================
-set(JUCE_PATH "D:/Workspace/JUCE" CACHE PATH "Path to JUCE")
-set(CLAP_WRAPPER_PATH "" CACHE PATH "Path to clap-wrapper (optional)")
-
-# =============================================================================
-# macOS Deployment Target (must be set before add_subdirectory)
-# =============================================================================
-if(PLATFORM_MAC AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum macOS deployment target")
-    message(STATUS "macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-endif()
-
-# =============================================================================
-# Add JUCE
-# =============================================================================
-add_subdirectory(${JUCE_PATH} ${CMAKE_BINARY_DIR}/JUCE)
-
-# Optional CLAP wrapper
-if(EXISTS "${CLAP_WRAPPER_PATH}/CMakeLists.txt")
-    add_subdirectory(${CLAP_WRAPPER_PATH} ${CMAKE_BINARY_DIR}/clap-wrapper)
-endif()
-
-# =============================================================================
-# macOS Icon - Check if .icns exists
-# =============================================================================
-set(MACOS_ICON_FILE "")
 if(PLATFORM_MAC)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
-        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/Colosseum.icns")
-        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
-    elseif(EXISTS "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
-        set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/colosseum_logo.icns")
-        message(STATUS "macOS icon found: ${MACOS_ICON_FILE}")
-    else()
-        message(STATUS "No macOS .icns icon found - the GitHub Actions workflow will convert icon.ico automatically")
-    endif()
+    set(MACOS_ICON_FILE "${CMAKE_SOURCE_DIR}/assets/Icon.icns")
 endif()
 
 # =============================================================================
@@ -174,6 +142,9 @@ target_sources(SubterraneumApp PRIVATE
     src/MidiPlayerProcessor.cpp
     src/CCStepperProcessor.cpp
     src/TransientSplitterProcessor.cpp
+    src/LatcherProcessor.cpp
+    src/MidiMultiFilterProcessor.cpp
+    src/ContainerProcessor.cpp
 
     # -------------------------------------------------------------------------
     # Core / Standalone

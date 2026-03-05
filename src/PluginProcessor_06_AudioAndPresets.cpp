@@ -1,6 +1,6 @@
 
-
 #include "PluginProcessor.h"
+#include <vector>
 #include "PluginEditor.h"
 #include "RegistrationManager.h"
 #include "SimpleConnectorProcessor.h"
@@ -12,6 +12,9 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
+#include "MidiMultiFilterProcessor.h"
+#include "ContainerProcessor.h"
 
 // =============================================================================
 // Audio Processing - CPU OPTIMIZED + FIX 3: Latency Compensation
@@ -127,6 +130,56 @@ void SubterraneumAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, 
         } else {
             mainMidiInFlash = false;
         }
+    }
+
+    // ==========================================================================
+    // CRITICAL FIX: MIDI preprocessing to fix note hanging issues
+    // Convert velocity=0 to note-off and filter duplicate note-ons
+    // ==========================================================================
+    if (!midiMessages.isEmpty())
+    {
+        juce::MidiBuffer preprocessed;
+        juce::Array<int> activeNotes;  // Track currently playing notes
+        
+        for (const auto metadata : midiMessages)
+        {
+            auto msg = metadata.getMessage();
+            int sample = metadata.samplePosition;
+            
+            // FIX 1: Convert velocity=0 note-ons to proper note-offs
+            if (msg.isNoteOn() && msg.getVelocity() == 0)
+            {
+                msg = juce::MidiMessage::noteOff(msg.getChannel(), msg.getNoteNumber());
+            }
+            
+            // FIX 2: Filter duplicate note-ons (same note already playing)
+            if (msg.isNoteOn())
+            {
+                int noteNum = msg.getNoteNumber();
+                if (activeNotes.contains(noteNum))
+                {
+                    // Note is already playing - send note-off first
+                    preprocessed.addEvent(
+                        juce::MidiMessage::noteOff(msg.getChannel(), noteNum),
+                        sample);
+                }
+                activeNotes.addIfNotAlreadyThere(noteNum);
+                preprocessed.addEvent(msg, sample);
+            }
+            else if (msg.isNoteOff())
+            {
+                int noteNum = msg.getNoteNumber();
+                activeNotes.removeAllInstancesOf(noteNum);
+                preprocessed.addEvent(msg, sample);
+            }
+            else
+            {
+                // Pass through all other MIDI messages
+                preprocessed.addEvent(msg, sample);
+            }
+        }
+        
+        midiMessages.swapWith(preprocessed);
     }
 
     // Process the graph with crash protection
@@ -260,13 +313,18 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
     rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
     
-    for (auto* node : mainGraph->getNodes()) {
-        if (node != audioInputNode.get() &&
-            node != audioOutputNode.get() &&
-            node != midiInputNode.get() &&
-            node != midiOutputNode.get()) {
-            mainGraph->removeNode(node->nodeID);
+    {
+        std::vector<juce::AudioProcessorGraph::NodeID> toRemove;
+        for (auto* node : mainGraph->getNodes()) {
+            if (node != audioInputNode.get() &&
+                node != audioOutputNode.get() &&
+                node != midiInputNode.get() &&
+                node != midiOutputNode.get()) {
+                toRemove.push_back(node->nodeID);
+            }
         }
+        for (auto nid : toRemove)
+            mainGraph->removeNode(nid);
     }
     
     if (auto* nodes = xml->getChildByName("Nodes")) {
@@ -303,6 +361,52 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
             if (nodeXml->hasTagName("Node")) {
                 juce::String type = nodeXml->getStringAttribute("type");
                 int oldId = nodeXml->getIntAttribute("id");
+                double x = nodeXml->getDoubleAttribute("x");
+                double y = nodeXml->getDoubleAttribute("y");
+                
+                // === System Tools ===
+                if (type == "SystemTool") {
+                    juce::String toolName = nodeXml->getStringAttribute("toolName");
+                    std::unique_ptr<juce::AudioProcessor> toolProc;
+                    
+                    if (toolName == "SimpleConnector")       toolProc = std::make_unique<SimpleConnectorProcessor>();
+                    else if (toolName == "StereoMeter")      toolProc = std::make_unique<StereoMeterProcessor>();
+                    else if (toolName == "MidiMonitor")       toolProc = std::make_unique<MidiMonitorProcessor>();
+                    else if (toolName == "Recorder")          toolProc = std::make_unique<RecorderProcessor>();
+                    else if (toolName == "ManualSampler")     toolProc = std::make_unique<ManualSamplerProcessor>();
+                    else if (toolName == "AutoSampler")       toolProc = std::make_unique<AutoSamplerProcessor>(mainGraph.get(), this);
+                    else if (toolName == "MidiPlayer")        toolProc = std::make_unique<MidiPlayerProcessor>();
+                    else if (toolName == "CCStepper")         toolProc = std::make_unique<CCStepperProcessor>();
+                    else if (toolName == "TransientSplitter") toolProc = std::make_unique<TransientSplitterProcessor>();
+                    else if (toolName == "Latcher")            toolProc = std::make_unique<LatcherProcessor>();
+                    else if (toolName == "MidiMultiFilter")     toolProc = std::make_unique<MidiMultiFilterProcessor>();
+                    else if (toolName == "Container") {
+                        auto container = std::make_unique<ContainerProcessor>();
+                        container->setParentProcessor(this);
+                        toolProc = std::move(container);
+                    }
+                    
+                    if (toolProc) {
+                        // Restore state before adding to graph
+                        if (auto* stateXml = nodeXml->getChildByName("State")) {
+                            juce::MemoryBlock mb;
+                            mb.fromBase64Encoding(stateXml->getAllSubText());
+                            if (mb.getSize() > 0) {
+                                try {
+                                    toolProc->setStateInformation(mb.getData(), (int)mb.getSize());
+                                } catch (...) {}
+                            }
+                        }
+                        
+                        auto nodePtr = mainGraph->addNode(std::move(toolProc));
+                        if (nodePtr) {
+                            nodeIdMap[oldId] = nodePtr->nodeID;
+                            nodePtr->properties.set("x", x);
+                            nodePtr->properties.set("y", y);
+                        }
+                    }
+                    continue;
+                }
                 
                 if (type != "Plugin") continue; 
 
@@ -317,9 +421,42 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
                 
                 try {
                     instance = formatManager.createPluginInstance(desc, getSampleRate(), getBlockSize(), msg);
-                } catch (...) {
-                    continue;
+                } catch (...) {}
+                
+                // Fallback: try alternate UID if first attempt failed
+                if (!instance) {
+                    for (auto& alt : knownPluginList.getTypes()) {
+                        if (alt.name == desc.name && alt.pluginFormatName == desc.pluginFormatName && alt.uniqueId != desc.uniqueId) {
+                            try {
+                                juce::String altMsg;
+                                instance = formatManager.createPluginInstance(alt, getSampleRate(), getBlockSize(), altMsg);
+                                if (instance) break;
+                            } catch (...) {}
+                        }
+                    }
                 }
+                
+                
+                // Nuclear fallback: re-scan .vst3 in-process for correct UIDs
+                if (!instance && desc.pluginFormatName == "VST3") {
+                    for (int fi = 0; fi < formatManager.getNumFormats(); ++fi) {
+                        auto* format = formatManager.getFormat(fi);
+                        if (format->getName() != "VST3") continue;
+                        juce::OwnedArray<juce::PluginDescription> freshDescs;
+                        format->findAllTypesForFile(freshDescs, desc.fileOrIdentifier);
+                        for (auto* fresh : freshDescs) {
+                            if (fresh->name == desc.name) {
+                                try {
+                                    juce::String freshMsg;
+                                    instance = formatManager.createPluginInstance(*fresh, getSampleRate(), getBlockSize(), freshMsg);
+                                    if (instance) { knownPluginList.addType(*fresh); break; }
+                                } catch (...) {}
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (!instance) continue;
                 
                 if (instance) {
                     auto nodePtr = mainGraph->addNode(std::make_unique<MeteringProcessor>(std::move(instance)));
@@ -409,44 +546,6 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
         }
     }
     
-    // Restore workspace data
-    for (int i = 0; i < maxWorkspaces; ++i)
-    {
-        workspaceData[i] = juce::String();
-        workspaceOccupied[i] = false;
-        workspaceEnabled[i] = (i == 0); // Default: only workspace 0 enabled
-        workspaceNames[i] = juce::String(i + 1);
-    }
-    
-    if (auto* workspacesXml = xml->getChildByName("Workspaces"))
-    {
-        activeWorkspace = workspacesXml->getIntAttribute("active", 0);
-        
-        for (auto* wsXml : workspacesXml->getChildIterator())
-        {
-            if (wsXml->hasTagName("WS"))
-            {
-                int idx = wsXml->getIntAttribute("index", -1);
-                if (idx >= 0 && idx < maxWorkspaces)
-                {
-                    auto data = wsXml->getAllSubText();
-                    workspaceData[idx] = data;
-                    workspaceOccupied[idx] = data.isNotEmpty();
-                    workspaceEnabled[idx] = wsXml->getBoolAttribute("enabled", true);
-                    workspaceNames[idx] = wsXml->getStringAttribute("name", juce::String(idx + 1));
-                }
-            }
-        }
-    }
-    else
-    {
-        // Legacy preset with no workspaces — current graph is workspace 0
-        activeWorkspace = 0;
-        workspaceOccupied[0] = true;
-        workspaceEnabled[0] = true;
-        workspaceData[0] = serializeGraphToXml();
-    }
-    
     suspendProcessing(false);
 }
 
@@ -478,7 +577,35 @@ void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
             else if (node == midiOutputNode.get()) nodeXml->setAttribute("type", "MidiOutput");
             else nodeXml->setAttribute("type", "IO");
         } else {
-            nodeXml->setAttribute("type", "Plugin");
+            // Check if this is a system tool (non-plugin processor)
+            juce::String toolName;
+            if (dynamic_cast<SimpleConnectorProcessor*>(proc))        toolName = "SimpleConnector";
+            else if (dynamic_cast<StereoMeterProcessor*>(proc))       toolName = "StereoMeter";
+            else if (dynamic_cast<MidiMonitorProcessor*>(proc))       toolName = "MidiMonitor";
+            else if (dynamic_cast<RecorderProcessor*>(proc))          toolName = "Recorder";
+            else if (dynamic_cast<ManualSamplerProcessor*>(proc))     toolName = "ManualSampler";
+            else if (dynamic_cast<AutoSamplerProcessor*>(proc))       toolName = "AutoSampler";
+            else if (dynamic_cast<MidiPlayerProcessor*>(proc))        toolName = "MidiPlayer";
+            else if (dynamic_cast<CCStepperProcessor*>(proc))         toolName = "CCStepper";
+            else if (dynamic_cast<TransientSplitterProcessor*>(proc)) toolName = "TransientSplitter";
+            else if (dynamic_cast<LatcherProcessor*>(proc))           toolName = "Latcher";
+            else if (dynamic_cast<MidiMultiFilterProcessor*>(proc))   toolName = "MidiMultiFilter";
+            else if (dynamic_cast<ContainerProcessor*>(proc))         toolName = "Container";
+            
+            if (toolName.isNotEmpty()) {
+                nodeXml->setAttribute("type", "SystemTool");
+                nodeXml->setAttribute("toolName", toolName);
+                
+                // Save system tool state
+                juce::MemoryBlock mb;
+                proc->getStateInformation(mb);
+                if (mb.getSize() > 0) {
+                    auto* state = nodeXml->createNewChildElement("State");
+                    state->addTextElement(mb.toBase64Encoding());
+                }
+            } else {
+                nodeXml->setAttribute("type", "Plugin");
+            }
             
             if (auto* mp = dynamic_cast<MeteringProcessor*>(proc)) {
                 // FREEZE FIX: Use cached description instead of calling getPluginDescription()
@@ -509,35 +636,12 @@ void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
         cXml->setAttribute("dstMidi", conn.destination.isMIDI());
     }
 
-    // Save workspace data
-    auto* workspacesXml = root.createNewChildElement("Workspaces");
-    workspacesXml->setAttribute("active", activeWorkspace);
-    
-    // Save current graph as active workspace data before writing
-    juce::String currentWsData = serializeGraphToXml();
-    
-    for (int i = 0; i < maxWorkspaces; ++i)
-    {
-        bool isActive = (i == activeWorkspace);
-        bool hasData = isActive || workspaceOccupied[i];
-        
-        // Save all enabled workspaces (even empty ones) to preserve enable/name state
-        if (!hasData && !workspaceEnabled[i] && workspaceNames[i] == juce::String(i + 1))
-            continue; // Skip completely default/unused slots
-        
-        auto* wsXml = workspacesXml->createNewChildElement("WS");
-        wsXml->setAttribute("index", i);
-        wsXml->setAttribute("enabled", workspaceEnabled[i]);
-        wsXml->setAttribute("name", workspaceNames[i]);
-        if (hasData)
-            wsXml->addTextElement(isActive ? currentWsData : workspaceData[i]);
-    }
-
     root.writeTo(file);
 }
 
 // =============================================================================
-// Workspace System — 16 switchable sessions
+// =============================================================================
+// Graph Serialization — used by save/load presets
 // =============================================================================
 juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
 {
@@ -579,6 +683,9 @@ juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
             else if (dynamic_cast<MidiPlayerProcessor*>(proc))   toolName = "MidiPlayer";
             else if (dynamic_cast<CCStepperProcessor*>(proc))    toolName = "CCStepper";
             else if (dynamic_cast<TransientSplitterProcessor*>(proc)) toolName = "TransientSplitter";
+            else if (dynamic_cast<LatcherProcessor*>(proc))           toolName = "Latcher";
+            else if (dynamic_cast<MidiMultiFilterProcessor*>(proc))   toolName = "MidiMultiFilter";
+            else if (dynamic_cast<ContainerProcessor*>(proc))         toolName = "Container";
             
             if (toolName.isNotEmpty()) {
                 nodeXml->setAttribute("type", "SystemTool");
@@ -627,7 +734,7 @@ juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
     return root.toString();
 }
 
-void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
+void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr, bool skipClear)
 {
     auto xml = juce::parseXML(xmlStr);
     if (!xml) return;
@@ -640,14 +747,20 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
     midiInputEnabled.store(xml->getBoolAttribute("midiInputEnabled", true));
     
     rackZoomLevel = juce::jlimit(0.25f, 1.0f, (float)xml->getDoubleAttribute("rackZoomLevel", 1.0));
-    // Remove all non-IO nodes
-    for (auto* node : mainGraph->getNodes()) {
-        if (node != audioInputNode.get() &&
-            node != audioOutputNode.get() &&
-            node != midiInputNode.get() &&
-            node != midiOutputNode.get()) {
-            mainGraph->removeNode(node->nodeID);
+    // Remove all non-IO nodes (skipped when caller already cleared)
+    if (!skipClear)
+    {
+        std::vector<juce::AudioProcessorGraph::NodeID> toRemove;
+        for (auto* node : mainGraph->getNodes()) {
+            if (node != audioInputNode.get() &&
+                node != audioOutputNode.get() &&
+                node != midiInputNode.get() &&
+                node != midiOutputNode.get()) {
+                toRemove.push_back(node->nodeID);
+            }
         }
+        for (auto nid : toRemove)
+            mainGraph->removeNode(nid);
     }
     
     // Map IO nodes
@@ -703,8 +816,14 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
                     else if (toolName == "MidiPlayer")        toolProc = std::make_unique<MidiPlayerProcessor>();
                     else if (toolName == "CCStepper")         toolProc = std::make_unique<CCStepperProcessor>();
                     else if (toolName == "TransientSplitter") toolProc = std::make_unique<TransientSplitterProcessor>();
+                    else if (toolName == "Latcher")            toolProc = std::make_unique<LatcherProcessor>();
+                    else if (toolName == "MidiMultiFilter")     toolProc = std::make_unique<MidiMultiFilterProcessor>();
+                    else if (toolName == "Container")           toolProc = std::make_unique<ContainerProcessor>();
                     
                     if (toolProc) {
+                        // Set parentProcessor for containers so they can load plugins inside
+                        if (auto* container = dynamic_cast<ContainerProcessor*>(toolProc.get()))
+                            container->setParentProcessor(this);
                         // Restore state before adding to graph
                         if (auto* stateXml = nodeXml->getChildByName("State")) {
                             juce::MemoryBlock mb;
@@ -738,7 +857,42 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
                 std::unique_ptr<juce::AudioPluginInstance> instance;
                 try {
                     instance = formatManager.createPluginInstance(desc, getSampleRate(), getBlockSize(), msg);
-                } catch (...) { continue; }
+                } catch (...) {}
+                
+                // Fallback: try alternate UID if first attempt failed
+                if (!instance) {
+                    for (auto& alt : knownPluginList.getTypes()) {
+                        if (alt.name == desc.name && alt.pluginFormatName == desc.pluginFormatName && alt.uniqueId != desc.uniqueId) {
+                            try {
+                                juce::String altMsg;
+                                instance = formatManager.createPluginInstance(alt, getSampleRate(), getBlockSize(), altMsg);
+                                if (instance) break;
+                            } catch (...) {}
+                        }
+                    }
+                }
+                
+                
+                // Nuclear fallback: re-scan .vst3 in-process for correct UIDs
+                if (!instance && desc.pluginFormatName == "VST3") {
+                    for (int fi = 0; fi < formatManager.getNumFormats(); ++fi) {
+                        auto* format = formatManager.getFormat(fi);
+                        if (format->getName() != "VST3") continue;
+                        juce::OwnedArray<juce::PluginDescription> freshDescs;
+                        format->findAllTypesForFile(freshDescs, desc.fileOrIdentifier);
+                        for (auto* fresh : freshDescs) {
+                            if (fresh->name == desc.name) {
+                                try {
+                                    juce::String freshMsg;
+                                    instance = formatManager.createPluginInstance(*fresh, getSampleRate(), getBlockSize(), freshMsg);
+                                    if (instance) { knownPluginList.addType(*fresh); break; }
+                                } catch (...) {}
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (!instance) continue;
                 
                 if (instance) {
                     auto nodePtr = mainGraph->addNode(std::make_unique<MeteringProcessor>(std::move(instance)));
@@ -822,153 +976,10 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr)
     }
 }
 
-void SubterraneumAudioProcessor::switchWorkspace(int targetIndex)
-{
-    if (targetIndex < 0 || targetIndex >= maxWorkspaces) return;
-    if (targetIndex == activeWorkspace) return;
-    if (!workspaceEnabled[targetIndex]) return; // Can't switch to disabled workspace
-    
-    suspendProcessing(true);
-    sendMidiPanicToAllInstruments();
-    
-    // Save current workspace
-    workspaceData[activeWorkspace] = serializeGraphToXml();
-    workspaceOccupied[activeWorkspace] = true;
-    
-    // Clear graph (remove all non-IO nodes)
-    for (auto* node : mainGraph->getNodes()) {
-        if (node != audioInputNode.get() &&
-            node != audioOutputNode.get() &&
-            node != midiInputNode.get() &&
-            node != midiOutputNode.get()) {
-            mainGraph->removeNode(node->nodeID);
-        }
-    }
-    
-    // Restore target workspace if it has data
-    if (workspaceOccupied[targetIndex])
-        restoreGraphFromXml(workspaceData[targetIndex]);
-    
-    activeWorkspace = targetIndex;
-    
-    suspendProcessing(false);
-}
-
-void SubterraneumAudioProcessor::clearWorkspace(int index)
-{
-    if (index < 0 || index >= maxWorkspaces) return;
-    
-    if (index == activeWorkspace)
-    {
-        // Clear the live graph — remove all non-IO nodes
-        suspendProcessing(true);
-        sendMidiPanicToAllInstruments();
-        
-        for (auto* node : mainGraph->getNodes()) {
-            if (node != audioInputNode.get() &&
-                node != audioOutputNode.get() &&
-                node != midiInputNode.get() &&
-                node != midiOutputNode.get()) {
-                mainGraph->removeNode(node->nodeID);
-            }
-        }
-        
-        workspaceData[index] = juce::String();
-        workspaceOccupied[index] = false;
-        
-        suspendProcessing(false);
-    }
-    else
-    {
-        // Just clear stored data
-        workspaceData[index] = juce::String();
-        workspaceOccupied[index] = false;
-    }
-}
-
-void SubterraneumAudioProcessor::duplicateWorkspace(int srcIndex, int dstIndex)
-{
-    if (srcIndex < 0 || srcIndex >= maxWorkspaces) return;
-    if (dstIndex < 0 || dstIndex >= maxWorkspaces) return;
-    if (srcIndex == dstIndex) return;
-    
-    // Make sure source data is current
-    juce::String srcData;
-    if (srcIndex == activeWorkspace)
-        srcData = serializeGraphToXml();
-    else
-        srcData = workspaceData[srcIndex];
-    
-    if (dstIndex == activeWorkspace)
-    {
-        // Replace the live graph
-        suspendProcessing(true);
-        sendMidiPanicToAllInstruments();
-        
-        for (auto* node : mainGraph->getNodes()) {
-            if (node != audioInputNode.get() &&
-                node != audioOutputNode.get() &&
-                node != midiInputNode.get() &&
-                node != midiOutputNode.get()) {
-                mainGraph->removeNode(node->nodeID);
-            }
-        }
-        
-        if (srcData.isNotEmpty())
-            restoreGraphFromXml(srcData);
-        
-        workspaceData[dstIndex] = srcData;
-        workspaceOccupied[dstIndex] = srcData.isNotEmpty();
-        workspaceEnabled[dstIndex] = true;
-        
-        suspendProcessing(false);
-    }
-    else
-    {
-        workspaceData[dstIndex] = srcData;
-        workspaceOccupied[dstIndex] = srcData.isNotEmpty();
-        workspaceEnabled[dstIndex] = true;
-    }
-}
-
-void SubterraneumAudioProcessor::resetAllWorkspaces()
-{
-    suspendProcessing(true);
-    sendMidiPanicToAllInstruments();
-    
-    // Clear the live graph
-    for (auto* node : mainGraph->getNodes()) {
-        if (node != audioInputNode.get() &&
-            node != audioOutputNode.get() &&
-            node != midiInputNode.get() &&
-            node != midiOutputNode.get()) {
-            mainGraph->removeNode(node->nodeID);
-        }
-    }
-    
-    // Reset all workspace slots
-    for (int i = 0; i < maxWorkspaces; ++i)
-    {
-        workspaceData[i] = juce::String();
-        workspaceOccupied[i] = false;
-        workspaceEnabled[i] = (i == 0);
-        workspaceNames[i] = juce::String(i + 1);
-    }
-    
-    activeWorkspace = 0;
-    instrumentSelectorMultiMode = true;
-    
-    suspendProcessing(false);
-}
-
 // =============================================================================
 // Plugin Filter Entry Point
 // =============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
     return new SubterraneumAudioProcessor();
 }
-
-
-
-
 

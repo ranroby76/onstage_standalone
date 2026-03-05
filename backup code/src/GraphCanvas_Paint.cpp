@@ -1,5 +1,3 @@
-
-
 // D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Paint.cpp
 // FIXED: Added RecorderProcessor visualization
 // FIX: Added folder button to recorder, fixed layout
@@ -15,33 +13,68 @@
 #include "MidiPlayerProcessor.h"
 #include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
+#include "LatcherProcessor.h"
+#include "MidiMultiFilterProcessor.h"
+#include "ContainerProcessor.h"
 
 void GraphCanvas::paint(juce::Graphics& g)
 {
-    g.fillAll(Style::colBackground);
+    // Dark purple background when inside a container, normal otherwise
+    if (isInsideContainer())
+        g.fillAll(juce::Colour(28, 14, 42));
+    else
+        g.fillAll(Style::colBackground);
 
-    // Simplified grid - draw fewer lines for better performance
+    // Save pixel-coord state so overlays can restore it later (bulletproof)
+    g.saveState();
+
+    // =========================================================================
+    // Paint-level zoom + pan: virtual coord (vx,vy) → pixel ((vx-panX)*zoom, (vy-panY)*zoom)
+    // Component stays within parent bounds — no setTransform overflow
+    // =========================================================================
+    g.addTransform(juce::AffineTransform::scale(zoomLevel)
+                    .translated(-panOffsetX * zoomLevel, -panOffsetY * zoomLevel));
+
+    // Grid across the full virtual canvas
+    // Skip lines when they'd be too dense at low zoom (minimum 8px apart on screen)
     g.setColour(juce::Colours::white.withAlpha(0.03f));
-    const int gridSize = 40; // Larger grid = fewer lines to draw
-    for (int x = 0; x < getWidth(); x += gridSize)
-        g.drawVerticalLine(x, 0.0f, (float)getHeight());
-    for (int y = 0; y < getHeight(); y += gridSize)
-        g.drawHorizontalLine(y, 0.0f, (float)getWidth());
+    int gridSize = 40;
+    while (gridSize * zoomLevel < 8.0f) gridSize *= 2;  // double grid spacing when too dense
+    for (int x = 0; x < (int)virtualCanvasWidth; x += gridSize)
+        g.drawVerticalLine(x, 0.0f, virtualCanvasHeight);
+    for (int y = 0; y < (int)virtualCanvasHeight; y += gridSize)
+        g.drawHorizontalLine(y, 0.0f, virtualCanvasWidth);
 
-    if (!processor.mainGraph) return;
+    if (!processor.mainGraph)
+    {
+        g.restoreState();
+        drawScrollbars(g);
+        drawMinimap(g);
+        return;
+    }
+
+    auto* ag = getActiveGraph();
+    if (!ag)
+    {
+        g.restoreState();
+        drawScrollbars(g);
+        drawMinimap(g);
+        return;
+    }
+
     // FIX: verifyPositions() moved to rebuildNodeTypeCache() — runs once per structure change,
     // not 20 times/sec during meter animation
 
     // Ensure cache is valid
-    if (nodeTypeCache.empty() && processor.mainGraph->getNumNodes() > 0)
+    if (nodeTypeCache.empty() && ag->getNumNodes() > 0)
         const_cast<GraphCanvas*>(this)->rebuildNodeTypeCache();
 
     // FIX: Use cached connections instead of getConnections() which copies
     // the entire std::vector on every call — saves heap allocation churn at 20fps
     for (auto& connection : cachedConnections)
     {
-        auto* srcNode = processor.mainGraph->getNodeForId(connection.source.nodeID);
-        auto* dstNode = processor.mainGraph->getNodeForId(connection.destination.nodeID);
+        auto* srcNode = ag->getNodeForId(connection.source.nodeID);
+        auto* dstNode = ag->getNodeForId(connection.destination.nodeID);
         if (srcNode && dstNode && shouldShowNode(srcNode) && shouldShowNode(dstNode))
         {
             bool isMidi = connection.source.isMIDI();
@@ -130,7 +163,7 @@ void GraphCanvas::paint(juce::Graphics& g)
     }
 
     // Draw nodes
-    for (auto* node : processor.mainGraph->getNodes())
+    for (auto* node : ag->getNodes())
     {
         if (!shouldShowNode(node)) continue;
         auto bounds = getNodeBounds(node);
@@ -145,6 +178,11 @@ void GraphCanvas::paint(juce::Graphics& g)
 
         // Main body - use darker background if bypassed
         juce::Colour bodyCol = node->isBypassed() ? Style::colNodeBodyBypassed : Style::colNodeBody;
+        
+        // Container nodes get a brighter grey body to stand out
+        if (cache && cache->container)
+            bodyCol = node->isBypassed() ? juce::Colour(55, 55, 60) : juce::Colour(75, 80, 90);
+        
         g.setColour(bodyCol);
         g.fillRoundedRectangle(bounds.toFloat(), Style::nodeRounding);
 
@@ -156,7 +194,10 @@ void GraphCanvas::paint(juce::Graphics& g)
 
         // Title bar
         auto titleBounds = bounds.removeFromTop(Style::nodeTitleHeight);
-        g.setColour(node->isBypassed() ? Style::colNodeTitleBypassed : Style::colNodeTitle);
+        juce::Colour titleCol = node->isBypassed() ? Style::colNodeTitleBypassed : Style::colNodeTitle;
+        if (cache && cache->container)
+            titleCol = node->isBypassed() ? juce::Colour(60, 65, 75) : juce::Colour(50, 90, 130);
+        g.setColour(titleCol);
         g.fillRoundedRectangle(titleBounds.toFloat(), Style::nodeRounding);
         g.fillRect(titleBounds.removeFromBottom(Style::nodeRounding).toFloat());
 
@@ -1178,6 +1219,96 @@ void GraphCanvas::paint(juce::Graphics& g)
         // END STEP SEQ VISUALIZATION
         // =====================================================================
 
+
+        // =====================================================================
+        // LATCHER - 4x4 pad grid compact visualization
+        // =====================================================================
+        if (auto* latcher = dynamic_cast<LatcherProcessor*>(proc))
+        {
+            auto contentArea = bounds.reduced(8, 6);
+            
+            // "All Off" button in upper right corner of content area
+            float allOffW = 42.0f;
+            float allOffH = 16.0f;
+            auto allOffRect = juce::Rectangle<float>(
+                contentArea.getRight() - allOffW,
+                contentArea.getY(),
+                allOffW, allOffH);
+            
+            // Count latched pads for color
+            int latchedCount = 0;
+            for (int i = 0; i < LatcherProcessor::NumPads; i++)
+                if (latcher->isPadLatched(i)) latchedCount++;
+            
+            g.setColour(latchedCount > 0 ? juce::Colour(0xffCC3333) : juce::Colour(60, 60, 60));
+            g.fillRoundedRectangle(allOffRect, 3.0f);
+            g.setColour(latchedCount > 0 ? juce::Colours::white : juce::Colours::grey);
+            g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+            g.drawText("ALL OFF", allOffRect, juce::Justification::centred);
+            
+            // Grid area — below All Off, above bottom buttons
+            auto gridArea = contentArea;
+            gridArea.removeFromTop(allOffH + 2.0f);
+            gridArea.removeFromBottom(Style::bottomBtnHeight + Style::bottomBtnMargin + 2);
+            
+            float padW = gridArea.getWidth() / 4.0f;
+            float padH = gridArea.getHeight() / 4.0f;
+            float gap = 2.0f;
+            
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 4; col++)
+                {
+                    int padIndex = row * 4 + col;
+                    bool latched = latcher->isPadLatched(padIndex);
+                    
+                    auto padRect = juce::Rectangle<float>(
+                        gridArea.getX() + col * padW + gap / 2,
+                        gridArea.getY() + row * padH + gap / 2,
+                        padW - gap,
+                        padH - gap);
+                    
+                    if (latched)
+                    {
+                        // ON: golden fill + glow
+                        g.setColour(juce::Colour(0xffB8860B));
+                        g.fillRoundedRectangle(padRect, 3.0f);
+                        g.setColour(juce::Colour(0xffFFD700).withAlpha(0.3f));
+                        g.fillRoundedRectangle(padRect.expanded(1), 4.0f);
+                        // Golden border
+                        g.setColour(juce::Colour(0xffFFD700));
+                        g.drawRoundedRectangle(padRect, 3.0f, 1.0f);
+                        // Golden text
+                        g.setColour(juce::Colour(0xffFFD700));
+                    }
+                    else
+                    {
+                        // OFF: light gray fill
+                        g.setColour(juce::Colour(180, 180, 185));
+                        g.fillRoundedRectangle(padRect, 3.0f);
+                        // Subtle darker border
+                        g.setColour(juce::Colour(140, 140, 145));
+                        g.drawRoundedRectangle(padRect, 3.0f, 0.8f);
+                        // Black text
+                        g.setColour(juce::Colours::black);
+                    }
+                    
+                    // Pad number label
+                    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+                    g.drawText(juce::String(padIndex + 1), padRect, juce::Justification::centred);
+                }
+            }
+            
+            if (latchedCount > 0)
+            {
+                g.setColour(juce::Colour(0xffFFD700).withAlpha(0.06f));
+                g.fillRoundedRectangle(bounds.reduced(2), Style::nodeRounding);
+            }
+        }
+        // =====================================================================
+        // END LATCHER VISUALIZATION
+        // =====================================================================
+
         // Draw pins
         drawNodePins(g, node);
 
@@ -1193,6 +1324,19 @@ void GraphCanvas::paint(juce::Graphics& g)
             drawAudioIOToggle(g, node);
         }
     }
+    
+    // =========================================================================
+    // NEW: Draw overlays in raw component pixel coords
+    // restoreState() guarantees pixel-space regardless of zoom/pan
+    // =========================================================================
+    g.restoreState();
+    
+    drawScrollbars(g);
+    drawMinimap(g);
+    
+    // Draw container header on top of everything when inside a container
+    if (isInsideContainer())
+        drawContainerHeader(g);
 }
 
 void GraphCanvas::drawWire(juce::Graphics& g, juce::Point<float> start, juce::Point<float> end, juce::Colour col, float thickness)
@@ -1255,7 +1399,7 @@ juce::Point<float> GraphCanvas::getPinPos(juce::AudioProcessorGraph::Node* node,
 
 juce::Point<float> GraphCanvas::getPinCenterPos(const PinID& pinID) const
 {
-    auto* node = processor.mainGraph->getNodeForId(pinID.nodeID);
+    auto* node = getActiveGraph() ? getActiveGraph()->getNodeForId(pinID.nodeID) : nullptr;
     if (!node) return {};
     return getPinPos(node, pinID);
 }
@@ -1279,6 +1423,7 @@ void GraphCanvas::drawNodePins(juce::Graphics& g, juce::AudioProcessorGraph::Nod
     bool producesMidi = proc->producesMidi();
     
     auto cache = getCachedNodeType(node->nodeID);
+    
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(proc);
     
     for (int i = 0; i < numIn; ++i) {
@@ -1402,6 +1547,139 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     
     RecorderProcessor* recorder = cache ? cache->recorder
                                          : dynamic_cast<RecorderProcessor*>(proc);
+
+    // =========================================================================
+    // MidiMultiFilter: E (editor popup) + P (pass-through) + X (delete)
+    // =========================================================================
+    MidiMultiFilterProcessor* midiMultiFilter = cache ? cache->midiMultiFilter
+                                                       : dynamic_cast<MidiMultiFilterProcessor*>(proc);
+    if (midiMultiFilter)
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (editor)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // P button (pass-through)
+        bool isPass = midiMultiFilter->passThrough;
+        auto passRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(isPass ? juce::Colours::yellow : juce::Colours::grey.darker());
+        g.fillRoundedRectangle(passRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("P", passRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // X button (delete)
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+
+    // =========================================================================
+    // Container: E (dive in) + CH (MIDI channel) + M (mute) + T (transport) + X (delete)
+    // =========================================================================
+    ContainerProcessor* containerProc = cache ? cache->container
+                                               : dynamic_cast<ContainerProcessor*>(proc);
+    if (containerProc)
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        // E button (dive in)
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // CH button (MIDI channel selector)
+        auto chRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::orange.darker());
+        g.fillRoundedRectangle(chRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        
+        int mask = containerProc->getMidiChannelMask();
+        juce::String chText = "CH";
+        if (mask != 0) {
+            for (int i = 0; i < 16; ++i) {
+                if ((mask >> i) & 1) {
+                    chText = juce::String(i + 1);
+                    break;
+                }
+            }
+        }
+        g.drawText(chText, chRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // M button (mute)
+        auto muteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(containerProc->isMuted() ? juce::Colours::red : juce::Colours::lightgreen);
+        g.fillRoundedRectangle(muteRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("M", muteRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // T button (transport sync)
+        bool synced = containerProc->isTransportSynced();
+        auto transportRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(synced ? juce::Colours::yellow.darker(0.4f) : juce::Colours::yellow);
+        g.fillRoundedRectangle(transportRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("T", transportRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        // X button (delete)
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
+
+    // Latcher: E (editor popup) + X (delete)
+    if (dynamic_cast<LatcherProcessor*>(proc))
+    {
+        nodeBounds.removeFromTop(Style::nodeTitleHeight);
+        float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+        float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+        auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::cyan.darker());
+        g.fillRoundedRectangle(editRect, 3.0f);
+        g.setColour(juce::Colours::black);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("E", editRect, juce::Justification::centred);
+        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+        auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+        g.setColour(juce::Colours::darkred);
+        g.fillRoundedRectangle(deleteRect, 3.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+        g.drawText("X", deleteRect, juce::Justification::centred);
+        return;
+    }
     
     if (simpleConnector)
     {
@@ -1683,11 +1961,289 @@ void GraphCanvas::drawAudioIOToggle(juce::Graphics& g, juce::AudioProcessorGraph
     g.setColour(juce::Colours::white);
     g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.drawText(node->isBypassed() ? "OFF" : "ON", toggleRect, juce::Justification::centred);
+    
+    // =========================================================================
+    // +/- bus buttons — only for audio I/O nodes when inside a container
+    // =========================================================================
+    if (isInsideContainer())
+    {
+        auto* cache = getCachedNodeType(node->nodeID);
+        bool isAudioIn  = cache && cache->isAudioInput;
+        bool isAudioOut = cache && cache->isAudioOutput;
+        
+        if (isAudioIn || isAudioOut)
+        {
+            float pmBtnW = Style::bottomBtnWidth;
+            float pmBtnH = Style::bottomBtnHeight;
+            float addX = btnX + Style::bottomBtnWidth * 1.5f + Style::bottomBtnSpacing * 2.0f;
+            
+            // + button
+            auto addRect = juce::Rectangle<float>(addX, btnY, pmBtnW, pmBtnH);
+            g.setColour(juce::Colour(50, 160, 80));
+            g.fillRoundedRectangle(addRect, 3.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+            g.drawText("+", addRect, juce::Justification::centred);
+            addX += pmBtnW + Style::bottomBtnSpacing;
+            
+            // - button
+            auto subRect = juce::Rectangle<float>(addX, btnY, pmBtnW, pmBtnH);
+            g.setColour(juce::Colour(160, 60, 50));
+            g.fillRoundedRectangle(subRect, 3.0f);
+            g.setColour(juce::Colours::white);
+            g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+            g.drawText("-", subRect, juce::Justification::centred);
+        }
+    }
 }
 
+// =============================================================================
+// Container header — drawn in pixel space as the top bar when inside a container
+// Layout (left → right):
+//   [← Rack]  [Name TextEditor - managed as child component]  [title label]  [Load] [Save]
+// =============================================================================
+void GraphCanvas::drawContainerHeader(juce::Graphics& g)
+{
+    float w = (float)getWidth();
+    float h = containerHeaderHeight;
+    
+    // Background
+    g.setColour(juce::Colour(45, 18, 68));
+    g.fillRect(0.0f, 0.0f, w, h);
+    
+    // Bottom border line
+    g.setColour(juce::Colour(140, 70, 200));
+    g.fillRect(0.0f, h - 1.5f, w, 1.5f);
+    
+    const float btnH   = 30.0f;
+    const float btnY   = (h - btnH) / 2.0f;
+    const float margin = 8.0f;
+    
+    // ---- ← Rack button ----
+    auto rackBtnRect = juce::Rectangle<float>(margin, btnY, 80.0f, btnH);
+    g.setColour(juce::Colour(80, 40, 110));
+    g.fillRoundedRectangle(rackBtnRect, 5.0f);
+    g.setColour(juce::Colour(200, 150, 255));
+    g.drawRoundedRectangle(rackBtnRect, 5.0f, 1.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+    g.drawText(juce::CharPointer_UTF8("\xe2\x86\x90 Rack"), rackBtnRect, juce::Justification::centred);
+    
+    // ---- Name label (clickable — shows AlertWindow to rename) ----
+    float saveX  = w - margin - 65.0f;
+    float loadX  = saveX - margin - 65.0f;
+    float nameX  = margin + 80.0f + 12.0f;
+    float nameW  = loadX - nameX - 12.0f;
+    
+    juce::String currentName = containerStack.empty()
+        ? juce::String("Container")
+        : containerStack.back()->getContainerName();
+    
+    auto nameRect = juce::Rectangle<float>(nameX, btnY, nameW, btnH);
+    
+    // Draw name background — slightly highlighted to hint it's clickable
+    g.setColour(juce::Colour(70, 30, 100));
+    g.fillRoundedRectangle(nameRect, 4.0f);
+    g.setColour(juce::Colour(140, 80, 190));
+    g.drawRoundedRectangle(nameRect, 4.0f, 1.0f);
+    
+    // Draw pencil icon hint + name
+    g.setColour(juce::Colour(220, 180, 255));
+    g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+    g.drawText(currentName + "  \xe2\x9c\x8e", nameRect.reduced(6, 0), juce::Justification::centredLeft, true);
+    
+    // ---- Load button ----
+    auto loadRect = juce::Rectangle<float>(loadX, btnY, 65.0f, btnH);
+    g.setColour(juce::Colour(35, 80, 120));
+    g.fillRoundedRectangle(loadRect, 5.0f);
+    g.setColour(juce::Colour(100, 180, 255));
+    g.drawRoundedRectangle(loadRect, 5.0f, 1.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+    g.drawText("Load", loadRect, juce::Justification::centred);
+    
+    // ---- Save button ----
+    auto saveRect = juce::Rectangle<float>(saveX, btnY, 65.0f, btnH);
+    g.setColour(juce::Colour(35, 100, 50));
+    g.fillRoundedRectangle(saveRect, 5.0f);
+    g.setColour(juce::Colour(100, 220, 130));
+    g.drawRoundedRectangle(saveRect, 5.0f, 1.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+    g.drawText("Save", saveRect, juce::Justification::centred);
+}
 
+// =============================================================================
+// NEW: Minimap overlay — shows full canvas with node dots and viewport rect
+// Drawn in component PIXEL coords (after undoing zoom+pan transform)
+// =============================================================================
+void GraphCanvas::drawMinimap(juce::Graphics& g)
+{
+    auto mmRect = getMinimapRect();
+    
+    // Background
+    g.setColour(juce::Colour(0xDD101018));
+    g.fillRoundedRectangle(mmRect, 4.0f);
+    
+    // Border
+    g.setColour(juce::Colour(0xFF505060));
+    g.drawRoundedRectangle(mmRect, 4.0f, 1.0f);
+    
+    // Scale factors: virtual canvas -> minimap pixels
+    float scaleX = mmRect.getWidth()  / virtualCanvasWidth;
+    float scaleY = mmRect.getHeight() / virtualCanvasHeight;
+    
+    // Draw grid hint (every 4800 virtual units = one "old canvas" block)
+    g.setColour(juce::Colours::white.withAlpha(0.06f));
+    for (int gx = 0; gx <= 4; ++gx)
+    {
+        float lx = mmRect.getX() + gx * (4800.0f * scaleX);
+        g.drawVerticalLine((int)lx, mmRect.getY(), mmRect.getBottom());
+    }
+    for (int gy = 0; gy <= 4; ++gy)
+    {
+        float ly = mmRect.getY() + gy * (3200.0f * scaleY);
+        g.drawHorizontalLine((int)ly, mmRect.getX(), mmRect.getRight());
+    }
+    
+    // Draw nodes as small colored dots
+    if (processor.mainGraph)
+    {
+        auto* mmGraph = getActiveGraph();
+        if (!mmGraph) mmGraph = processor.mainGraph.get();
+        for (auto* node : mmGraph->getNodes())
+        {
+            if (!shouldShowNode(node)) continue;
+            
+            auto bounds = getNodeBounds(node);
+            float nx = mmRect.getX() + bounds.getCentreX() * scaleX;
+            float ny = mmRect.getY() + bounds.getCentreY() * scaleY;
+            
+            // Color based on type
+            auto* cache = getCachedNodeType(node->nodeID);
+            juce::Colour dotColor = juce::Colour(0xFF00AAFF);  // default blue
+            
+            if (cache)
+            {
+                if (cache->isIO)
+                    dotColor = juce::Colour(0xFFFFD700);  // gold for I/O
+                else if (cache->isInstrument)
+                    dotColor = juce::Colour(0xFF00FF88);  // green for instruments
+                else if (cache->simpleConnector || cache->stereoMeter || cache->midiMonitor ||
+                         cache->recorder || cache->manualSampler || cache->autoSampler ||
+                         cache->midiPlayer || cache->ccStepper || cache->transientSplitter ||
+                         cache->latcher)
+                    dotColor = juce::Colour(0xFFFF8800);  // orange for system tools
+                else if (node->isBypassed())
+                    dotColor = juce::Colour(0xFF666666);  // gray for bypassed
+            }
+            
+            float dotSize = 4.0f;
+            g.setColour(dotColor);
+            g.fillEllipse(nx - dotSize / 2, ny - dotSize / 2, dotSize, dotSize);
+        }
+    }
+    
+    // Draw viewport rectangle (current visible area)
+    float visW = getVisibleWidth();
+    float visH = getVisibleHeight();
+    
+    float vpX = mmRect.getX() + panOffsetX * scaleX;
+    float vpY = mmRect.getY() + panOffsetY * scaleY;
+    float vpW = visW * scaleX;
+    float vpH = visH * scaleY;
+    
+    // Clamp viewport rect to minimap bounds
+    vpW = juce::jmin(vpW, mmRect.getWidth());
+    vpH = juce::jmin(vpH, mmRect.getHeight());
+    
+    auto vpRect = juce::Rectangle<float>(vpX, vpY, vpW, vpH);
+    
+    // Viewport fill (semi-transparent)
+    g.setColour(juce::Colour(0x20FFFFFF));
+    g.fillRect(vpRect);
+    
+    // Viewport border (bright)
+    g.setColour(juce::Colour(0xCCFFFFFF));
+    g.drawRect(vpRect, 1.5f);
+    
+    // Label
+    g.setColour(juce::Colour(0x99FFFFFF));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+    int zoomPct = juce::roundToInt(zoomLevel * 100.0f);
+    g.drawText("MAP " + juce::String(zoomPct) + "%", 
+               mmRect.getX() + 4, mmRect.getY() + 2, 80, 12, 
+               juce::Justification::centredLeft);
+}
 
-
-
+// =============================================================================
+// NEW: Scrollbars — horizontal and vertical, drawn in component PIXEL coords
+// =============================================================================
+void GraphCanvas::drawScrollbars(juce::Graphics& g)
+{
+    float visW = getVisibleWidth();   // virtual visible area (for thumb ratio)
+    float visH = getVisibleHeight();
+    
+    // ---- Horizontal Scrollbar ----
+    {
+        auto hBar = getHScrollbarRect();
+        
+        // Track background
+        g.setColour(juce::Colour(0xAA181820));
+        g.fillRect(hBar);
+        g.setColour(juce::Colour(0xFF383840));
+        g.drawRect(hBar, 1.0f);
+        
+        // Thumb
+        float thumbRatio = visW / virtualCanvasWidth;
+        if (thumbRatio < 1.0f)
+        {
+            float thumbW = juce::jmax(20.0f, hBar.getWidth() * thumbRatio);
+            float maxPan = virtualCanvasWidth - visW;
+            float thumbX = hBar.getX();
+            if (maxPan > 0.0f)
+                thumbX += (panOffsetX / maxPan) * (hBar.getWidth() - thumbW);
+            
+            auto thumbRect = juce::Rectangle<float>(thumbX, hBar.getY() + 2, thumbW, hBar.getHeight() - 4);
+            
+            g.setColour(isDraggingHScrollbar ? juce::Colour(0xFFAABBCC) : juce::Colour(0xFF667788));
+            g.fillRoundedRectangle(thumbRect, 3.0f);
+        }
+    }
+    
+    // ---- Vertical Scrollbar ----
+    {
+        auto vBar = getVScrollbarRect();
+        
+        // Track background
+        g.setColour(juce::Colour(0xAA181820));
+        g.fillRect(vBar);
+        g.setColour(juce::Colour(0xFF383840));
+        g.drawRect(vBar, 1.0f);
+        
+        // Thumb
+        float thumbRatio = visH / virtualCanvasHeight;
+        if (thumbRatio < 1.0f)
+        {
+            float thumbH = juce::jmax(20.0f, vBar.getHeight() * thumbRatio);
+            float maxPan = virtualCanvasHeight - visH;
+            float thumbY = vBar.getY();
+            if (maxPan > 0.0f)
+                thumbY += (panOffsetY / maxPan) * (vBar.getHeight() - thumbH);
+            
+            auto thumbRect = juce::Rectangle<float>(vBar.getX() + 2, thumbY, vBar.getWidth() - 4, thumbH);
+            
+            g.setColour(isDraggingVScrollbar ? juce::Colour(0xFFAABBCC) : juce::Colour(0xFF667788));
+            g.fillRoundedRectangle(thumbRect, 3.0f);
+        }
+    }
+    
+    // ---- Corner square (bottom-right where scrollbars meet) ----
+    float pixW = (float)getWidth();
+    float pixH = (float)getHeight();
+    g.setColour(juce::Colour(0xFF181820));
+    g.fillRect(juce::Rectangle<float>(pixW - scrollbarThickness, pixH - scrollbarThickness, 
+                                       scrollbarThickness, scrollbarThickness));
+}
 
 

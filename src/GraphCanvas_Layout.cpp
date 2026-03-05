@@ -159,9 +159,10 @@ juce::Colour GraphCanvas::getPinColor(const PinID& pinId, juce::AudioProcessorGr
 
 GraphCanvas::PinID GraphCanvas::findPinAt(juce::Point<float> pos)
 {
-    if (!processor.mainGraph) return {};
+    auto* ag = getActiveGraph();
+    if (!ag) return {};
 
-    for (auto* node : processor.mainGraph->getNodes())
+    for (auto* node : ag->getNodes())
     {
         if (!shouldShowNode(node)) continue;
 
@@ -206,13 +207,17 @@ GraphCanvas::PinID GraphCanvas::findPinAt(juce::Point<float> pos)
 
 juce::AudioProcessorGraph::Node* GraphCanvas::findNodeAt(juce::Point<float> pos)
 {
-    for (auto* node : processor.mainGraph->getNodes())
+    auto* ag = getActiveGraph();
+    if (!ag) return nullptr;
+    for (auto* node : ag->getNodes())
     {
         if (shouldShowNode(node) && getNodeBounds(node).contains(pos))
             return node;
     }
     return nullptr;
 }
+
+
 
 
 

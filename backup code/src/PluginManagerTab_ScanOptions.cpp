@@ -128,7 +128,7 @@ void ScanOptionsPanel::scanForNewPlugins(bool clearList) {
         
         processor.knownPluginList.clear();
         
-        if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
             if (auto xml = processor.knownPluginList.createXml())
                 userSettings->setValue("KnownPluginsV2", xml.get());
             userSettings->saveIfNeeded();
@@ -183,7 +183,7 @@ void ScanOptionsPanel::removeMissingPlugins() {
         }
     }
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
@@ -213,7 +213,7 @@ void ScanOptionsPanel::removeAllPlugins() {
     // Also clear blacklist
     processor.knownPluginList.clearBlacklistedFiles();
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();

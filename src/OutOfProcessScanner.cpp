@@ -5,6 +5,7 @@
 // FIX: Skips 32-bit plugins automatically
 
 #include "OutOfProcessScanner.h"
+#include "VST3ModuleScanner.h"
 
 // Debug logging disabled - was writing colosseum_parent_log.txt to Desktop
 static void logParent(const juce::String& /*message*/)
@@ -192,6 +193,12 @@ bool OutOfProcessScanner::looksLikeCategory(const juce::String& name) {
         "mastering", "mixing", "utilities", "utility", "tools",
         "steinberg", "library", "lib", "usr", "local",
         "home", "root", "applications", "opt",
+        // MeldaProduction and common vendor subfolder category names
+        "time", "stereo", "modulation", "pitch", "space",
+        "imaging", "loudness", "analysis", "creative",
+        "saturation", "chorus", "flanger", "phaser",
+        "x86_64-win", "x86_64-linux", "arm64-macos", "x86_64-macos",
+        "contents", "resources", "macos", "windows", "linux",
         nullptr
     };
     
@@ -346,6 +353,10 @@ void OutOfProcessScanner::run() {
     
     killAllJobs();
     
+    // Shared container components are now handled per-plugin in parseChildResult()
+    // and addPluginWithFallbackInfo() with proper CID-based UIDs from moduleinfo.json.
+    // No final sweep needed.
+    
     logParent("=== PARALLEL SCAN FINISHED ===");
     logParent("Success: " + juce::String(resolvedByOOP.load()) + 
               ", Failed: " + juce::String(failedOOP.load()) +
@@ -484,9 +495,19 @@ bool OutOfProcessScanner::parseChildResult(const juce::File& resultFile, const P
         return false;
     
     auto existingTypes = processor.knownPluginList.getTypes();
+    
+    // Build a set of names from the worker result so we only remove entries
+    // that the worker is about to replace — NOT other components from the same bundle
+    juce::StringArray workerPluginNames;
+    for (const auto& entry : *pluginsArray) {
+        if (auto* obj = entry.getDynamicObject())
+            workerPluginNames.add(obj->getProperty("name").toString());
+    }
+    
     for (const auto& existing : existingTypes) {
         if (existing.fileOrIdentifier.equalsIgnoreCase(plugin.filePath) &&
-            existing.pluginFormatName == plugin.formatName) {
+            existing.pluginFormatName == plugin.formatName &&
+            workerPluginNames.contains(existing.name, true)) {
             processor.knownPluginList.removeType(existing);
         }
     }
@@ -522,6 +543,40 @@ bool OutOfProcessScanner::parseChildResult(const juce::File& resultFile, const P
         }
     }
     
+    // =========================================================================
+    // Shared container check: if this is a VST3 with moduleinfo.json,
+    // verify all Audio Module Classes were found. Add missing ones.
+    // e.g. Serum2.vst3 = synth + FX, worker may only return one.
+    // =========================================================================
+    if (plugin.formatName == "VST3")
+    {
+        juce::File vst3File(plugin.filePath);
+        if (VST3ModuleScanner::hasModuleInfo(vst3File))
+        {
+            auto allModulePlugins = VST3ModuleScanner::scanAllPlugins(vst3File);
+            
+            for (const auto& modulePlugin : allModulePlugins)
+            {
+                if (!modulePlugin.isValid) continue;
+                
+                // Check if this component was already added
+                bool found = false;
+                for (const auto& existing : processor.knownPluginList.getTypes()) {
+                    if (existing.fileOrIdentifier.equalsIgnoreCase(plugin.filePath) &&
+                        existing.name.equalsIgnoreCase(modulePlugin.name)) {
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    auto missingDesc = VST3ModuleScanner::toPluginDescription(modulePlugin);
+                    processor.knownPluginList.addType(missingDesc);
+                }
+            }
+        }
+    }
+    
     return true;
 }
 
@@ -532,14 +587,53 @@ void OutOfProcessScanner::addPluginWithFallbackInfo(const PluginToScan& plugin) 
     if (!mml.lockWasGained())
         return;
     
-    for (const auto& existing : processor.knownPluginList.getTypes()) {
-        if (existing.fileOrIdentifier.equalsIgnoreCase(plugin.filePath) &&
-            existing.pluginFormatName == plugin.formatName) {
-            return;
+    juce::File pluginFile(plugin.filePath);
+    
+    // =========================================================================
+    // VST3: Try moduleinfo.json FIRST — gets proper name, vendor, category
+    // without loading the plugin binary. Handles shared containers too.
+    // Now with CID parsing for correct uniqueId computation.
+    // =========================================================================
+    if (plugin.formatName == "VST3" && VST3ModuleScanner::hasModuleInfo(pluginFile))
+    {
+        auto allInfos = VST3ModuleScanner::scanAllPlugins(pluginFile);
+        
+        bool anyAdded = false;
+        for (const auto& info : allInfos)
+        {
+            if (!info.isValid) continue;
+            
+            // Check this specific component doesn't already exist
+            bool exists = false;
+            for (const auto& existing : processor.knownPluginList.getTypes()) {
+                if (existing.fileOrIdentifier.equalsIgnoreCase(plugin.filePath) &&
+                    existing.name.equalsIgnoreCase(info.name)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) continue;
+            
+            auto desc = VST3ModuleScanner::toPluginDescription(info);
+            processor.knownPluginList.addType(desc);
+            anyAdded = true;
         }
+        
+        if (anyAdded)
+            return;  // Successfully added from moduleinfo.json
     }
     
-    juce::File pluginFile(plugin.filePath);
+    // =========================================================================
+    // Fallback: filename + path-based vendor (original behavior)
+    // Only add if this exact name doesn't already exist for this file
+    // =========================================================================
+    juce::String fallbackName = pluginFile.getFileNameWithoutExtension();
+    for (const auto& existing : processor.knownPluginList.getTypes()) {
+        if (existing.fileOrIdentifier.equalsIgnoreCase(plugin.filePath) &&
+            existing.name.equalsIgnoreCase(fallbackName)) {
+            return;  // Already have this one
+        }
+    }
     
     juce::PluginDescription desc;
     desc.fileOrIdentifier = plugin.filePath;

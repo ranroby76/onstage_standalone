@@ -1,9 +1,12 @@
+
+
 // #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_DragDrop.cpp
 // FIXED: Plugin drag-and-drop matching - use fileOrIdentifier instead of createIdentifierString()
 // FIXED: Signature must match header exactly (SourceDetails, not juce::DragAndDropTarget::SourceDetails)
 // FIXED: Added Recorder system tool support
 // FIXED: Fresh-scan retry when plugin load fails (stale uniqueId / fallback entries)
 // FIX: Added MidiMultiFilter system tool support
+// NEW: Added Container system tool support
 
 #include "GraphCanvas.h"
 #include "SimpleConnectorProcessor.h"
@@ -17,13 +20,17 @@
 #include "TransientSplitterProcessor.h"
 #include "LatcherProcessor.h"
 #include "MidiMultiFilterProcessor.h"
+#include "ContainerProcessor.h"
 
 bool GraphCanvas::isInterestedInDragSource(const SourceDetails& dragSourceDetails) {
     juce::String dragId = dragSourceDetails.description.toString();
-    
+
     // Accept system tools
     if (dragId.startsWith("TOOL:")) return true;
-    
+
+    // Accept container preset files
+    if (dragId.startsWith("CONTAINERPRESET:")) return true;
+
     // Accept plugins from browser panel
     auto types = processor.knownPluginList.getTypes();
     for (const auto& desc : types) {
@@ -32,7 +39,7 @@ bool GraphCanvas::isInterestedInDragSource(const SourceDetails& dragSourceDetail
         // Also try createIdentifierString for backward compatibility
         if (desc.createIdentifierString() == dragId) return true;
     }
-    
+
     return false;
 }
 
@@ -57,36 +64,54 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
     isDragHovering = false;
     juce::String dragId = dragSourceDetails.description.toString();
     juce::Point<int> dropPos = toVirtual(dragSourceDetails.localPosition.toFloat()).toInt();
-    
+
     // =========================================================================
     // Handle System Tools
     // =========================================================================
     if (dragId.startsWith("TOOL:")) {
         juce::String toolName = dragId.substring(5);
         juce::AudioProcessorGraph::Node::Ptr nodePtr;
-        
+        auto* activeGraph = getActiveGraph();
+        if (!activeGraph) return;
+
         if (toolName == "Connector") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new SimpleConnectorProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new SimpleConnectorProcessor()));
         } else if (toolName == "StereoMeter") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new StereoMeterProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new StereoMeterProcessor()));
         } else if (toolName == "MidiMonitor") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMonitorProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMonitorProcessor()));
         } else if (toolName == "Recorder") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new RecorderProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new RecorderProcessor()));
         } else if (toolName == "ManualSampler") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new ManualSamplerProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new ManualSamplerProcessor()));
         } else if (toolName == "AutoSampler") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new AutoSamplerProcessor(processor.mainGraph.get(), &processor)));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new AutoSamplerProcessor(activeGraph, &processor)));
         } else if (toolName == "MidiPlayer") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiPlayerProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiPlayerProcessor()));
         } else if (toolName == "StepSeq") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
         } else if (toolName == "TransientSplitter") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
         } else if (toolName == "Latcher") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
         } else if (toolName == "MidiMultiFilter") {
-            nodePtr = processor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMultiFilterProcessor()));
+            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMultiFilterProcessor()));
+        } else if (toolName == "Container") {
+            // Block nested containers
+            if (isInsideContainer())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::InfoIcon,
+                    "Not Supported",
+                    "Containers cannot be nested inside other containers.\n\nDive out to the main rack first.",
+                    "OK");
+                repaint();
+                return;
+            }
+            auto containerProc = std::make_unique<ContainerProcessor>();
+            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));  // FIX 3
+            containerProc->setParentProcessor(&processor);
+            nodePtr = activeGraph->addNode(std::move(containerProc));
         } else if (toolName == "VST2Plugin") {
             // VST2 opens a file chooser - no node created here
             loadVST2Plugin(dropPos.toFloat());
@@ -97,17 +122,52 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
             repaint();
             return;
         }
-        
+
         if (nodePtr) {
             nodePtr->properties.set("x", (double)dropPos.x);
             nodePtr->properties.set("y", (double)dropPos.y);
             markDirty();
         }
-        
+
         repaint();
         return;
     }
-    
+
+    // =========================================================================
+    // Handle Container Preset files dragged from browser
+    // =========================================================================
+    if (dragId.startsWith("CONTAINERPRESET:")) {
+        // Block loading container presets inside an existing container
+        if (isInsideContainer())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Not Supported",
+                "Container presets can only be loaded onto the main rack.\n\nDive out first, then drop the container.",
+                "OK");
+            repaint();
+            return;
+        }
+
+        juce::String presetPath = dragId.substring(16);
+        juce::File presetFile(presetPath);
+        if (presetFile.existsAsFile()) {
+            auto containerProc = std::make_unique<ContainerProcessor>();
+            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));  // FIX 3
+            containerProc->setParentProcessor(&processor);
+            containerProc->loadPreset(presetFile);
+
+            auto nodePtr = processor.mainGraph->addNode(std::move(containerProc));
+            if (nodePtr) {
+                nodePtr->properties.set("x", (double)dropPos.x);
+                nodePtr->properties.set("y", (double)dropPos.y);
+                markDirty();
+            }
+        }
+        repaint();
+        return;
+    }
+
     // =========================================================================
     // Handle Plugins - FIX: Match by fileOrIdentifier (primary) or createIdentifierString (fallback)
     // =========================================================================
@@ -126,14 +186,14 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
             return;
         }
     }
-    
+
     // If no match found, show error
     juce::AlertWindow::showMessageBoxAsync(
         juce::MessageBoxIconType::WarningIcon,
         "Plugin Not Found",
         "Could not find plugin in the known plugins list.\n\nTry rescanning your plugins.",
         "OK");
-    
+
     repaint();
 }
 
@@ -158,13 +218,13 @@ static bool freshScanPlugin(juce::AudioPluginFormatManager& formatManager,
         }
     }
     if (!format) return false;
-    
+
     // Do a fresh in-process scan of this specific file
     juce::OwnedArray<juce::PluginDescription> results;
     format->findAllTypesForFile(results, staleDesc.fileOrIdentifier);
-    
+
     if (results.isEmpty()) return false;
-    
+
     // Remove stale entry and add fresh ones
     // (stale entry has wrong uniqueId → can't load)
     auto existingTypes = knownPluginList.getTypes();
@@ -175,16 +235,16 @@ static bool freshScanPlugin(juce::AudioPluginFormatManager& formatManager,
         }
     }
     knownPluginList.clearBlacklistedFiles();
-    
+
     // Add all freshly scanned descriptions
     for (auto* desc : results) {
         // Preserve vendor from stale entry if the fresh scan returned empty vendor
         if (desc->manufacturerName.isEmpty() && staleDesc.manufacturerName.isNotEmpty())
             desc->manufacturerName = staleDesc.manufacturerName;
-        
+
         knownPluginList.addType(*desc);
     }
-    
+
     // Return the first result (usually the main processor)
     freshDesc = *results[0];
     return true;
@@ -192,17 +252,17 @@ static bool freshScanPlugin(juce::AudioPluginFormatManager& formatManager,
 
 void GraphCanvas::addPluginAtPosition(const juce::PluginDescription& description, juce::Point<int> position) {
     juce::String error;
-    
+
     // SAFE DEFAULTS: When ASIO is off, getSampleRate()/getBlockSize() return 0.
     // Many VST3 plugins (Serum 2, Nexus, etc.) refuse to load with 0/0.
     double sr = processor.getSampleRate();
     int bs = processor.getBlockSize();
     if (sr <= 0.0) sr = 44100.0;
     if (bs <= 0) bs = 512;
-    
+
     auto instance = processor.formatManager.createPluginInstance(
         description, sr, bs, error);
-    
+
     // =========================================================================
     // FIX: If first attempt fails, try a fresh in-process scan and retry.
     // This handles plugins whose stored metadata has a stale/wrong uniqueId
@@ -220,11 +280,13 @@ void GraphCanvas::addPluginAtPosition(const juce::PluginDescription& description
                 freshDesc, sr, bs, error);
         }
     }
-    
+
     if (instance) {
         auto meteringProc = std::make_unique<MeteringProcessor>(std::move(instance));
-        auto nodePtr = processor.mainGraph->addNode(std::move(meteringProc));
-        
+        auto* activeGraph = getActiveGraph();
+        if (!activeGraph) return;
+        auto nodePtr = activeGraph->addNode(std::move(meteringProc));
+
         if (nodePtr) {
             nodePtr->properties.set("x", (double)position.x);
             nodePtr->properties.set("y", (double)position.y);
@@ -235,7 +297,7 @@ void GraphCanvas::addPluginAtPosition(const juce::PluginDescription& description
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::WarningIcon,
             "Plugin Load Failed",
-            "Could not load: " + description.name + "\n\n" + 
+            "Could not load: " + description.name + "\n\n" +
             (error.isEmpty() ? "Unknown error" : error),
             "OK");
     }

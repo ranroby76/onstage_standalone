@@ -52,5 +52,3 @@ private:
     // FIX #2: TooltipWindow to display button tooltips
     juce::TooltipWindow tooltipWindow { this, 700 };  // 700ms delay
 };
-
-

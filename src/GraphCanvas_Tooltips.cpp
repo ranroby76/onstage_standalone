@@ -1,4 +1,6 @@
+
 #include "GraphCanvas.h"
+#include "ContainerProcessor.h"
 
 void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& componentPos)
 {
@@ -14,19 +16,58 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
     bool isMidiInput   = cache ? cache->isMidiInput   : (node == processor.midiInputNode.get());
     bool isMidiOutput  = cache ? cache->isMidiOutput  : (node == processor.midiOutputNode.get());
 
+    // FIX 4: Check if this is a container node - show container name with pin info
+    auto* containerProc = dynamic_cast<ContainerProcessor*>(node->getProcessor());
+    if (containerProc)
+    {
+        if (pin.isMidi)
+        {
+            text = containerProc->getContainerName() + (pin.isInput ? " MIDI In" : " MIDI Out");
+        }
+        else
+        {
+            text = containerProc->getContainerName() + (pin.isInput ? " In" : " Out")
+                   + " Ch " + juce::String(pin.pinIndex + 1);
+        }
+
+        auto screenBounds = getScreenBounds();
+        juce::Point<int> tooltipScreenPos(
+            screenBounds.getX() + (int)componentPos.x + 10,
+            screenBounds.getY() + (int)componentPos.y + 10
+        );
+
+        auto* content = new StatusToolTip(text, isActive);
+        juce::CallOutBox::launchAsynchronously(
+            std::unique_ptr<juce::Component>(content),
+            juce::Rectangle<int>(tooltipScreenPos.x, tooltipScreenPos.y, 1, 1),
+            nullptr);
+        return;
+    }
+
     if (pin.isMidi)
     {
-        if (isMidiInput) text = "MIDI Input";
+        // FIX 4: Check if this is a container's inner I/O node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString();
+        else if (isMidiInput) text = "MIDI Input";
         else if (isMidiOutput) text = "MIDI Output";
         else text = pin.isInput ? "MIDI In" : "MIDI Out";
     }
     else if (isAudioInput && !pin.isInput)
     {
-        text = processor.getDeviceInputChannelName(pin.pinIndex);
+        // FIX 4: Check if this is a container's inner audio input node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString() + " Ch " + juce::String(pin.pinIndex + 1);
+        else
+            text = processor.getDeviceInputChannelName(pin.pinIndex);
     }
     else if (isAudioOutput && pin.isInput)
     {
-        text = processor.getDeviceOutputChannelName(pin.pinIndex);
+        // FIX 4: Check if this is a container's inner audio output node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString() + " Ch " + juce::String(pin.pinIndex + 1);
+        else
+            text = processor.getDeviceOutputChannelName(pin.pinIndex);
     }
     else
     {
@@ -50,7 +91,7 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
     // componentPos is relative to this GraphCanvas component
     auto screenBounds = getScreenBounds();
     juce::Point<int> tooltipScreenPos(
-        screenBounds.getX() + (int)componentPos.x + 10, 
+        screenBounds.getX() + (int)componentPos.x + 10,
         screenBounds.getY() + (int)componentPos.y + 10
     );
 
@@ -94,7 +135,7 @@ void GraphCanvas::showWireMenu(const juce::AudioProcessorGraph::Connection& conn
     // FIX 1: Convert component coordinates to screen coordinates properly
     auto screenBounds = getScreenBounds();
     juce::Point<int> tooltipScreenPos(
-        screenBounds.getX() + (int)componentPos.x + 10, 
+        screenBounds.getX() + (int)componentPos.x + 10,
         screenBounds.getY() + (int)componentPos.y + 10
     );
 

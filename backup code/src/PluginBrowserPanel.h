@@ -3,6 +3,9 @@
 // Filters: All | Instruments | Effects | Tools (removed Favorites)
 // FIX: Collapsible vendor/folder groups, title header, no vendor in items
 // FIX: Added Recorder to SystemToolType
+// NEW: Favorites mode - toggle title to browse saved .subt patches
+// NEW: Added MidiMultiFilter system tool
+// NEW: Added Container system tool
 
 #pragma once
 
@@ -13,7 +16,7 @@
 #include <map>
 
 // =============================================================================
-// System Tool Type - FIXED: Added Recorder
+// System Tool Type - FIXED: Added Recorder, MidiMultiFilter, Container
 // =============================================================================
 enum class SystemToolType {
     None,
@@ -26,7 +29,52 @@ enum class SystemToolType {
     MidiPlayer,
     StepSeq,
     TransientSplitter,
-    VST2Plugin
+    Latcher,
+    MidiMultiFilter,   // NEW: MIDI Multi Filter tool
+    Container,         // NEW: Container (sub-graph) tool
+    VST2Plugin,
+    VST3Plugin
+};
+
+// =============================================================================
+// Favorite Patch Item - displays a .subt file in Favorites mode
+// =============================================================================
+class FavoritePatchItem : public juce::Component {
+public:
+    FavoritePatchItem(const juce::File& file);
+    void paint(juce::Graphics& g) override;
+    void mouseEnter(const juce::MouseEvent&) override { hovered = true; repaint(); }
+    void mouseExit(const juce::MouseEvent&) override { hovered = false; repaint(); }
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    
+    const juce::File& getFile() const { return patchFile; }
+    
+    std::function<void(const juce::File&)> onPatchDoubleClick;
+    
+private:
+    juce::File patchFile;
+    bool hovered = false;
+};
+
+// =============================================================================
+// Container Preset Item - displays a .container file in Containers tab
+// =============================================================================
+class ContainerPresetItem : public juce::Component {
+public:
+    ContainerPresetItem(const juce::File& file);
+    void paint(juce::Graphics& g) override;
+    void mouseEnter(const juce::MouseEvent&) override { hovered = true; repaint(); }
+    void mouseExit(const juce::MouseEvent&) override { hovered = false; repaint(); }
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    
+    const juce::File& getFile() const { return presetFile; }
+    
+    std::function<void(const juce::File&)> onPresetDoubleClick;
+    
+private:
+    juce::File presetFile;
+    bool hovered = false;
 };
 
 // =============================================================================
@@ -93,17 +141,24 @@ public:
     void setPlugins(const juce::Array<juce::PluginDescription>& plugins,
                     bool groupByVendor, bool groupByFolder, bool groupByFormat);
     void setSystemTools();
+    void setFavorites(const juce::Array<juce::File>& patchFiles);
+    void setContainerPresets(const juce::Array<juce::File>& presetFiles);
     void paint(juce::Graphics& g) override;
+    int getNumItems() const { return items.size(); }
     
     void toggleGroup(const juce::String& groupName);
     
     std::function<void(const juce::PluginDescription&)> onPluginDoubleClick;
     std::function<void(SystemToolType)> onToolDoubleClick;
+    std::function<void(const juce::File&)> onPatchDoubleClick;
+    std::function<void(const juce::File&)> onContainerPresetDoubleClick;
     
 private:
     juce::OwnedArray<PluginBrowserItem> items;
     juce::OwnedArray<PluginGroupHeader> headers;
-    juce::OwnedArray<juce::Label> flatHeaders;  // For flat mode section labels
+    juce::OwnedArray<juce::Label> flatHeaders;
+    juce::OwnedArray<FavoritePatchItem> favoriteItems;
+    juce::OwnedArray<ContainerPresetItem> containerPresetItems;
     
     std::set<juce::String> expandedGroups;
     
@@ -140,11 +195,21 @@ public:
     std::function<void(const juce::PluginDescription&, juce::Point<int>)> onPluginDropped;
     std::function<void(SystemToolType, juce::Point<int>)> onToolDropped;
     
+    // Callback for loading a favorite patch into a workspace
+    std::function<void(const juce::File&, int workspaceIndex)> onFavoritePatchLoad;
+    
+    // Callback for loading a container preset onto the graph
+    std::function<void(const juce::File&, juce::Point<int>)> onContainerPresetLoad;
+    
 private:
     SubterraneumAudioProcessor& processor;
     
-    // Title label
-    juce::Label titleLabel { "title", "Add Plugins" };
+    // Title row: three mode selector buttons
+    juce::TextButton addPluginsBtn { "Add Plugins" };
+    juce::TextButton favoritesBtn { "Favorites" };
+    juce::TextButton containersBtn { "Containers" };
+    bool favoritesMode = false;
+    bool containersMode = false;
     
     juce::TextEditor searchBox;
     
@@ -160,9 +225,16 @@ private:
     juce::TextButton folderBtn { "Folder" };
     juce::TextButton formatBtn { "Format" };
     
+    // Favorites mode controls
+    juce::TextButton setFavFolderBtn { "Set Folder..." };
+    juce::Label favFolderLabel { "favFolder", "No folder set" };
+    
     juce::Viewport viewport;
     std::unique_ptr<PluginBrowserList> pluginList;
     juce::Label countLabel;
+    
+    // File chooser for favorites folder
+    std::shared_ptr<juce::FileChooser> favFolderChooser;
     
     enum class TypeFilter { All, Instruments, Effects, Tools };
     enum class ViewMode { Flat, ByVendor, ByFolder, ByFormat };
@@ -175,7 +247,14 @@ private:
     void updateButtons();
     juce::Array<juce::PluginDescription> getFilteredPlugins();
     
+    // Favorites helpers
+    void selectFavoritesFolder();
+    void loadFavoritesList();
+    void showWorkspaceSelector(const juce::File& patchFile);
+    juce::File getFavoritesFolder() const;
+    
+    // Container presets helpers
+    void loadContainerPresetsList();
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginBrowserPanel)
 };
-
-

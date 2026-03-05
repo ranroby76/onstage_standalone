@@ -14,11 +14,14 @@ void GraphCanvas::createConnection(PinID start, PinID end)
 {
     if (!canConnect(start, end)) return;
 
+    auto* ag = getActiveGraph();
+    if (!ag) return;
+
     PinID source = start.isInput ? end : start;
     PinID dest   = start.isInput ? start : end;
 
     // Check if connecting to a sidechain pin and auto-enable sidechain
-    auto* destNode = processor.mainGraph->getNodeForId(dest.nodeID);
+    auto* destNode = ag->getNodeForId(dest.nodeID);
 
     if (destNode && !dest.isMidi)
     {
@@ -36,17 +39,17 @@ void GraphCanvas::createConnection(PinID start, PinID end)
         }
     }
 
-    // Create the connection directly - JUCE handles fan-out natively
+    // Create the connection in the active graph - JUCE handles fan-out natively
     if (source.isMidi)
     {
-        processor.mainGraph->addConnection({
+        ag->addConnection({
             { source.nodeID, juce::AudioProcessorGraph::midiChannelIndex },
             { dest.nodeID,   juce::AudioProcessorGraph::midiChannelIndex }
         });
     }
     else
     {
-        processor.mainGraph->addConnection({
+        ag->addConnection({
             { source.nodeID, source.pinIndex },
             { dest.nodeID,   dest.pinIndex }
         });
@@ -61,7 +64,10 @@ juce::AudioProcessorGraph::Connection GraphCanvas::getConnectionAt(juce::Point<f
     // This is the maximum distance from the actual wire line, not bounding box
     const float hitTolerance = 3.0f;
 
-    auto connections = processor.mainGraph->getConnections();
+    auto* ag = getActiveGraph();
+    if (!ag) return { { juce::AudioProcessorGraph::NodeID(), 0 }, { juce::AudioProcessorGraph::NodeID(), 0 } };
+
+    auto connections = ag->getConnections();
     
     // FIX: Find the CLOSEST connection to the click point, not just the first match
     // This prevents wrong wire deletion when paths overlap (e.g., output wires vs sidechain input wires)
@@ -73,8 +79,8 @@ juce::AudioProcessorGraph::Connection GraphCanvas::getConnectionAt(juce::Point<f
     
     for (const auto& connection : connections)
     {
-        auto* src = processor.mainGraph->getNodeForId(connection.source.nodeID);
-        auto* dst = processor.mainGraph->getNodeForId(connection.destination.nodeID);
+        auto* src = ag->getNodeForId(connection.source.nodeID);
+        auto* dst = ag->getNodeForId(connection.destination.nodeID);
 
         if (src && dst && shouldShowNode(src) && shouldShowNode(dst))
         {
@@ -142,9 +148,12 @@ void GraphCanvas::deleteConnectionAt(juce::Point<float> pos)
     auto conn = getConnectionAt(pos);
     if (conn.source.nodeID.uid != 0)
     {
+        auto* ag = getActiveGraph();
+        if (!ag) return;
+
         // FIX 2: Before removing connection, check if it's a sidechain connection
         // If removing the last sidechain connection, disable sidechain processing
-        auto* destNode = processor.mainGraph->getNodeForId(conn.destination.nodeID);
+        auto* destNode = ag->getNodeForId(conn.destination.nodeID);
         
         if (destNode && !conn.destination.isMIDI())
         {
@@ -159,11 +168,11 @@ void GraphCanvas::deleteConnectionAt(juce::Point<float> pos)
                 if (mapping.isSidechain)
                 {
                     // Remove the connection first
-                    processor.mainGraph->removeConnection(conn);
+                    ag->removeConnection(conn);
                     
                     // Check if there are any other sidechain connections remaining
                     bool hasOtherSidechainConnections = false;
-                    for (auto& otherConn : processor.mainGraph->getConnections())
+                    for (auto& otherConn : ag->getConnections())
                     {
                         if (otherConn.destination.nodeID == destNode->nodeID &&
                             !otherConn.destination.isMIDI() &&
@@ -187,7 +196,7 @@ void GraphCanvas::deleteConnectionAt(juce::Point<float> pos)
         }
         
         // Normal connection removal (not sidechain)
-        processor.mainGraph->removeConnection(conn);
+        ag->removeConnection(conn);
         markDirty();
     }
 }

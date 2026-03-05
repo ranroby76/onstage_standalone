@@ -262,7 +262,7 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
         showFoldersDialog();
     } else if (b == &resetBlacklistBtn) {
         processor.knownPluginList.clearBlacklistedFiles();
-        if (auto* userSettings = processor.appProperties.getUserSettings()) {
+        if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
             if (auto xml = processor.knownPluginList.createXml())
                 userSettings->setValue("KnownPluginsV2", xml.get());
             userSettings->saveIfNeeded();
@@ -282,7 +282,7 @@ void PluginManagerTab::buttonClicked(juce::Button* b) {
             juce::ModalCallbackFunction::create([this](int result) {
                 if (result == 1) {
                     processor.knownPluginList.clear();
-                    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+                    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
                         userSettings->removeValue("KnownPluginsV2");
                         userSettings->saveIfNeeded();
                     }
@@ -324,7 +324,7 @@ void PluginManagerTab::rescanExistingPlugins() {
     // Clear existing list so rescan gets fresh metadata from the real DLL
     processor.knownPluginList.clear();
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
@@ -507,7 +507,7 @@ void PluginManagerTab::showScanDialog() {
     // Clear existing list for a fresh full scan
     processor.knownPluginList.clear();
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
@@ -614,7 +614,7 @@ void PluginManagerTab::collapseAllItems() {
 void PluginManagerTab::removePluginFromList(const juce::PluginDescription& desc) {
     processor.knownPluginList.removeType(desc);
     
-    if (auto* userSettings = processor.appProperties.getUserSettings()) {
+    if (auto* userSettings = processor.pluginProperties.getUserSettings()) {
         if (auto xml = processor.knownPluginList.createXml())
             userSettings->setValue("KnownPluginsV2", xml.get());
         userSettings->saveIfNeeded();
