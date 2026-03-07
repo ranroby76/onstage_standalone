@@ -220,6 +220,9 @@ jobs:
           echo "Signing with identity: $IDENTITY"
           echo "App path: $APP_PATH"
 
+          # Remove VLC cache file that can't be signed
+          rm -f "$APP_PATH/Contents/Frameworks/plugins/plugins.dat"
+
           # Sign VLC plugins first (deepest level)
           echo "=== Signing VLC plugins ==="
           find "$APP_PATH/Contents/Frameworks/plugins" -name "*.dylib" \
