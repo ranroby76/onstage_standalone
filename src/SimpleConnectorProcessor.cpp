@@ -41,7 +41,9 @@ bool SimpleConnectorProcessor::isBusesLayoutSupported(const BusesLayout& layouts
 }
 
 void SimpleConnectorProcessor::setVolume(float normalizedValue) {
-    volumeNormalized.store(juce::jlimit(0.0f, 1.0f, normalizedValue));
+    // Snap to 100 steps (0.01 increments)
+    float snapped = juce::roundToInt(normalizedValue * 100.0f) / 100.0f;
+    volumeNormalized.store(juce::jlimit(0.0f, 1.0f, snapped));
 }
 
 float SimpleConnectorProcessor::getVolumeDb() const {
@@ -50,12 +52,14 @@ float SimpleConnectorProcessor::getVolumeDb() const {
     if (normalized <= 0.0f)
         return -100.0f;
     
+    // 0.0 to 0.5 maps to -60dB to 0dB (unity)
+    // 0.5 to 1.0 maps to 0dB to +35dB
     if (normalized <= 0.5f) {
         float t = normalized / 0.5f;
         return juce::jmap(t, 0.0f, 1.0f, -60.0f, 0.0f);
     } else {
         float t = (normalized - 0.5f) / 0.5f;
-        return juce::jmap(t, 0.0f, 1.0f, 0.0f, 25.0f);
+        return juce::jmap(t, 0.0f, 1.0f, 0.0f, 35.0f);
     }
 }
 

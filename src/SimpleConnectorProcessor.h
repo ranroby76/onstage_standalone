@@ -3,16 +3,17 @@
 #include <JuceHeader.h>
 
 // =============================================================================
-// SimpleConnectorProcessor - A bus/summing module for routing audio
-// Purple colored module with volume control, mute and delete buttons
+// SimpleConnectorProcessor - A bus/summing module for routing audio with amp
+// Purple colored module with volume slider, mute and delete buttons
 // Stereo input to stereo output
+// Volume: 0 = silence, middle = unity (0dB), max = +35dB
 // =============================================================================
 class SimpleConnectorProcessor : public juce::AudioProcessor {
 public:
     SimpleConnectorProcessor();
     ~SimpleConnectorProcessor() override = default;
 
-    const juce::String getName() const override { return "Simple Connector"; }
+    const juce::String getName() const override { return "Connector/Amp"; }
     
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -36,7 +37,8 @@ public:
     
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     
-    // Volume: 0.0 = silence, 0.5 = unity (0dB), 1.0 = +25dB
+    // Volume: 0.0 = silence, 0.5 = unity (0dB), 1.0 = +35dB
+    // 100 steps resolution (0.01 increments)
     void setVolume(float normalizedValue);
     float getVolume() const { return volumeNormalized.load(); }
     float getVolumeDb() const;
@@ -48,7 +50,7 @@ public:
     static constexpr const char* getIdentifier() { return "SimpleConnector"; }
     
 private:
-    std::atomic<float> volumeNormalized { 0.5f };
+    std::atomic<float> volumeNormalized { 0.5f };  // Default = unity gain
     std::atomic<bool> muted { false };
     
     std::vector<float> inputRms;

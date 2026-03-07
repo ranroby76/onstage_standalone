@@ -13,8 +13,6 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
     auto* cache = getCachedNodeType(pin.nodeID);
     bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
     bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
-    bool isMidiInput   = cache ? cache->isMidiInput   : (node == processor.midiInputNode.get());
-    bool isMidiOutput  = cache ? cache->isMidiOutput  : (node == processor.midiOutputNode.get());
 
     // FIX 4: Check if this is a container node - show container name with pin info
     auto* containerProc = dynamic_cast<ContainerProcessor*>(node->getProcessor());
@@ -49,9 +47,8 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
         // FIX 4: Check if this is a container's inner I/O node
         if (auto nameVar = node->properties["ioNodeName"])
             text = nameVar.toString();
-        else if (isMidiInput) text = "MIDI Input";
-        else if (isMidiOutput) text = "MIDI Output";
-        else text = pin.isInput ? "MIDI In" : "MIDI Out";
+        else
+            text = pin.isInput ? "MIDI In" : "MIDI Out";
     }
     else if (isAudioInput && !pin.isInput)
     {

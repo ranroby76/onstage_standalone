@@ -1,19 +1,14 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Layout.cpp
+// #D:\Workspace\onstage_colosseum_upgrade\src\GraphCanvas_Layout.cpp
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 // getPluginDescription() freezes some plugins when called!
 // FIXED: Recorder size changed to 2x width, 4x height (narrower & taller)
-// NEW: Added ManualSampler, AutoSampler, MidiPlayer custom sizes
+// CLEANED: Removed obsolete MIDI tools for OnStage (effects-only mode)
 
 #include "GraphCanvas.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
+#include "SimpleConnectorProcessor.h"
 
 void GraphCanvas::drawPin(juce::Graphics& g, juce::Point<float> pos, juce::Colour color, bool isHovered, bool isHighlighted)
 {
@@ -78,40 +73,10 @@ juce::Rectangle<float> GraphCanvas::getNodeBounds(juce::AudioProcessorGraph::Nod
         // Stereo Meter: 4x taller
         nodeHeight = Style::nodeHeight * 4.0f;
     }
-    else if (dynamic_cast<MidiMonitorProcessor*>(proc))
-    {
-        // MIDI Monitor: 6x taller, 2x wider
-        nodeHeight = Style::nodeHeight * 6.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
-    }
     else if (dynamic_cast<RecorderProcessor*>(proc))
     {
         // Recorder: 4x taller, 2x wider
         nodeHeight = Style::nodeHeight * 4.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
-    }
-    else if (dynamic_cast<ManualSamplerProcessor*>(proc))
-    {
-        // Manual Sampler: same as Recorder (4x taller, 2x wider)
-        nodeHeight = Style::nodeHeight * 4.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
-    }
-    else if (dynamic_cast<AutoSamplerProcessor*>(proc))
-    {
-        // Auto Sampler: same as Recorder (4x taller, 2x wider)
-        nodeHeight = Style::nodeHeight * 4.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
-    }
-    else if (dynamic_cast<MidiPlayerProcessor*>(proc))
-    {
-        // MIDI Player: same as Recorder (4x taller, 2x wider)
-        nodeHeight = Style::nodeHeight * 4.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
-    }
-    else if (dynamic_cast<CCStepperProcessor*>(proc))
-    {
-        // Step Seq: compact transport-only node (2x taller, 2x wider)
-        nodeHeight = Style::nodeHeight * 2.0f;
         nodeWidth = Style::minNodeWidth * 2.0f;
     }
     else if (dynamic_cast<TransientSplitterProcessor*>(proc))
@@ -120,13 +85,12 @@ juce::Rectangle<float> GraphCanvas::getNodeBounds(juce::AudioProcessorGraph::Nod
         nodeHeight = Style::nodeHeight * 2.0f;
         nodeWidth = Style::minNodeWidth * 2.0f;
     }
-
-    else if (dynamic_cast<LatcherProcessor*>(proc))
+    else if (dynamic_cast<SimpleConnectorProcessor*>(proc))
     {
-        // Latcher: 4x4 pad grid needs space (4x taller, 2x wider)
-        nodeHeight = Style::nodeHeight * 4.0f;
-        nodeWidth = Style::minNodeWidth * 2.0f;
+        // Connector/Amp: 1.5x taller to fit amp slider
+        nodeHeight = Style::nodeHeight * 1.5f;
     }
+
     return { x, y, nodeWidth, nodeHeight };
 }
 
@@ -139,9 +103,7 @@ juce::Colour GraphCanvas::getPinColor(const PinID& pinId, juce::AudioProcessorGr
     auto* cache = getCachedNodeType(node->nodeID);
     bool isIONode = cache ? cache->isIO
                           : (node == processor.audioInputNode.get() ||
-                             node == processor.audioOutputNode.get() ||
-                             node == processor.midiInputNode.get() ||
-                             node == processor.midiOutputNode.get());
+                             node == processor.audioOutputNode.get());
 
     if (isIONode) return Style::colPinAudio;
 
@@ -216,11 +178,3 @@ juce::AudioProcessorGraph::Node* GraphCanvas::findNodeAt(juce::Point<float> pos)
     }
     return nullptr;
 }
-
-
-
-
-
-
-
-

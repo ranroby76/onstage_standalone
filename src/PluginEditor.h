@@ -1,5 +1,6 @@
 // FIX: Plugin Browser Panel is now a fixed panel (288px) to the left of yellow menu
 // FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
+// FIX: Removed Mixer tab - gain controls moved to Connector/Amp nodes
 // FIX: Added MIDI Panic button under Keys button
 
 #pragma once
@@ -9,13 +10,12 @@
 #include "Style.h"
 #include "UIComponents.h"
 #include "GraphCanvas.h"
-#include "MixerView.h"
 #include "AudioSettingsTab.h"
 #include "PluginManagerTab.h"
-#include "InstrumentSelector.h"
 #include "ManualTab.h"
 #include "RegistrationTab.h"
 #include "PluginBrowserPanel.h"
+#include "MediaPage.h"
 
 // =============================================================================
 // Main Editor - Plugin Browser Panel as fixed side panel
@@ -33,7 +33,6 @@ public:
     void resized() override; 
     void buttonClicked(juce::Button*) override;
     void timerCallback() override;
-    void updateInstrumentSelector();
     void updateTabButtonColors();
     
     // Keyboard shortcut support
@@ -50,17 +49,16 @@ private:
     
     // Logo images
     juce::Image fananLogo;
-    juce::Image colosseumLogo;
+    juce::Image onstageLogo;
     
     juce::TextButton loadButton { "Load Patch" };
     juce::TextButton saveButton { "Save Patch" }; 
     juce::TextButton resetButton { "Reset" };
-    juce::TextButton keysButton { "Keys" };
-    juce::TextButton panicButton { "PANIC" };  // NEW: MIDI Panic button
+    juce::TextButton panicButton { "PANIC" };  // MIDI Panic button
     
-    // Left green menu tab buttons - FIX: Only 6 buttons (removed studioButton)
+    // Left green menu tab buttons - FIX: 6 buttons (removed Mixer)
     juce::TextButton rackButton { "Rack" };
-    juce::TextButton mixerButton { "Mixer" };
+    juce::TextButton mediaButton { "Media" };
     juce::TextButton settingsButton { "Settings" };
     juce::TextButton pluginsButton { "Plugins" };
     juce::TextButton manualButton { "Manual" };
@@ -93,13 +91,12 @@ private:
     juce::Label zoomLabel { "zoomLbl", "100%" };
     
     GraphCanvas graphCanvas;
-    MixerView mixerView;
     AudioSettingsTab audioSettingsTab;  // Now includes tempo/metronome
     PluginManagerTab pluginManagerTab;
-    // FIX: Removed StudioTab studioTab;
+    // FIX: Removed MixerView mixerView - gain controls now in Connector/Amp nodes
     ManualTab manualTab;
     RegistrationTab registrationTab;
-    InstrumentSelector instrumentSelector; 
+    MediaPage mediaPage;
     std::unique_ptr<juce::FileChooser> fileChooser;
     
     // =========================================================================
@@ -114,75 +111,6 @@ private:
     
     // NEW: Send MIDI panic to all instruments
     void sendMidiPanic();
-    
-    class VirtualKeyboardWindow : public juce::DocumentWindow { 
-    public: 
-        VirtualKeyboardWindow(SubterraneumAudioProcessor& p);
-        ~VirtualKeyboardWindow() override; 
-        void closeButtonPressed() override; 
-    private: 
-        juce::MidiKeyboardComponent keyboardComp; 
-    }; 
-    
-    std::unique_ptr<VirtualKeyboardWindow> keyboardWindow;
-    
-    // =========================================================================
-    // Floating Mixer Window — detachable resizable mixer
-    // =========================================================================
-    class FloatingMixerWindow : public juce::DocumentWindow {
-    public:
-        FloatingMixerWindow(SubterraneumAudioProcessor& p)
-            : DocumentWindow("Colosseum Mixer", 
-                             juce::Colour(0xff1e1e1e), 
-                             DocumentWindow::allButtons),
-              mixerWrapper(p)
-        {
-            setContentNonOwned(&mixerWrapper, false);
-            setResizable(true, true);
-            setResizeLimits(400, 200, 2560, 1440);
-            centreWithSize(900, 500);
-            setVisible(true);
-            setAlwaysOnTop(false);
-            setUsingNativeTitleBar(true);
-        }
-        
-        ~FloatingMixerWindow() override {}
-        
-        void closeButtonPressed() override {
-            if (onClose) onClose();
-        }
-        
-        std::function<void()> onClose;
-        
-    private:
-        // Wrapper that draws a resize grip triangle over the mixer
-        struct MixerWithGrip : public juce::Component {
-            MixerWithGrip(SubterraneumAudioProcessor& p) : mixer(p) {
-                addAndMakeVisible(mixer);
-            }
-            void resized() override { mixer.setBounds(getLocalBounds()); }
-            void paintOverChildren(juce::Graphics& g) override {
-                const int sz = 16;
-                float r = (float)getWidth();
-                float b = (float)getHeight();
-                juce::Path triangle;
-                triangle.addTriangle(r, b - sz, r - sz, b, r, b);
-                g.setColour(juce::Colour(100, 100, 110));
-                g.fillPath(triangle);
-                // Inner highlight lines for grip look
-                g.setColour(juce::Colour(140, 140, 150));
-                g.drawLine(r - 4.0f, b, r, b - 4.0f, 1.0f);
-                g.drawLine(r - 8.0f, b, r, b - 8.0f, 1.0f);
-                g.drawLine(r - 12.0f, b, r, b - 12.0f, 1.0f);
-            }
-            MixerView mixer;
-        };
-        MixerWithGrip mixerWrapper;
-    };
-    
-    std::unique_ptr<FloatingMixerWindow> floatingMixerWindow;
-    juce::TextButton floatMixerButton { "Floating\nMixer" };  // Detach mixer to floating window
-    void toggleFloatingMixer();
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessorEditor) 
 };

@@ -2,7 +2,7 @@
 // #D:\Workspace\Subterraneum_plugins_daw\src\RecorderProcessor.cpp
 // RECORDER SYSTEM TOOL - Implementation
 // Streams audio directly to disk with ThreadedWriter for glitch-free recording
-// FIX: Added global default folder support, default to My Documents\Colosseum\recordings
+// FIX: Added global default folder support, default to My Documents\OnStage\recordings
 
 #include "RecorderProcessor.h"
 
@@ -35,9 +35,9 @@ juce::File RecorderProcessor::getEffectiveDefaultFolder() {
         return globalDefaultFolder;
     }
     
-    // Otherwise, use the app default: My Documents\Colosseum\recordings
+    // Otherwise, use the app default: My Documents\OnStage\recordings
     auto defaultFolder = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                             .getChildFile("Colosseum")
+                             .getChildFile("OnStage")
                              .getChildFile("recordings");
     
     if (!defaultFolder.exists()) {
@@ -370,6 +370,10 @@ void RecorderProcessor::setStateInformation(const void* data, int sizeInBytes) {
         }
     }
 }
+
+
+
+
 
 
 

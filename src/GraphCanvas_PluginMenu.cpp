@@ -1,26 +1,15 @@
 
 
-// D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_PluginMenu.cpp
+// D:\Workspace\onstage_colosseum_upgrade\src\GraphCanvas_PluginMenu.cpp
 // Plugin menu implementation
-// FIXED: Added Recorder system tool
-// NEW: Hidden plugins (eye toggle) are filtered out of the menu
-// NEW: Added Manual Sampling and Auto Sampling system tools
-// FIX: Added MidiMultiFilter system tool
-// NEW: Added Container system tool
+// Remaining system tools: Connector/Amp, Container, Recorder, Stereo Meter, Transient Splitter
 
 #include "GraphCanvas.h"
 #include <set>
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
-#include "MidiMultiFilterProcessor.h"
 #include "ContainerProcessor.h"
 #include <fstream>
 #include <chrono>
@@ -111,16 +100,9 @@ void GraphCanvas::showPluginMenu()
 
     // System Tools submenu
     juce::PopupMenu systemToolsMenu;
-    systemToolsMenu.addItem(7, "Auto Sampling");
-    systemToolsMenu.addItem(1, "Connector");
+    systemToolsMenu.addItem(1, "Connector/Amp");
     systemToolsMenu.addItem(14, "Container");
-    systemToolsMenu.addItem(11, "Latcher");
-    systemToolsMenu.addItem(6, "Manual Sampling");
-    systemToolsMenu.addItem(3, "MIDI Monitor");
-    systemToolsMenu.addItem(13, "MIDI Multi Filter");
-    systemToolsMenu.addItem(8, "MIDI Player");
     systemToolsMenu.addItem(4, "Recorder");
-    systemToolsMenu.addItem(9, "Step Seq");
     systemToolsMenu.addItem(2, "Stereo Meter");
     systemToolsMenu.addItem(10, "Transient Splitter");
     #if JUCE_PLUGINHOST_VST
@@ -170,19 +152,20 @@ void GraphCanvas::showPluginMenu()
             return userSettings->getBoolValue(key, false);
         };
 
-        std::vector<juce::PluginDescription> instruments, effects;
+        // OnStage: Effects-only — instruments (VSTi) are not supported
+        std::vector<juce::PluginDescription> effects;
         for (int i = 0; i < (int)types.size(); ++i)
         {
             if (isHidden(types[(size_t)i])) continue;
-            if (duplicateIndices.count(i)) continue;  // Skip duplicate VST3 components
-            if (types[(size_t)i].isInstrument) instruments.push_back(types[(size_t)i]);
-            else effects.push_back(types[(size_t)i]);
+            if (duplicateIndices.count(i)) continue;
+            if (types[(size_t)i].isInstrument) continue;  // Skip instruments
+            effects.push_back(types[(size_t)i]);
         }
 
         // Detect plugins with same name in multiple formats
         std::map<juce::String, int> nameCount;
         for (auto& t : types)
-            if (!isHidden(t)) nameCount[t.name]++;
+            if (!isHidden(t) && !t.isInstrument) nameCount[t.name]++;
 
         auto displayName = [&](const juce::PluginDescription& d) -> juce::String {
             if (nameCount[d.name] > 1) {
@@ -193,49 +176,6 @@ void GraphCanvas::showPluginMenu()
             }
             return d.name;
         };
-
-        if (!instruments.empty())
-        {
-            juce::PopupMenu instrMenu;
-
-            if (processor.sortPluginsByVendor)
-            {
-                std::map<juce::String, juce::Array<int>> vendorMap;
-                for (int i = 0; i < (int)types.size(); ++i)
-                {
-                    if (types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]) && !duplicateIndices.count(i))
-                    {
-                        juce::String vendor = types[(size_t)i].manufacturerName.isEmpty()
-                                            ? "Unknown"
-                                            : types[(size_t)i].manufacturerName;
-                        vendorMap[vendor].add(i);
-                    }
-                }
-
-                juce::StringArray vendors;
-                for (auto& pair : vendorMap) vendors.add(pair.first);
-                vendors.sort(true);
-
-                for (const auto& vendor : vendors)
-                {
-                    juce::PopupMenu subMenu;
-                    for (int idx : vendorMap[vendor])
-                        subMenu.addItem(idBase + idx, displayName(types[(size_t)idx]));
-
-                    instrMenu.addSubMenu(vendor, subMenu);
-                }
-            }
-            else
-            {
-                for (int i = 0; i < (int)types.size(); ++i)
-                {
-                    if (types[(size_t)i].isInstrument && !isHidden(types[(size_t)i]) && !duplicateIndices.count(i))
-                        instrMenu.addItem(idBase + i, displayName(types[(size_t)i]));
-                }
-            }
-
-            m.addSubMenu("INSTRUMENTS", instrMenu);
-        }
 
         if (!effects.empty())
         {
@@ -325,19 +265,6 @@ void GraphCanvas::showPluginMenu()
                 LOG("Stereo Meter added successfully");
             }
         }
-        else if (result == 3)
-        {
-            LOG("Adding MIDI Monitor node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<MidiMonitorProcessor>());
-            if (nodePtr)
-            {
-                // FIX #3: Place new node at mouse cursor position
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("MIDI Monitor added successfully");
-            }
-        }
         else if (result == 4)
         {
             LOG("Adding Recorder node");
@@ -356,54 +283,6 @@ void GraphCanvas::showPluginMenu()
             LOG("VST2 Plugin loader selected");
             safeThis->loadVST2Plugin(safeThis->lastRightClickPos);
         }
-        else if (result == 6)
-        {
-            LOG("Adding Manual Sampling node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<ManualSamplerProcessor>());
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("Manual Sampling added successfully");
-            }
-        }
-        else if (result == 7)
-        {
-            LOG("Adding Auto Sampling node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<AutoSamplerProcessor>(activeGraph, &safeThis->processor));
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("Auto Sampling added successfully");
-            }
-        }
-        else if (result == 8)
-        {
-            LOG("Adding MIDI Player node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<MidiPlayerProcessor>());
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("MIDI Player added successfully");
-            }
-        }
-        else if (result == 9)
-        {
-            LOG("Adding Step Seq node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<CCStepperProcessor>());
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("Step Seq added successfully");
-            }
-        }
         else if (result == 10)
         {
             LOG("Adding Transient Splitter node");
@@ -416,34 +295,10 @@ void GraphCanvas::showPluginMenu()
                 LOG("Transient Splitter added successfully");
             }
         }
-        else if (result == 11)
-        {
-            LOG("Adding Latcher node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<LatcherProcessor>());
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("Latcher added successfully");
-            }
-        }
         else if (result == 12)
         {
             LOG("VST3 Plugin loader selected");
             safeThis->loadVST3Plugin(safeThis->lastRightClickPos);
-        }
-        else if (result == 13)
-        {
-            LOG("Adding MIDI Multi Filter node");
-            auto nodePtr = activeGraph->addNode(std::make_unique<MidiMultiFilterProcessor>());
-            if (nodePtr)
-            {
-                nodePtr->properties.set("x", (double)safeThis->lastRightClickPos.x);
-                nodePtr->properties.set("y", (double)safeThis->lastRightClickPos.y);
-                safeThis->markDirty();
-                LOG("MIDI Multi Filter added successfully");
-            }
         }
         else if (result == 14)
         {
@@ -480,6 +335,17 @@ void GraphCanvas::showPluginMenu()
             if (index >= 0 && index < (int)types.size())
             {
                 auto description = types[(size_t)index];
+
+                // OnStage: Block instrument plugins — effects only
+                if (description.isInstrument)
+                {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::MessageBoxIconType::InfoIcon,
+                        "Effects Only",
+                        "OnStage only supports effect plugins.\n\n\"" + description.name + "\" is an instrument and cannot be loaded.",
+                        "OK");
+                    return;
+                }
 
                 LOG("==========================================================");
                 LOG("PLUGIN LOAD START");

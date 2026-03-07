@@ -1,3 +1,4 @@
+// #D:\Workspace\onstage_colosseum_upgrade\src\ManualTab.h
 #pragma once
 
 #include <JuceHeader.h>
@@ -8,6 +9,7 @@ class SubterraneumAudioProcessor;
 
 // =============================================================================
 // ManualTab - Complete user manual with chapter navigation
+// OnStage Edition - Mini Karaoke DAW / Live Performance FX Host
 // =============================================================================
 class ManualTab : public juce::Component,
                   public juce::Button::Listener {
@@ -22,15 +24,13 @@ public:
 private:
     SubterraneumAudioProcessor& processor;
     
-    // Chapter navigation buttons
-    juce::TextButton btnIntro { "Welcome" };
+    // Chapter navigation buttons (9 chapters for OnStage)
+    juce::TextButton btnWelcome { "Welcome" };
     juce::TextButton btnRack { "Rack" };
-    juce::TextButton btnWorkspaces { "Workspaces" };
-    juce::TextButton btnMixer { "Mixer" };
+    juce::TextButton btnMedia { "Media" };
     juce::TextButton btnSettings { "Settings" };
     juce::TextButton btnPlugins { "Plugins" };
     juce::TextButton btnSystemTools { "System Tools" };
-    juce::TextButton btnSampling { "Sampling" };
     juce::TextButton btnShortcuts { "Shortcuts" };
     juce::TextButton btnTroubleshooting { "Troubleshoot" };
     juce::TextButton btnDemo { "Demo / Register" };
@@ -40,20 +40,18 @@ private:
     
     // Chapter content
     enum Chapter {
-        Introduction,
+        Welcome,
         RackView,
-        Workspaces,
-        Mixer,
+        Media,
         Settings,
         Plugins,
         SystemTools,
-        Sampling,
         Shortcuts,
         Troubleshooting,
         DemoLimitations
     };
     
-    Chapter currentChapter = Introduction;
+    Chapter currentChapter = Welcome;
     
     void showChapter(Chapter chapter);
     juce::String getChapterContent(Chapter chapter);

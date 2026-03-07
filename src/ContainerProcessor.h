@@ -159,7 +159,7 @@ public:
 
     // =========================================================================
     // Container preset folder (global, like recording/sampler folders)
-    // Default: C:\Users\{user}\Documents\Colosseum\containers
+    // Default: C:\Users\{user}\Documents\OnStage\containers
     // =========================================================================
     static juce::File getGlobalDefaultFolder();
     static void setGlobalDefaultFolder(const juce::File& folder);

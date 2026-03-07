@@ -22,18 +22,16 @@ public:
 private:
     SubterraneumAudioProcessor& processor;
     
+    // OnStage: Effects-only mode — no instruments row
     MixerRow inputsRow { "INPUTS", GainSlider::SliderType::Input };
     MixerRow outputsRow { "OUTPUTS", GainSlider::SliderType::Output };
-    MixerRow instrumentsRow { "INSTRUMENTS", GainSlider::SliderType::Instrument };
     
     void updateInputsRow();
     void updateOutputsRow();
-    void updateInstrumentsRow();
     
     // Track counts for change detection
     int lastInputCount = 0;
     int lastOutputCount = 0;
-    int lastInstrumentCount = 0;
     
     // CPU OPTIMIZATION: Track graph changes to avoid expensive iteration
     size_t lastGraphNodeCount = 0;
@@ -41,10 +39,6 @@ private:
     // Callbacks for gain changes
     void onInputGainChanged(int channel, float gain);
     void onOutputGainChanged(int channel, float gain);
-    void onInstrumentGainChanged(int index, float gain);
-    
-    // Store instrument node IDs for mapping
-    std::vector<juce::AudioProcessorGraph::NodeID> instrumentNodeIDs;
 };
 
 

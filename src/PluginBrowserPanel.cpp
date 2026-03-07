@@ -29,11 +29,10 @@ static bool isGenericFolderName(const juce::String& name)
         // Category-style subfolder names (e.g. MeldaProduction\Stereo\)
         "Delay", "Distortion", "Dynamics", "EQ", "Equalizer",
         "Filter", "Modulation", "Reverb", "Stereo", "Time",
-        "Pitch Shift", "Tools", "Effects", "Instruments",
+        "Pitch Shift", "Tools", "Effects",
         "Compressor", "Limiter", "Chorus", "Flanger", "Phaser",
         "Generators", "Analyzers", "Meters", "Mastering",
-        "Mixing", "Utilities", "Synths", "Synthesizers",
-        "Samplers", "Channel Strip"
+        "Mixing", "Utilities", "Channel Strip"
     };
     if (name.isEmpty()) return true;
     // Drive letters like "C:", "D:"
@@ -76,7 +75,7 @@ static juce::String getSmartFolderGroup(const juce::PluginDescription& desc)
 }
 
 // =============================================================================
-// FavoritePatchItem - .subt patch file entry in Favorites mode
+// FavoritePatchItem - .ons patch file entry in Favorites mode
 // =============================================================================
 FavoritePatchItem::FavoritePatchItem(const juce::File& file) : patchFile(file) {
     setSize(200, 36);
@@ -95,7 +94,7 @@ void FavoritePatchItem::paint(juce::Graphics& g) {
     g.setFont(juce::Font(juce::FontOptions(14.0f)));
     g.drawText(juce::String::charToString(0x2605), 6, 0, 20, getHeight(), juce::Justification::centred);
     
-    // Patch name (without .subt extension)
+    // Patch name (without .ons extension)
     g.setColour(juce::Colours::white);
     g.setFont(13.0f);
     g.drawText(patchFile.getFileNameWithoutExtension(), 28, 0, getWidth() - 36, getHeight(), 
@@ -107,7 +106,7 @@ void FavoritePatchItem::mouseDoubleClick(const juce::MouseEvent&) {
 }
 
 // =============================================================================
-// ContainerPresetItem - .container preset file entry in Containers tab
+// ContainerPresetItem - .onsc preset file entry in Containers tab
 // =============================================================================
 ContainerPresetItem::ContainerPresetItem(const juce::File& file) : presetFile(file) {
     setSize(200, 36);
@@ -219,14 +218,13 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     g.drawText(badge, (int)x, 0, 36, getHeight(), juce::Justification::centred);
     x += 42.0f;
     
-    // INST/FX badge for plugins
+    // FX badge for plugins (OnStage: effects only, no instruments)
     if (!isSystemTool) {
-        bool isInstr = description.isInstrument;
-        g.setColour(isInstr ? juce::Colour(0xFFFFD700) : juce::Colour(0xFF87CEEB));
+        g.setColour(juce::Colour(0xFF87CEEB));
         g.fillRoundedRectangle(x, (getHeight() - 18) / 2.0f, 28, 18, 3.0f);
         g.setColour(juce::Colours::black);
         g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
-        g.drawText(isInstr ? "INST" : "FX", (int)x, 0, 28, getHeight(), juce::Justification::centred);
+        g.drawText("FX", (int)x, 0, 28, getHeight(), juce::Justification::centred);
         x += 34.0f;
     }
     
@@ -236,20 +234,13 @@ void PluginBrowserItem::paint(juce::Graphics& g) {
     juce::String name;
     if (isSystemTool) {
         switch (toolType) {
-            case SystemToolType::Connector:   name = "Connector"; break;
-            case SystemToolType::StereoMeter: name = "Stereo Meter"; break;
-            case SystemToolType::MidiMonitor: name = "MIDI Monitor"; break;
-            case SystemToolType::Recorder:       name = "Recorder"; break;
-            case SystemToolType::ManualSampler:  name = "Manual Sampling"; break;
-            case SystemToolType::AutoSampler:    name = "Auto Sampling"; break;
-            case SystemToolType::MidiPlayer:     name = "MIDI Player"; break;
-            case SystemToolType::StepSeq:        name = "Step Seq"; break;
-            case SystemToolType::TransientSplitter: name = "Transient Splitter"; break;
-            case SystemToolType::Latcher:            name = "Latcher"; break;
-            case SystemToolType::MidiMultiFilter:    name = "MIDI Multi Filter"; break;
-            case SystemToolType::Container:              name = "Container"; break;
-            case SystemToolType::VST2Plugin:     name = "VST2 Plugin..."; break;
-            case SystemToolType::VST3Plugin:     name = "VST3 Plugin..."; break;
+            case SystemToolType::Connector:          name = "Connector/Amp"; break;
+            case SystemToolType::StereoMeter:        name = "Stereo Meter"; break;
+            case SystemToolType::Recorder:           name = "Recorder"; break;
+            case SystemToolType::TransientSplitter:  name = "Transient Splitter"; break;
+            case SystemToolType::Container:          name = "Container"; break;
+            case SystemToolType::VST2Plugin:         name = "VST2 Plugin..."; break;
+            case SystemToolType::VST3Plugin:         name = "VST3 Plugin..."; break;
             default: name = "Unknown";
         }
     } else {
@@ -272,47 +263,19 @@ void PluginBrowserItem::mouseDrag(const juce::MouseEvent& e) {
                 switch (toolType) {
                     case SystemToolType::Connector:   
                         dragId = "TOOL:Connector"; 
-                        displayName = "Connector";
+                        displayName = "Connector/Amp";
                         break;
                     case SystemToolType::StereoMeter: 
                         dragId = "TOOL:StereoMeter"; 
                         displayName = "Stereo Meter";
                         break;
-                    case SystemToolType::MidiMonitor: 
-                        dragId = "TOOL:MidiMonitor"; 
-                        displayName = "MIDI Monitor";
-                        break;
                     case SystemToolType::Recorder:
                         dragId = "TOOL:Recorder"; 
                         displayName = "Recorder";
                         break;
-                    case SystemToolType::ManualSampler:
-                        dragId = "TOOL:ManualSampler"; 
-                        displayName = "Manual Sampling";
-                        break;
-                    case SystemToolType::AutoSampler:
-                        dragId = "TOOL:AutoSampler"; 
-                        displayName = "Auto Sampling";
-                        break;
-                    case SystemToolType::MidiPlayer:
-                        dragId = "TOOL:MidiPlayer"; 
-                        displayName = "MIDI Player";
-                        break;
-                    case SystemToolType::StepSeq:
-                        dragId = "TOOL:StepSeq"; 
-                        displayName = "Step Seq";
-                        break;
                     case SystemToolType::TransientSplitter:
                         dragId = "TOOL:TransientSplitter"; 
                         displayName = "Transient Splitter";
-                        break;
-                    case SystemToolType::Latcher:
-                        dragId = "TOOL:Latcher";
-                        displayName = "Latcher";
-                        break;
-                    case SystemToolType::MidiMultiFilter:
-                        dragId = "TOOL:MidiMultiFilter";
-                        displayName = "MIDI Multi Filter";
                         break;
                     case SystemToolType::Container:
                         dragId = "TOOL:Container";
@@ -578,41 +541,10 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(s);
     y += 34;
     
-    auto* m = items.add(new PluginBrowserItem(SystemToolType::MidiMonitor));
-    m->setBounds(0, y, getWidth(), 32);
-    m->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(m);
-    y += 34;
-    
-    // NEW: Add Recorder
     auto* r = items.add(new PluginBrowserItem(SystemToolType::Recorder));
     r->setBounds(0, y, getWidth(), 32);
     r->onToolDoubleClick = onToolDoubleClick;
     addAndMakeVisible(r);
-    y += 34;
-    
-    auto* ms = items.add(new PluginBrowserItem(SystemToolType::ManualSampler));
-    ms->setBounds(0, y, getWidth(), 32);
-    ms->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(ms);
-    y += 34;
-    
-    auto* as = items.add(new PluginBrowserItem(SystemToolType::AutoSampler));
-    as->setBounds(0, y, getWidth(), 32);
-    as->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(as);
-    y += 34;
-    
-    auto* mp = items.add(new PluginBrowserItem(SystemToolType::MidiPlayer));
-    mp->setBounds(0, y, getWidth(), 32);
-    mp->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(mp);
-    y += 34;
-    
-    auto* ss = items.add(new PluginBrowserItem(SystemToolType::StepSeq));
-    ss->setBounds(0, y, getWidth(), 32);
-    ss->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(ss);
     y += 34;
     
     auto* ts = items.add(new PluginBrowserItem(SystemToolType::TransientSplitter));
@@ -621,20 +553,6 @@ void PluginBrowserList::setSystemTools() {
     addAndMakeVisible(ts);
     y += 34;
     
-    auto* latch = items.add(new PluginBrowserItem(SystemToolType::Latcher));
-    latch->setBounds(0, y, getWidth(), 32);
-    latch->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(latch);
-    y += 34;
-    
-    // NEW: Add MIDI Multi Filter
-    auto* mmf = items.add(new PluginBrowserItem(SystemToolType::MidiMultiFilter));
-    mmf->setBounds(0, y, getWidth(), 32);
-    mmf->onToolDoubleClick = onToolDoubleClick;
-    addAndMakeVisible(mmf);
-    y += 34;
-    
-    // NEW: Add Container
     auto* cont = items.add(new PluginBrowserItem(SystemToolType::Container));
     cont->setBounds(0, y, getWidth(), 32);
     cont->onToolDoubleClick = onToolDoubleClick;
@@ -669,7 +587,7 @@ void PluginBrowserList::setFavorites(const juce::Array<juce::File>& patchFiles) 
     
     if (patchFiles.isEmpty()) {
         auto* h = flatHeaders.add(new juce::Label());
-        h->setText("No .subt patches found", juce::dontSendNotification);
+        h->setText("No .ons patches found", juce::dontSendNotification);
         h->setFont(juce::Font(juce::FontOptions(12.0f)));
         h->setColour(juce::Label::textColourId, juce::Colours::grey);
         h->setBounds(5, y, getWidth() - 10, 24);
@@ -709,7 +627,7 @@ void PluginBrowserList::setContainerPresets(const juce::Array<juce::File>& prese
     
     if (presetFiles.isEmpty()) {
         auto* h = flatHeaders.add(new juce::Label());
-        h->setText("No .container presets found", juce::dontSendNotification);
+        h->setText("No .onsc presets found", juce::dontSendNotification);
         h->setFont(juce::Font(juce::FontOptions(12.0f)));
         h->setColour(juce::Label::textColourId, juce::Colours::grey);
         h->setBounds(5, y, getWidth() - 10, 24);
@@ -772,19 +690,17 @@ PluginBrowserPanel::PluginBrowserPanel(SubterraneumAudioProcessor& p) : processo
     searchBox.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xFF4A4A4A));
     addAndMakeVisible(searchBox);
     
-    // Type filter buttons (All | Instruments | Effects | Tools)
-    allBtn.setButtonText("All");
-    instrumentsBtn.setButtonText("Inst");
+    // Type filter buttons (FX | Tools) — OnStage: no instruments, no "All"
     effectsBtn.setButtonText("FX");
     toolsBtn.setButtonText("Tools");
     
-    for (auto* btn : { &allBtn, &instrumentsBtn, &effectsBtn, &toolsBtn }) {
+    for (auto* btn : { &effectsBtn, &toolsBtn }) {
         btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2A2A2A));
         btn->setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
         btn->addListener(this);
         addAndMakeVisible(btn);
     }
-    allBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::cyan.darker());
+    effectsBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::skyblue.darker());
     
     // View mode buttons (Flat | Vendor | Folder | Format)
     flatBtn.setButtonText("A-Z");
@@ -890,9 +806,7 @@ void PluginBrowserPanel::resized() {
     // Type filter row (only in plugin mode)
     if (!favoritesMode && !containersMode) {
         auto typeRow = area.removeFromTop(22);
-        int btnW = typeRow.getWidth() / 4;
-        allBtn.setBounds(typeRow.removeFromLeft(btnW));
-        instrumentsBtn.setBounds(typeRow.removeFromLeft(btnW));
+        int btnW = typeRow.getWidth() / 2;
         effectsBtn.setBounds(typeRow.removeFromLeft(btnW));
         toolsBtn.setBounds(typeRow);
         area.removeFromTop(4);
@@ -925,8 +839,6 @@ void PluginBrowserPanel::resized() {
     
     // Show/hide type/view buttons (hidden in favorites and containers modes)
     bool showPluginControls = !favoritesMode && !containersMode;
-    allBtn.setVisible(showPluginControls);
-    instrumentsBtn.setVisible(showPluginControls);
     effectsBtn.setVisible(showPluginControls);
     toolsBtn.setVisible(showPluginControls);
     flatBtn.setVisible(showPluginControls);
@@ -964,14 +876,6 @@ void PluginBrowserPanel::buttonClicked(juce::Button* btn) {
         updateButtons();
         loadContainerPresetsList();
         resized();
-    } else if (btn == &allBtn) {
-        typeFilter = TypeFilter::All;
-        updateButtons();
-        applyFilters();
-    } else if (btn == &instrumentsBtn) {
-        typeFilter = TypeFilter::Instruments;
-        updateButtons();
-        applyFilters();
     } else if (btn == &effectsBtn) {
         typeFilter = TypeFilter::Effects;
         updateButtons();
@@ -1037,8 +941,6 @@ void PluginBrowserPanel::updateButtons() {
     containersBtn.setColour(juce::TextButton::buttonColourId, containersMode ? juce::Colour(80, 40, 100) : juce::Colour(0xFF2A2A2A));
     containersBtn.setColour(juce::TextButton::textColourOffId, containersMode ? juce::Colour(200, 160, 255) : juce::Colours::lightgrey);
     
-    allBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::All ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
-    instrumentsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Instruments ? juce::Colours::gold.darker() : juce::Colour(0xFF2A2A2A));
     effectsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Effects ? juce::Colours::skyblue.darker() : juce::Colour(0xFF2A2A2A));
     toolsBtn.setColour(juce::TextButton::buttonColourId, typeFilter == TypeFilter::Tools ? juce::Colours::orange.darker() : juce::Colour(0xFF2A2A2A));
     
@@ -1070,8 +972,8 @@ juce::Array<juce::PluginDescription> PluginBrowserPanel::getFilteredPlugins() {
     auto* userSettings = processor.appProperties.getUserSettings();
     
     for (const auto& p : all) {
-        if (typeFilter == TypeFilter::Instruments && !p.isInstrument) continue;
-        if (typeFilter == TypeFilter::Effects && p.isInstrument) continue;
+        // OnStage: Always skip instruments — effects only
+        if (p.isInstrument) continue;
         
         // NEW: Skip hidden plugins (eye toggle)
         if (userSettings) {
@@ -1141,7 +1043,7 @@ void PluginBrowserPanel::loadFavoritesList() {
     juce::Array<juce::File> patches;
     
     if (folder.isDirectory()) {
-        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.subt");
+        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.ons");
         files.sort();
         
         for (const auto& f : files) {
@@ -1164,7 +1066,7 @@ void PluginBrowserPanel::loadContainerPresetsList() {
     juce::Array<juce::File> presets;
     
     if (folder.isDirectory()) {
-        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.container");
+        auto files = folder.findChildFiles(juce::File::findFiles, true, "*.onsc");
         files.sort();
         
         for (const auto& f : files) {

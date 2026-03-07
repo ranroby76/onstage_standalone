@@ -40,6 +40,10 @@ namespace Style {
     const int mainHeaderHeight = 60;  // Doubled from 30 for logo display
     const int instrHeaderHeight = 140;  // FIX: Doubled from 70 for taller instrument buttons
     const int rightMenuWidth = 96;
-    const int leftMenuWidth = 96;  // FIX: Left green tab menu
-    const auto colLeftMenu = juce::Colour(0xff2E7D32);  // FIX: Dark green (darker than before)
+    const int leftMenuWidth = 96;  // FIX: Left gold tab menu
+    
+    // Gold gradient colors for left menu
+    const auto colLeftMenuTop = juce::Colour(0xFFB8860B);     // Dark goldenrod (top)
+    const auto colLeftMenuBottom = juce::Colour(0xFF6B4E0A); // Darker gold (bottom)
+    const auto colLeftMenu = juce::Colour(0xFFB8860B);       // Fallback solid color
 }

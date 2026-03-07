@@ -1,6 +1,6 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_02_CtorDtor.cpp
+// #D:\Workspace\onstage_colosseum_upgrade\src\PluginProcessor_02_CtorDtor.cpp
 // Constructor / Destructor
-// FIX: Destructor now stops recording and writer thread before clearing graph
+// FIX: Settings saved to Fanan/OnStage folder
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -15,10 +15,10 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
 {
     initializePluginFormats();
     
-    options.applicationName = "Colosseum_1_2";
+    options.applicationName = "OnStage";
     options.filenameSuffix = ".settings";
     options.osxLibrarySubFolder = "Application Support";
-    options.folderName = "Fanan";
+    options.folderName = "Fanan/OnStage";
     options.commonToAllUsers = false;
     options.ignoreCaseOfKeyNames = false;
     options.storageFormat = juce::PropertiesFile::storeAsXML;
@@ -27,7 +27,7 @@ SubterraneumAudioProcessor::SubterraneumAudioProcessor()
     // Separate settings file for plugin scan data — isolates plugin cache
     // from audio/MIDI settings so a scan crash can't corrupt general settings
     juce::PropertiesFile::Options pluginOpts = options;
-    pluginOpts.applicationName = "Colosseum_Plugins";
+    pluginOpts.applicationName = "OnStage_Plugins";
     pluginProperties.setStorageParameters(pluginOpts);
     
     // Migration: if plugin settings file is empty but main settings has plugin data, migrate it
@@ -95,8 +95,7 @@ SubterraneumAudioProcessor::~SubterraneumAudioProcessor() {
 
     audioInputNode = nullptr;
     audioOutputNode = nullptr;
-    midiInputNode = nullptr;
-    midiOutputNode = nullptr;
+    playbackNode = nullptr;
     
     if (mainGraph) {
         mainGraph->clear();
@@ -120,7 +119,7 @@ juce::File SubterraneumAudioProcessor::getDefaultPatchFile() const {
     settingsFolder = settingsFolder.getChildFile("Application Support");
     #endif
     
-    return settingsFolder.getChildFile("Fanan").getChildFile("Colosseum_Default.subt");
+    return settingsFolder.getChildFile("Fanan").getChildFile("OnStage").getChildFile("OnStage_Default.ons");
 }
 
 // =============================================================================

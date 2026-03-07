@@ -1,25 +1,15 @@
-
-
-// #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_DragDrop.cpp
+// #D:\Workspace\onstage_colosseum_upgrade\src\GraphCanvas_DragDrop.cpp
 // FIXED: Plugin drag-and-drop matching - use fileOrIdentifier instead of createIdentifierString()
 // FIXED: Signature must match header exactly (SourceDetails, not juce::DragAndDropTarget::SourceDetails)
 // FIXED: Added Recorder system tool support
-// FIXED: Fresh-scan retry when plugin load fails (stale uniqueId / fallback entries)
-// FIX: Added MidiMultiFilter system tool support
 // NEW: Added Container system tool support
+// CLEANED: Removed obsolete MIDI tools for OnStage (effects-only mode)
 
 #include "GraphCanvas.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
-#include "MidiMultiFilterProcessor.h"
 #include "ContainerProcessor.h"
 
 bool GraphCanvas::isInterestedInDragSource(const SourceDetails& dragSourceDetails) {
@@ -78,24 +68,10 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
             nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new SimpleConnectorProcessor()));
         } else if (toolName == "StereoMeter") {
             nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new StereoMeterProcessor()));
-        } else if (toolName == "MidiMonitor") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMonitorProcessor()));
         } else if (toolName == "Recorder") {
             nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new RecorderProcessor()));
-        } else if (toolName == "ManualSampler") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new ManualSamplerProcessor()));
-        } else if (toolName == "AutoSampler") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new AutoSamplerProcessor(activeGraph, &processor)));
-        } else if (toolName == "MidiPlayer") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiPlayerProcessor()));
-        } else if (toolName == "StepSeq") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
         } else if (toolName == "TransientSplitter") {
             nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
-        } else if (toolName == "Latcher") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
-        } else if (toolName == "MidiMultiFilter") {
-            nodePtr = activeGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMultiFilterProcessor()));
         } else if (toolName == "Container") {
             // Block nested containers
             if (isInsideContainer())
@@ -109,7 +85,7 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
                 return;
             }
             auto containerProc = std::make_unique<ContainerProcessor>();
-            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));  // FIX 3
+            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));
             containerProc->setParentProcessor(&processor);
             nodePtr = activeGraph->addNode(std::move(containerProc));
         } else if (toolName == "VST2Plugin") {
@@ -153,7 +129,7 @@ void GraphCanvas::itemDropped(const SourceDetails& dragSourceDetails) {
         juce::File presetFile(presetPath);
         if (presetFile.existsAsFile()) {
             auto containerProc = std::make_unique<ContainerProcessor>();
-            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));  // FIX 3
+            containerProc->setContainerName("Container " + juce::String(++processor.containerCounter));
             containerProc->setParentProcessor(&processor);
             containerProc->loadPreset(presetFile);
 

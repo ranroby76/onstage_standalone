@@ -1,9 +1,10 @@
 
+
 // Plugin Browser Panel - ALL plugin and tool selection happens here
-// Filters: All | Instruments | Effects | Tools (removed Favorites)
+// Filters: All | Effects | Tools (OnStage: instruments blocked)
 // FIX: Collapsible vendor/folder groups, title header, no vendor in items
 // FIX: Added Recorder to SystemToolType
-// NEW: Favorites mode - toggle title to browse saved .subt patches
+// NEW: Favorites mode - toggle title to browse saved .ons patches
 // NEW: Added MidiMultiFilter system tool
 // NEW: Added Container system tool
 
@@ -22,22 +23,15 @@ enum class SystemToolType {
     None,
     Connector,
     StereoMeter,
-    MidiMonitor,
     Recorder,
-    ManualSampler,
-    AutoSampler,
-    MidiPlayer,
-    StepSeq,
     TransientSplitter,
-    Latcher,
-    MidiMultiFilter,   // NEW: MIDI Multi Filter tool
-    Container,         // NEW: Container (sub-graph) tool
+    Container,
     VST2Plugin,
     VST3Plugin
 };
 
 // =============================================================================
-// Favorite Patch Item - displays a .subt file in Favorites mode
+// Favorite Patch Item - displays a .ons file in Favorites mode
 // =============================================================================
 class FavoritePatchItem : public juce::Component {
 public:
@@ -213,10 +207,8 @@ private:
     
     juce::TextEditor searchBox;
     
-    // Filter row: All | Instruments | Effects | Tools (removed Favorites)
-    juce::TextButton allBtn { "All" };
-    juce::TextButton instrumentsBtn { "Instr" };
-    juce::TextButton effectsBtn { "Effects" };
+    // Filter row: FX | Tools (OnStage: instruments blocked, no "All")
+    juce::TextButton effectsBtn { "FX" };
     juce::TextButton toolsBtn { "Tools" };
     
     // View mode row
@@ -236,10 +228,10 @@ private:
     // File chooser for favorites folder
     std::shared_ptr<juce::FileChooser> favFolderChooser;
     
-    enum class TypeFilter { All, Instruments, Effects, Tools };
+    enum class TypeFilter { Effects, Tools };
     enum class ViewMode { Flat, ByVendor, ByFolder, ByFormat };
     
-    TypeFilter typeFilter = TypeFilter::All;
+    TypeFilter typeFilter = TypeFilter::Effects;
     ViewMode viewMode = ViewMode::Flat;
     juce::String searchText;
     

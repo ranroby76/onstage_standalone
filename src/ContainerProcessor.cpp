@@ -7,15 +7,8 @@
 #include "PluginProcessor.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
-#include "MidiMultiFilterProcessor.h"
 
 // =============================================================================
 // Static member
@@ -55,28 +48,17 @@ void ContainerProcessor::createInnerIONodes()
         std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
             juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
     
-    // Create MIDI I/O (always present)
-    innerMidiInput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
-    
-    innerMidiOutput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiOutputNode));
+    // OnStage: No MIDI I/O nodes in containers (effects-only mode)
+    innerMidiInput = nullptr;
+    innerMidiOutput = nullptr;
     
     // FIX 4: Add ioNodeName properties for tooltip display
     if (innerAudioInput)  innerAudioInput->properties.set("ioNodeName", "Container Audio In");
     if (innerAudioOutput) innerAudioOutput->properties.set("ioNodeName", "Container Audio Out");
-    if (innerMidiInput)   innerMidiInput->properties.set("ioNodeName", "Container MIDI In");
-    if (innerMidiOutput)  innerMidiOutput->properties.set("ioNodeName", "Container MIDI Out");
     
     // Position I/O nodes on grid (gridSize = 40px):
-    // Audio In / MIDI In  → y = 3 squares = 120, x = 4 squares = 160 / x = 17 squares = 680
-    // Audio Out / MIDI Out → y = 11 squares = 440, same x columns
     if (innerAudioInput)  { innerAudioInput->properties.set("x",  160.0); innerAudioInput->properties.set("y",  120.0); }
     if (innerAudioOutput) { innerAudioOutput->properties.set("x", 160.0); innerAudioOutput->properties.set("y",  440.0); }
-    if (innerMidiInput)   { innerMidiInput->properties.set("x",   680.0); innerMidiInput->properties.set("y",  120.0); }
-    if (innerMidiOutput)  { innerMidiOutput->properties.set("x",  680.0); innerMidiOutput->properties.set("y",  440.0); }
 }
 
 // =============================================================================
@@ -112,8 +94,6 @@ void ContainerProcessor::updateInnerIONodes()
     // Remove old I/O nodes
     if (innerAudioInput)  innerGraph->removeNode(innerAudioInput->nodeID);
     if (innerAudioOutput) innerGraph->removeNode(innerAudioOutput->nodeID);
-    if (innerMidiInput)   innerGraph->removeNode(innerMidiInput->nodeID);
-    if (innerMidiOutput)  innerGraph->removeNode(innerMidiOutput->nodeID);
     
     // Recreate I/O nodes with new configuration
     innerAudioInput = innerGraph->addNode(
@@ -124,25 +104,17 @@ void ContainerProcessor::updateInnerIONodes()
         std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
             juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
     
-    innerMidiInput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
-    
-    innerMidiOutput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiOutputNode));
+    // OnStage: No MIDI I/O nodes in containers
+    innerMidiInput = nullptr;
+    innerMidiOutput = nullptr;
     
     // FIX 4: Add ioNodeName properties for tooltip display
     if (innerAudioInput)  innerAudioInput->properties.set("ioNodeName", "Container Audio In");
     if (innerAudioOutput) innerAudioOutput->properties.set("ioNodeName", "Container Audio Out");
-    if (innerMidiInput)   innerMidiInput->properties.set("ioNodeName", "Container MIDI In");
-    if (innerMidiOutput)  innerMidiOutput->properties.set("ioNodeName", "Container MIDI Out");
     
     // Position I/O nodes
     if (innerAudioInput)  { innerAudioInput->properties.set("x",  160.0); innerAudioInput->properties.set("y",  120.0); }
     if (innerAudioOutput) { innerAudioOutput->properties.set("x", 160.0); innerAudioOutput->properties.set("y",  440.0); }
-    if (innerMidiInput)   { innerMidiInput->properties.set("x",   680.0); innerMidiInput->properties.set("y",  120.0); }
-    if (innerMidiOutput)  { innerMidiOutput->properties.set("x",  680.0); innerMidiOutput->properties.set("y",  440.0); }
     
     // Restore user-to-user connections only
     for (const auto& saved : savedConnections)
@@ -509,7 +481,7 @@ void ContainerProcessor::setStateInformation(const void* data, int sizeInBytes)
 // =============================================================================
 juce::String ContainerProcessor::serializeToXml() const
 {
-    juce::XmlElement root("ContainerPreset");
+    juce::XmlElement root("OnStageContainerPreset");
     
     root.setAttribute("name", containerName);
     root.setAttribute("version", 1);
@@ -553,23 +525,14 @@ juce::String ContainerProcessor::serializeToXml() const
         if (isIO) {
             if (node == innerAudioInput.get())       nodeXml->setAttribute("type", "AudioInput");
             else if (node == innerAudioOutput.get()) nodeXml->setAttribute("type", "AudioOutput");
-            else if (node == innerMidiInput.get())   nodeXml->setAttribute("type", "MidiInput");
-            else if (node == innerMidiOutput.get())  nodeXml->setAttribute("type", "MidiOutput");
             else nodeXml->setAttribute("type", "IO");
         } else {
             // Check system tools
             juce::String toolName;
             if (dynamic_cast<SimpleConnectorProcessor*>(proc))        toolName = "SimpleConnector";
             else if (dynamic_cast<StereoMeterProcessor*>(proc))       toolName = "StereoMeter";
-            else if (dynamic_cast<MidiMonitorProcessor*>(proc))       toolName = "MidiMonitor";
             else if (dynamic_cast<RecorderProcessor*>(proc))          toolName = "Recorder";
-            else if (dynamic_cast<ManualSamplerProcessor*>(proc))     toolName = "ManualSampler";
-            else if (dynamic_cast<AutoSamplerProcessor*>(proc))       toolName = "AutoSampler";
-            else if (dynamic_cast<MidiPlayerProcessor*>(proc))        toolName = "MidiPlayer";
-            else if (dynamic_cast<CCStepperProcessor*>(proc))         toolName = "CCStepper";
             else if (dynamic_cast<TransientSplitterProcessor*>(proc)) toolName = "TransientSplitter";
-            else if (dynamic_cast<LatcherProcessor*>(proc))           toolName = "Latcher";
-            else if (dynamic_cast<MidiMultiFilterProcessor*>(proc))   toolName = "MidiMultiFilter";
             else if (dynamic_cast<ContainerProcessor*>(proc))         toolName = "Container";
             
             if (toolName.isNotEmpty()) {
@@ -626,7 +589,7 @@ juce::String ContainerProcessor::serializeToXml() const
 bool ContainerProcessor::restoreFromXml(const juce::String& xmlStr)
 {
     auto xml = juce::parseXML(xmlStr);
-    if (!xml || !xml->hasTagName("ContainerPreset"))
+    if (!xml || !xml->hasTagName("OnStageContainerPreset"))
         return false;
     
     containerName = xml->getStringAttribute("name", "Container");
@@ -684,13 +647,9 @@ bool ContainerProcessor::restoreFromXml(const juce::String& xmlStr)
                 juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
     }
     
-    // MIDI I/O always present
-    innerMidiInput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
-    innerMidiOutput = innerGraph->addNode(
-        std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::midiOutputNode));
+    // OnStage: No MIDI I/O nodes in containers (effects-only mode)
+    innerMidiInput = nullptr;
+    innerMidiOutput = nullptr;
     
     // Rebuild bus layout to match restored config
     rebuildBusLayout();
@@ -714,15 +673,8 @@ bool ContainerProcessor::restoreFromXml(const juce::String& xmlStr)
                     nodeIdMap[oldId] = innerAudioOutput->nodeID;
                     innerAudioOutput->properties.set("x", x);
                     innerAudioOutput->properties.set("y", y);
-                } else if (type == "MidiInput" && innerMidiInput) {
-                    nodeIdMap[oldId] = innerMidiInput->nodeID;
-                    innerMidiInput->properties.set("x", x);
-                    innerMidiInput->properties.set("y", y);
-                } else if (type == "MidiOutput" && innerMidiOutput) {
-                    nodeIdMap[oldId] = innerMidiOutput->nodeID;
-                    innerMidiOutput->properties.set("x", x);
-                    innerMidiOutput->properties.set("y", y);
                 }
+                // OnStage: MidiInput/MidiOutput nodes are ignored (effects-only)
             }
         }
     }
@@ -744,18 +696,8 @@ bool ContainerProcessor::restoreFromXml(const juce::String& xmlStr)
                 
                 if (toolName == "SimpleConnector")        toolProc = std::make_unique<SimpleConnectorProcessor>();
                 else if (toolName == "StereoMeter")       toolProc = std::make_unique<StereoMeterProcessor>();
-                else if (toolName == "MidiMonitor")       toolProc = std::make_unique<MidiMonitorProcessor>();
                 else if (toolName == "Recorder")          toolProc = std::make_unique<RecorderProcessor>();
-                else if (toolName == "ManualSampler")     toolProc = std::make_unique<ManualSamplerProcessor>();
-                else if (toolName == "AutoSampler") {
-                    if (parentProcessor)
-                        toolProc = std::make_unique<AutoSamplerProcessor>(innerGraph.get(), parentProcessor);
-                }
-                else if (toolName == "MidiPlayer")        toolProc = std::make_unique<MidiPlayerProcessor>();
-                else if (toolName == "CCStepper")         toolProc = std::make_unique<CCStepperProcessor>();
                 else if (toolName == "TransientSplitter") toolProc = std::make_unique<TransientSplitterProcessor>();
-                else if (toolName == "Latcher")           toolProc = std::make_unique<LatcherProcessor>();
-                else if (toolName == "MidiMultiFilter")   toolProc = std::make_unique<MidiMultiFilterProcessor>();
                 else if (toolName == "Container") {
                     auto container = std::make_unique<ContainerProcessor>();
                     container->setParentProcessor(parentProcessor);
@@ -883,9 +825,9 @@ juce::File ContainerProcessor::getEffectiveDefaultFolder()
     if (globalDefaultFolder.exists())
         return globalDefaultFolder;
     
-    // Default: Documents/Colosseum/containers
+    // Default: Documents/OnStage/containers
     return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-        .getChildFile("Colosseum")
+        .getChildFile("OnStage")
         .getChildFile("containers");
 }
 
@@ -909,4 +851,8 @@ bool ContainerProcessor::loadPreset(const juce::File& file)
     juce::String xmlStr = file.loadFileAsString();
     return restoreFromXml(xmlStr);
 }
+
+
+
+
 

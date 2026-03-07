@@ -22,16 +22,10 @@
 class SubterraneumAudioProcessorEditor;
 class SimpleConnectorProcessor;
 class StereoMeterProcessor;
-class MidiMonitorProcessor;
 class RecorderProcessor;
-class ManualSamplerProcessor;
-class AutoSamplerProcessor;
-class MidiPlayerProcessor;
-class CCStepperProcessor;
 class TransientSplitterProcessor;
-class LatcherProcessor;
-class MidiMultiFilterProcessor;
 class ContainerProcessor;
+class PlaybackNode;
 
 // FIX: Use MultiTimer for separate timer rates
 // NEW: Inherit from DragAndDropTarget for plugin browser support
@@ -230,24 +224,18 @@ private:
         MeteringProcessor* meteringProc = nullptr;
         SimpleConnectorProcessor* simpleConnector = nullptr;
         StereoMeterProcessor* stereoMeter = nullptr;
-        MidiMonitorProcessor* midiMonitor = nullptr;
         RecorderProcessor* recorder = nullptr;
-        ManualSamplerProcessor* manualSampler = nullptr;
-        AutoSamplerProcessor* autoSampler = nullptr;
-        MidiPlayerProcessor* midiPlayer = nullptr;
-        CCStepperProcessor* ccStepper = nullptr;
         TransientSplitterProcessor* transientSplitter = nullptr;
-        LatcherProcessor* latcher = nullptr;
-        MidiMultiFilterProcessor* midiMultiFilter = nullptr;
         ContainerProcessor* container = nullptr;
+        PlaybackNode* playbackNode = nullptr;
         bool isAudioInput = false;
         bool isAudioOutput = false;
         bool isMidiInput = false;
         bool isMidiOutput = false;
+        bool isPlayback = false;
         bool isIO = false;
         bool isInstrument = false;
         bool hasSidechain = false;
-        bool inSamplingChain = false;
         juce::String pluginName;
     };
 
@@ -259,10 +247,6 @@ private:
 
     bool hasStereoMeter = false;
     bool hasRecorder = false;
-    bool hasSampler = false;
-    bool hasMidiPlayer = false;
-    bool hasStepSeq = false;
-    bool hasLatcher = false;
 
     PinID lastHighlightPin;
     juce::AudioProcessorGraph::Connection lastHoveredConnection = {
@@ -287,6 +271,11 @@ private:
     float knobDragStartY = 0.0f;
     float knobDragStartValue = 0.0f;
 
+    // Connector/Amp slider drag state
+    bool draggingConnectorSlider = false;
+    juce::AudioProcessorGraph::Node* draggingConnectorNode = nullptr;
+    juce::Rectangle<float> draggingConnectorSliderRect;
+
     juce::Point<float> lastRightClickPos {300.0f, 300.0f};
 
     // NEW: Drag-drop hover indicator
@@ -298,12 +287,6 @@ private:
 
     // Shared file chooser for VST3 manual loading
     std::unique_ptr<juce::FileChooser> pluginFileChooser;
-
-    // NEW: Sampler folder chooser
-    std::unique_ptr<juce::FileChooser> samplerFolderChooser;
-
-    // NEW: MIDI file chooser
-    std::unique_ptr<juce::FileChooser> midiFileChooser;
 
     // Shared last-used directory for ALL file browsers (MIDI, presets, etc.)
     juce::File lastBrowsedDirectory;
@@ -334,24 +317,6 @@ private:
             }
         }
     }
-
-    // MIDI Player slider drag state
-    bool midiSliderDragging = false;
-    MidiPlayerProcessor* midiSliderDragPlayer = nullptr;
-    float midiSliderTrackX = 0.0f;
-    float midiSliderTrackW = 1.0f;
-
-    // MIDI Player BPM knob drag state
-    bool midiBpmDragging = false;
-    MidiPlayerProcessor* midiBpmDragPlayer = nullptr;
-    float midiBpmDragStartY = 0.0f;
-    double midiBpmDragStartValue = 120.0;
-
-    // Step Seq BPM drag state
-    bool stepSeqBpmDragging = false;
-    CCStepperProcessor* stepSeqBpmDragProcessor = nullptr;
-    float stepSeqBpmDragStartY = 0.0f;
-    double stepSeqBpmDragStartValue = 120.0;
 
     void initializeOpenGL();
     void rebuildNodeTypeCache();
@@ -399,13 +364,7 @@ private:
     juce::File getVST2DefaultFolder() const;
     juce::File getVST3DefaultFolder() const;
 
-    // Auto Sampler editor popup
-    void showAutoSamplerEditor(AutoSamplerProcessor* autoSampler);
-    void showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer);
-    void showStepSeqEditor(juce::AudioProcessorGraph::Node* node);
     void showTransientSplitterEditor(TransientSplitterProcessor* proc);
-    void showLatcherEditor(juce::AudioProcessorGraph::Node* node);
-    void showMidiMultiFilterEditor(juce::AudioProcessorGraph::Node* node);
     void disconnectNode(juce::AudioProcessorGraph::Node* node);
     void scanPlugins();
     void verifyPositions();

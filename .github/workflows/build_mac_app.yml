@@ -15,7 +15,7 @@ jobs:
     env:
       SIGNING_ENABLED: ${{ secrets.MACOS_CERTIFICATE }}
       BUILD_DIR: build
-      APP_ARTEFACTS: build/SubterraneumApp_artefacts/Release
+      APP_ARTEFACTS: build/OnStageApp_artefacts/Release
 
     steps:
       - name: Checkout Repository
@@ -29,6 +29,43 @@ jobs:
       - name: Install Dependencies
         run: brew install ninja
 
+      - name: Download VLC SDK (macOS)
+        run: |
+          echo "Downloading VLC..."
+          curl -L -o vlc.dmg "https://get.videolan.org/vlc/3.0.21/macosx/vlc-3.0.21-universal.dmg"
+          
+          echo "Mounting DMG..."
+          hdiutil attach vlc.dmg -mountpoint /Volumes/VLC
+          
+          echo "Extracting VLC libraries..."
+          mkdir -p vlc-macos/lib vlc-macos/include vlc-macos/plugins
+          
+          # Copy libraries
+          cp /Volumes/VLC/VLC.app/Contents/MacOS/lib/libvlc.5.dylib vlc-macos/lib/
+          cp /Volumes/VLC/VLC.app/Contents/MacOS/lib/libvlccore.9.dylib vlc-macos/lib/
+          
+          # Create symlinks (CMake expects libvlc.dylib)
+          ln -s libvlc.5.dylib vlc-macos/lib/libvlc.dylib
+          ln -s libvlccore.9.dylib vlc-macos/lib/libvlccore.dylib
+          
+          # Copy headers from Windows SDK in repo (they're identical)
+          if [ -d "vlc-3.0.21/sdk/include" ]; then
+            cp -R vlc-3.0.21/sdk/include/* vlc-macos/include/
+            echo "Copied headers from Windows VLC SDK"
+          else
+            echo "Warning: No VLC headers found - build may fail"
+          fi
+          
+          # Copy plugins
+          cp -R /Volumes/VLC/VLC.app/Contents/MacOS/plugins/* vlc-macos/plugins/
+          
+          echo "Unmounting DMG..."
+          hdiutil detach /Volumes/VLC
+          
+          echo "VLC SDK ready:"
+          ls -la vlc-macos/lib/
+          echo "Plugins: $(ls vlc-macos/plugins/ | wc -l) files"
+
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.7
 
@@ -36,8 +73,14 @@ jobs:
         run: |
           mkdir -p assets
 
-          # Check if .icns already exists
-          if [ -f "assets/Colosseum.icns" ]; then
+          # Check if .icns already exists in repo root
+          if [ -f "icon.icns" ]; then
+            cp icon.icns assets/Icon.icns
+            echo "Copied icon.icns to assets/Icon.icns"
+            exit 0
+          fi
+
+          if [ -f "assets/Icon.icns" ]; then
             echo "macOS icon already exists"
             exit 0
           fi
@@ -59,12 +102,12 @@ jobs:
               fi
             fi
             SOURCE_IMG="/tmp/icon_source.png"
-          elif [ -f "assets/colosseum_logo.png" ]; then
-            SOURCE_IMG="assets/colosseum_logo.png"
+          elif [ -f "assets/onstage_logo.png" ]; then
+            SOURCE_IMG="assets/onstage_logo.png"
           fi
 
           if [ -z "$SOURCE_IMG" ] || [ ! -f "$SOURCE_IMG" ]; then
-            echo "No source image found for icon (tried icon.ico, assets/colosseum_logo.png)"
+            echo "No source image found for icon"
             exit 0
           fi
 
@@ -114,6 +157,7 @@ jobs:
           cmake -B ${{ env.BUILD_DIR }} -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DJUCE_PATH="${{ github.workspace }}/JUCE" \
+            -DVLC_ROOT="${{ github.workspace }}/vlc-macos" \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 \
             -DCMAKE_C_COMPILER_LAUNCHER=sccache \
@@ -125,7 +169,7 @@ jobs:
       - name: Locate App Bundle
         id: find_app
         run: |
-          APP_PATH="${{ env.APP_ARTEFACTS }}/Colosseum.app"
+          APP_PATH="${{ env.APP_ARTEFACTS }}/OnStage.app"
 
           # Fallback: search if not at expected path
           if [ ! -d "$APP_PATH" ]; then
@@ -146,6 +190,7 @@ jobs:
           ls -la "$APP_PATH/Contents/"
           ls -la "$APP_PATH/Contents/MacOS/" || true
           ls -la "$APP_PATH/Contents/Resources/" || true
+          ls -la "$APP_PATH/Contents/Frameworks/" || true
 
           # Verify universal binary
           echo "=== Architecture Check ==="
@@ -194,7 +239,17 @@ jobs:
           echo "Signing with identity: $IDENTITY"
           echo "App path: $APP_PATH"
 
-          # Sign inner binaries first (inside-out signing)
+          # Sign VLC plugins first (deepest level)
+          echo "=== Signing VLC plugins ==="
+          find "$APP_PATH/Contents/Frameworks/plugins" -name "*.dylib" \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
+
+          # Sign VLC core libraries
+          echo "=== Signing VLC libraries ==="
+          find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -name "*.dylib" \
+            -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
+
+          # Sign other inner binaries
           find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) \
             -exec codesign --force --strict --options runtime --sign "$IDENTITY" --timestamp --entitlements entitlements.plist {} \;
 
@@ -211,23 +266,18 @@ jobs:
           codesign -d --entitlements :- "$APP_PATH"
 
       # =================================================================
-      # FIX: Create .dmg FIRST, then notarize the .dmg, then staple .dmg
-      # Old flow: zip → notarize zip → staple .app → re-zip
-      #   Problem: .zip CANNOT be stapled, so the downloaded zip has no ticket
-      #   On Apple Silicon + latest macOS, Gatekeeper silently blocks it
-      # New flow: sign .app → create .dmg → notarize .dmg → staple .dmg
-      #   .dmg CAN be stapled — notarization ticket embedded in the download
+      # Create .dmg FIRST, then notarize the .dmg, then staple .dmg
       # =================================================================
       - name: Create DMG
         if: ${{ env.SIGNING_ENABLED != '' }}
         env:
           APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
         run: |
-          hdiutil create -volname "Colosseum" \
+          hdiutil create -volname "OnStage" \
             -srcfolder "$APP_PATH" \
             -ov -format UDZO \
-            "Colosseum_Mac_Universal.dmg"
-          echo "Created Colosseum_Mac_Universal.dmg"
+            "OnStage_Mac_Universal.dmg"
+          echo "Created OnStage_Mac_Universal.dmg"
 
       - name: Notarize DMG
         if: ${{ env.SIGNING_ENABLED != '' }}
@@ -237,17 +287,17 @@ jobs:
           TEAM_ID: ${{ secrets.MACOS_NOTARIZATION_TEAM_ID }}
         run: |
           echo "=== Submitting DMG for notarization ==="
-          xcrun notarytool submit "Colosseum_Mac_Universal.dmg" \
+          xcrun notarytool submit "OnStage_Mac_Universal.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait
 
           echo "=== Stapling notarization ticket to DMG ==="
-          xcrun stapler staple "Colosseum_Mac_Universal.dmg"
+          xcrun stapler staple "OnStage_Mac_Universal.dmg"
 
           echo "=== Verifying staple ==="
-          xcrun stapler validate "Colosseum_Mac_Universal.dmg"
+          xcrun stapler validate "OnStage_Mac_Universal.dmg"
           echo "DMG is signed, notarized, and stapled"
 
       - name: Package Unsigned App
@@ -256,21 +306,21 @@ jobs:
           APP_PATH: ${{ steps.find_app.outputs.APP_PATH }}
         run: |
           echo "Creating unsigned package from $APP_PATH"
-          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "Colosseum_Mac_Unsigned.zip"
+          /usr/bin/ditto -c -k --keepParent "$APP_PATH" "OnStage_Mac_Unsigned.zip"
 
       - name: Upload Signed DMG
         if: ${{ env.SIGNING_ENABLED != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Colosseum-Mac-App-Signed
-          path: Colosseum_Mac_Universal.dmg
+          name: OnStage-Mac-App-Signed
+          path: OnStage_Mac_Universal.dmg
 
       - name: Upload Unsigned App
         if: ${{ env.SIGNING_ENABLED == '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Colosseum-Mac-App-Unsigned
-          path: Colosseum_Mac_Unsigned.zip
+          name: OnStage-Mac-App-Unsigned
+          path: OnStage_Mac_Unsigned.zip
 
       - name: Cleanup Keychain
         if: always()

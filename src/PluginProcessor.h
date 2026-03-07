@@ -8,6 +8,7 @@
 
 #include <JuceHeader.h>
 #include "RegistrationManager.h"
+#include "MediaPlayerAccess.h"
 
 class SubterraneumAudioProcessorEditor;
 
@@ -552,12 +553,19 @@ public:
     static juce::Colour getFormatColor(const juce::String& formatName);
 
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
-    juce::AudioProcessorGraph::Node::Ptr audioInputNode, audioOutputNode, midiInputNode, midiOutputNode;
+    juce::AudioProcessorGraph::Node::Ptr audioInputNode, audioOutputNode;
+    juce::AudioProcessorGraph::Node::Ptr playbackNode;  // Fixed node — media player audio source
     juce::KnownPluginList knownPluginList;
     juce::AudioPluginFormatManager formatManager;
     juce::ApplicationProperties appProperties;
     juce::ApplicationProperties pluginProperties;  // Separate file for plugin scan data
     juce::PropertiesFile::Options options;
+
+    // =========================================================================
+    // Media Player — VLC-based playback for karaoke/live performance
+    // =========================================================================
+    MediaPlayerType mediaPlayer;
+    MediaPlayerType& getMediaPlayer() { return mediaPlayer; }
 
     void saveAudioSettings();
     void loadAudioSettings();
