@@ -29,42 +29,23 @@ jobs:
       - name: Install Dependencies
         run: brew install ninja
 
-      - name: Download VLC SDK (macOS)
+      - name: Verify VLC SDK (macOS)
         run: |
-          echo "Downloading VLC..."
-          curl -L -o vlc.dmg "https://get.videolan.org/vlc/3.0.21/macosx/vlc-3.0.21-universal.dmg"
-          
-          echo "Mounting DMG..."
-          hdiutil attach vlc.dmg -mountpoint /Volumes/VLC
-          
-          echo "Extracting VLC libraries..."
-          mkdir -p vlc-macos/lib vlc-macos/include vlc-macos/plugins
-          
-          # Copy libraries
-          cp /Volumes/VLC/VLC.app/Contents/MacOS/lib/libvlc.5.dylib vlc-macos/lib/
-          cp /Volumes/VLC/VLC.app/Contents/MacOS/lib/libvlccore.9.dylib vlc-macos/lib/
-          
-          # Create symlinks (CMake expects libvlc.dylib)
-          ln -s libvlc.5.dylib vlc-macos/lib/libvlc.dylib
-          ln -s libvlccore.9.dylib vlc-macos/lib/libvlccore.dylib
-          
-          # Copy headers from Windows SDK in repo (they're identical)
-          if [ -d "vlc-3.0.21/sdk/include" ]; then
-            cp -R vlc-3.0.21/sdk/include/* vlc-macos/include/
-            echo "Copied headers from Windows VLC SDK"
-          else
-            echo "Warning: No VLC headers found - build may fail"
-          fi
-          
-          # Copy plugins
-          cp -R /Volumes/VLC/VLC.app/Contents/MacOS/plugins/* vlc-macos/plugins/
-          
-          echo "Unmounting DMG..."
-          hdiutil detach /Volumes/VLC
-          
-          echo "VLC SDK ready:"
+          echo "Checking vlc-macos folder from repo..."
+          ls -la vlc-macos/
           ls -la vlc-macos/lib/
           echo "Plugins: $(ls vlc-macos/plugins/ | wc -l) files"
+          
+          # Create symlinks if needed (in case they didn't survive git)
+          cd vlc-macos/lib
+          if [ ! -f libvlc.dylib ]; then
+            ln -s libvlc.5.dylib libvlc.dylib 2>/dev/null || cp libvlc.5.dylib libvlc.dylib
+          fi
+          if [ ! -f libvlccore.dylib ]; then
+            ln -s libvlccore.9.dylib libvlccore.dylib 2>/dev/null || cp libvlccore.9.dylib libvlccore.dylib
+          fi
+          cd ../..
+          echo "VLC SDK ready!"
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.7
