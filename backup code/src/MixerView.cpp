@@ -6,9 +6,9 @@
 #include "PluginProcessor.h"  // This includes MeteringProcessor
 
 MixerView::MixerView(SubterraneumAudioProcessor& p) : processor(p) {
+    // OnStage: Effects-only mode — no instruments row
     addAndMakeVisible(inputsRow);
     addAndMakeVisible(outputsRow);
-    addAndMakeVisible(instrumentsRow);
     
     // PERFORMANCE: Opaque components render faster
     setOpaque(true);
@@ -24,27 +24,26 @@ MixerView::~MixerView() {
 void MixerView::paint(juce::Graphics& g) { 
     g.fillAll(Style::colBackground); 
     
-    // Draw section separators
+    // Draw section separator (only one now - between inputs and outputs)
     g.setColour(juce::Colours::white.withAlpha(0.1f));
     
-    int rowHeight = getHeight() / 3;
+    int rowHeight = getHeight() / 2;
     g.drawLine(0, (float)rowHeight, (float)getWidth(), (float)rowHeight, 1.0f);
-    g.drawLine(0, (float)(rowHeight * 2), (float)getWidth(), (float)(rowHeight * 2), 1.0f);
 }
 
 void MixerView::resized() { 
     auto bounds = getLocalBounds();
-    int rowHeight = bounds.getHeight() / 3;
+    int rowHeight = bounds.getHeight() / 2;
     
+    // OnStage: Effects-only mode — inputs and outputs take full space
     inputsRow.setBounds(bounds.removeFromTop(rowHeight));
-    outputsRow.setBounds(bounds.removeFromTop(rowHeight));
-    instrumentsRow.setBounds(bounds);
+    outputsRow.setBounds(bounds);
 }
 
 void MixerView::timerCallback() { 
     updateInputsRow();
     updateOutputsRow();
-    updateInstrumentsRow();
+    // OnStage: Effects-only mode — no instruments row
 }
 
 void MixerView::updateInputsRow() {
@@ -77,57 +76,6 @@ void MixerView::updateOutputsRow() {
     }
 }
 
-void MixerView::updateInstrumentsRow() {
-    if (!processor.mainGraph) return;
-    
-    // CPU OPTIMIZATION: Only iterate through graph nodes when graph structure changes
-    // FIX: Removed getConnections().size() — it copies the entire vector just to read the count.
-    // Node count alone is sufficient: adding/removing instruments always changes node count.
-    size_t currentNodeCount = processor.mainGraph->getNumNodes();
-    
-    // Skip expensive iteration if graph hasn't changed
-    if (currentNodeCount == lastGraphNodeCount && lastInstrumentCount > 0) {
-        return;
-    }
-    
-    lastGraphNodeCount = currentNodeCount;
-    
-    // Count instruments
-    std::vector<juce::AudioProcessorGraph::Node*> instruments;
-    
-    for (auto* node : processor.mainGraph->getNodes()) {
-        if (auto* mp = dynamic_cast<MeteringProcessor*>(node->getProcessor())) {
-            // =========================================================================
-            // CRITICAL FIX: Use isInstrument() instead of getPluginDescription()
-            // getPluginDescription() freezes some plugins when called!
-            // =========================================================================
-            if (mp->getInnerPlugin() && mp->isInstrument()) {
-                instruments.push_back(node);
-            }
-        }
-    }
-    
-    int instrumentCount = (int)instruments.size();
-    
-    if (instrumentCount != lastInstrumentCount) {
-        lastInstrumentCount = instrumentCount;
-        instrumentNodeIDs.clear();
-        
-        instrumentsRow.setChannelCount(instrumentCount, [this](int idx, float g) { onInstrumentGainChanged(idx, g); });
-        
-        for (int i = 0; i < instrumentCount; ++i) {
-            auto* node = instruments[i];
-            instrumentNodeIDs.push_back(node->nodeID);
-            
-            if (auto* mp = dynamic_cast<MeteringProcessor*>(node->getProcessor())) {
-                // FREEZE FIX: Use cached name
-                instrumentsRow.setChannelName(i, mp->getCachedName());
-                instrumentsRow.setGainValue(i, mp->getGain());
-            }
-        }
-    }
-}
-
 void MixerView::onInputGainChanged(int channel, float gain) {
     processor.setInputGain(channel, gain);
 }
@@ -136,14 +84,5 @@ void MixerView::onOutputGainChanged(int channel, float gain) {
     processor.setOutputGain(channel, gain);
 }
 
-void MixerView::onInstrumentGainChanged(int index, float gain) {
-    if (index >= 0 && index < (int)instrumentNodeIDs.size()) {
-        auto nodeID = instrumentNodeIDs[index];
-        if (auto* node = processor.mainGraph->getNodeForId(nodeID)) {
-            if (auto* mp = dynamic_cast<MeteringProcessor*>(node->getProcessor())) {
-                mp->setGain(gain);
-            }
-        }
-    }
-}
+// OnStage: Effects-only mode — no instrument gain handling needed
 

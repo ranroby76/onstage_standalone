@@ -1,235 +1,224 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\AudioSettingsTab.h
-// AudioSettingsTab.h
+// #D:\Workspace\onstage_colosseum_upgrade\src\AudioSettingsTab.h
+// Audio/MIDI settings tab for OnStage
+// MIDI CHANNEL DUPLICATION: Select target channels to duplicate hardware MIDI to
 // FIX: Added Tempo, Time Signature, and Metronome sections from removed StudioTab
-// FIX: Added timeSigValueLabel to display current time signature
-// FIX: Added recording folder selection button
-// FIX: Green slider for metronome
-// NEW: Added container folder selection button
 
 #pragma once
 
 #include <JuceHeader.h>
+#include "PluginProcessor.h"
 #include "Style.h"
 #include "MidiSelectors.h"
-#include "PluginProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
 
-// Custom LookAndFeel for gold sliders (moved from StudioTab)
+// =============================================================================
+// InfoButton — TextButton with right-click tooltip popup
+// =============================================================================
+class InfoButton : public juce::TextButton
+{
+public:
+    InfoButton(const juce::String& buttonText = "") : juce::TextButton(buttonText) {}
+    
+    juce::String infoText;
+    
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isRightButtonDown() && infoText.isNotEmpty())
+        {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::InfoIcon,
+                "Info",
+                infoText,
+                "OK");
+        }
+        else
+        {
+            TextButton::mouseDown(e);
+        }
+    }
+};
+
+// =============================================================================
+// GoldSliderLookAndFeel — Orange/gold themed slider
+// =============================================================================
 class GoldSliderLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    GoldSliderLookAndFeel()
-    {
-        goldColor = juce::Colour(0xffFFD700);        // Gold
-        darkGoldColor = juce::Colour(0xff9B7A00);    // Dark gold
-        blackColor = juce::Colours::black;
-    }
-    
     void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
-                         float sliderPos, float /*minSliderPos*/, float /*maxSliderPos*/,
-                         const juce::Slider::SliderStyle /*style*/, juce::Slider& /*slider*/) override
+                          float sliderPos, float /*minSliderPos*/, float /*maxSliderPos*/,
+                          juce::Slider::SliderStyle, juce::Slider& slider) override
     {
-        auto trackWidth = juce::jmin(6.0f, (float)height * 0.25f);
+        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + height * 0.4f, 
+                                                   (float)width, height * 0.2f);
         
-        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + (float)height * 0.5f - trackWidth * 0.5f,
-                                                   (float)width, trackWidth);
+        // Track background
+        g.setColour(juce::Colour(60, 60, 65));
+        g.fillRoundedRectangle(trackBounds, 3.0f);
         
-        // Draw "off" rail (dark gold)
-        g.setColour(darkGoldColor);
-        g.fillRoundedRectangle(trackBounds, trackWidth * 0.5f);
+        // Filled portion
+        auto filledWidth = sliderPos - (float)x;
+        if (filledWidth > 0)
+        {
+            g.setColour(juce::Colours::orange.darker(0.2f));
+            g.fillRoundedRectangle(trackBounds.withWidth(filledWidth), 3.0f);
+        }
         
-        // Draw "on" rail (gold) - from start to thumb position
-        auto onTrack = trackBounds.withWidth(sliderPos - trackBounds.getX());
-        g.setColour(goldColor);
-        g.fillRoundedRectangle(onTrack, trackWidth * 0.5f);
+        // Thumb
+        float thumbWidth = 14.0f;
+        float thumbHeight = (float)height * 0.8f;
+        float thumbX = sliderPos - thumbWidth / 2;
+        float thumbY = (float)y + ((float)height - thumbHeight) / 2;
         
-        // Draw thumb (gold circle with black center)
-        float thumbRadius = 12.0f;
-        float thumbX = sliderPos;
-        float thumbY = y + height * 0.5f;
+        g.setColour(slider.isMouseOverOrDragging() ? juce::Colours::orange : juce::Colours::orange.darker());
+        g.fillRoundedRectangle(thumbX, thumbY, thumbWidth, thumbHeight, 4.0f);
         
-        // Outer gold circle
-        g.setColour(goldColor);
-        g.fillEllipse(thumbX - thumbRadius, thumbY - thumbRadius, thumbRadius * 2, thumbRadius * 2);
-        
-        // Inner black circle
-        float innerRadius = thumbRadius * 0.5f;
-        g.setColour(blackColor);
-        g.fillEllipse(thumbX - innerRadius, thumbY - innerRadius, innerRadius * 2, innerRadius * 2);
+        g.setColour(juce::Colours::white.withAlpha(0.3f));
+        g.drawRoundedRectangle(thumbX, thumbY, thumbWidth, thumbHeight, 4.0f, 1.0f);
     }
-    
-private:
-    juce::Colour goldColor;
-    juce::Colour darkGoldColor;
-    juce::Colour blackColor;
 };
 
-// Green slider for metronome (matches metronome frame color)
+// =============================================================================
+// GreenSliderLookAndFeel — Green themed slider for metronome
+// =============================================================================
 class GreenSliderLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
                           float sliderPos, float /*minSliderPos*/, float /*maxSliderPos*/,
-                          juce::Slider::SliderStyle /*style*/, juce::Slider& /*slider*/) override
+                          juce::Slider::SliderStyle, juce::Slider& slider) override
     {
-        auto trackWidth = juce::jmin(6.0f, (float)height * 0.25f);
+        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + height * 0.4f, 
+                                                   (float)width, height * 0.2f);
         
-        auto trackBounds = juce::Rectangle<float>((float)x, (float)y + (float)height * 0.5f - trackWidth * 0.5f,
-                                                   (float)width, trackWidth);
+        // Track background
+        g.setColour(juce::Colour(50, 60, 50));
+        g.fillRoundedRectangle(trackBounds, 3.0f);
         
-        // Track background (dark green)
-        g.setColour(juce::Colour(40, 80, 40));
-        g.fillRoundedRectangle(trackBounds, trackWidth * 0.5f);
+        // Filled portion
+        auto filledWidth = sliderPos - (float)x;
+        if (filledWidth > 0)
+        {
+            g.setColour(juce::Colours::green.darker(0.2f));
+            g.fillRoundedRectangle(trackBounds.withWidth(filledWidth), 3.0f);
+        }
         
-        // Filled portion (light green)
-        auto onTrack = trackBounds.withWidth(sliderPos - trackBounds.getX());
-        g.setColour(juce::Colours::lightgreen);
-        g.fillRoundedRectangle(onTrack, trackWidth * 0.5f);
+        // Thumb
+        float thumbWidth = 14.0f;
+        float thumbHeight = (float)height * 0.8f;
+        float thumbX = sliderPos - thumbWidth / 2;
+        float thumbY = (float)y + ((float)height - thumbHeight) / 2;
         
-        // Draw thumb (green circle with darker center)
-        float thumbRadius = 12.0f;
-        float thumbX = sliderPos;
-        float thumbY = y + height * 0.5f;
+        g.setColour(slider.isMouseOverOrDragging() ? juce::Colours::lightgreen : juce::Colours::green);
+        g.fillRoundedRectangle(thumbX, thumbY, thumbWidth, thumbHeight, 4.0f);
         
-        // Outer green circle
-        g.setColour(juce::Colours::lightgreen);
-        g.fillEllipse(thumbX - thumbRadius, thumbY - thumbRadius, thumbRadius * 2, thumbRadius * 2);
-        
-        // Inner highlight
-        float innerRadius = thumbRadius * 0.5f;
         g.setColour(juce::Colours::white.withAlpha(0.3f));
-        g.fillEllipse(thumbX - innerRadius, thumbY - innerRadius, innerRadius * 2, innerRadius * 2);
+        g.drawRoundedRectangle(thumbX, thumbY, thumbWidth, thumbHeight, 4.0f, 1.0f);
     }
 };
 
-class AudioSettingsTab : public juce::Component, 
-                         public juce::ChangeListener, 
-                         public juce::ComboBox::Listener, 
+// =============================================================================
+// AudioSettingsTab — Main audio/MIDI settings component
+// =============================================================================
+class AudioSettingsTab : public juce::Component,
+                         public juce::ChangeListener,
                          public juce::Button::Listener,
-                         public juce::Slider::Listener {
-public: 
-    AudioSettingsTab(SubterraneumAudioProcessor& p);
+                         public juce::ComboBox::Listener,
+                         public juce::Slider::Listener
+{
+public:
+    AudioSettingsTab(SubterraneumAudioProcessor& processor);
     ~AudioSettingsTab() override;
-    void paint(juce::Graphics& g) override; 
-    void resized() override; 
-    void changeListenerCallback(juce::ChangeBroadcaster*) override; 
-    void comboBoxChanged(juce::ComboBox*) override; 
-    void buttonClicked(juce::Button*) override;
-    void sliderValueChanged(juce::Slider*) override;
     
-    // Get current tempo/time signature for MIDI clock
-    double getTempo() const { return currentTempo; }
-    int getTimeSigNumerator() const { return timeSigNumerator; }
-    int getTimeSigDenominator() const { return timeSigDenominator; }
+    void paint(juce::Graphics& g) override;
+    void resized() override;
     
-private: 
-    SubterraneumAudioProcessor& processor; 
-    juce::AudioDeviceManager* deviceManager = nullptr; 
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
+    void buttonClicked(juce::Button* button) override;
+    void comboBoxChanged(juce::ComboBox* comboBox) override;
+    void sliderValueChanged(juce::Slider* slider) override;
     
-    // =========================================================================
-    // Driver Settings
-    // =========================================================================
-    juce::GroupComponent driverGroup { "driverGroup", "Driver Settings" };
+private:
+    SubterraneumAudioProcessor& processor;
+    juce::AudioDeviceManager* deviceManager = nullptr;
     
-    #if JUCE_WINDOWS
-    juce::Label deviceLabel { "device", "ASIO Device:" };
-    #elif JUCE_MAC
+    // Look and feel
+    GoldSliderLookAndFeel goldSliderLookAndFeel;
+    GreenSliderLookAndFeel greenSliderLookAndFeel;
+    
+    // ==========================================================================
+    // Driver Settings Group
+    // ==========================================================================
+    juce::GroupComponent driverGroup { "driver", "Driver Settings" };
     juce::Label deviceLabel { "device", "Audio Device:" };
-    #else
-    juce::Label deviceLabel { "device", "Audio Device:" };
-    #endif
-    
-    juce::ComboBox deviceCombo; 
+    juce::ComboBox deviceCombo;
     juce::TextButton controlPanelBtn { "Control Panel" };
     juce::TextButton reconnectMidiBtn { "Reconnect MIDI Devices" };
     juce::Label statusLabel { "status", "" };
     
-    // Recording folder selection (aligned right in driver settings)
-    juce::TextButton recordingFolderBtn { "Set Recording Folder..." };
+    // Recording folder
+    juce::TextButton recordingFolderBtn { "Recording Folder..." };
     juce::Label recordingFolderLabel { "recFolder", "" };
     
-    // Sampler folder selection (next to recording folder)
-    juce::TextButton samplerFolderBtn { "Set Sampler Folder..." };
+    // Sampler folder
+    juce::TextButton samplerFolderBtn { "Sampler Folder..." };
     juce::Label samplerFolderLabel { "sampFolder", "" };
     
-    // Container folder selection (dark purple theme)
-    juce::TextButton containerFolderBtn { "Set Container Folder..." };
-    juce::Label containerFolderLabel { "contFolder", "" };
-    
-    // Default patch auto-load
-    // Save as Default button with right-click info popup
-    class InfoButton : public juce::TextButton {
-    public:
-        using juce::TextButton::TextButton;
-        juce::String infoText;
-        void mouseDown(const juce::MouseEvent& e) override {
-            if (e.mods.isRightButtonDown() && infoText.isNotEmpty()) {
-                juce::AlertWindow::showMessageBoxAsync(
-                    juce::MessageBoxIconType::InfoIcon,
-                    "Save as Default",
-                    infoText,
-                    "OK");
-                return;
-            }
-            juce::TextButton::mouseDown(e);
-        }
-    };
+    // Default patch
     InfoButton saveDefaultBtn { "Save as Default" };
     juce::TextButton clearDefaultBtn { "Clear Default" };
     juce::Label defaultPatchLabel { "defaultPatch", "" };
     
-    // =========================================================================
-    // MIDI Settings - Split into Inputs and Outputs
-    // =========================================================================
-    juce::GroupComponent midiInputsGroup { "midiInputsGroup", "MIDI Inputs" };
-    juce::GroupComponent midiOutputsGroup { "midiOutputsGroup", "MIDI Outputs" };
-    
-    // MIDI Inputs
-    juce::Viewport midiInputsViewport; 
+    // ==========================================================================
+    // MIDI Inputs Group
+    // ==========================================================================
+    juce::GroupComponent midiInputsGroup { "midiIn", "MIDI Inputs" };
+    juce::Viewport midiInputsViewport;
     juce::Component midiInputsContent;
-    struct MidiInputRow { 
-        juce::String identifier; 
-        juce::String deviceName;
-        std::unique_ptr<juce::Label> deviceNameLabel; 
-        std::unique_ptr<juce::TextButton> channelButton;
-        int channelMask = 0;
-    }; 
-    std::vector<std::unique_ptr<MidiInputRow>> midiInputRows;
     
-    // MIDI Outputs
-    juce::Viewport midiOutputsViewport;
-    juce::Component midiOutputsContent;
-    struct MidiOutputRow {
+    struct MidiInputRow
+    {
         juce::String identifier;
         juce::String deviceName;
+        int channelMask = 0xFFFF;
         std::unique_ptr<juce::Label> deviceNameLabel;
         std::unique_ptr<juce::TextButton> channelButton;
+    };
+    std::vector<std::unique_ptr<MidiInputRow>> midiInputRows;
+    
+    // ==========================================================================
+    // MIDI Outputs Group
+    // ==========================================================================
+    juce::GroupComponent midiOutputsGroup { "midiOut", "MIDI Outputs" };
+    juce::Viewport midiOutputsViewport;
+    juce::Component midiOutputsContent;
+    
+    struct MidiOutputRow
+    {
+        juce::String identifier;
+        juce::String deviceName;
         int channelMask = 0;
+        std::unique_ptr<juce::Label> deviceNameLabel;
+        std::unique_ptr<juce::TextButton> channelButton;
     };
     std::vector<std::unique_ptr<MidiOutputRow>> midiOutputRows;
     
-    // =========================================================================
-    // Tempo Section (moved from StudioTab)
-    // =========================================================================
-    juce::GroupComponent tempoGroup { "tempoGroup", "Master Tempo" };
-    
+    // ==========================================================================
+    // Tempo Section
+    // ==========================================================================
+    juce::GroupComponent tempoGroup { "tempo", "Tempo" };
+    juce::Label tempoLabel { "tempoLbl", "BPM" };
     juce::Slider tempoSlider;
-    juce::Label tempoLabel { "tempo", "BPM" };
-    juce::Label tempoValueLabel { "tempoValue", "120.0" };
-    
+    juce::Label tempoValueLabel { "tempoVal", "120.0" };
     juce::TextButton tapTempoBtn { "TAP" };
+    
+    double currentTempo = 120.0;
     std::vector<double> tapTimes;
     double lastTapTime = 0.0;
     
-    double currentTempo = 120.0;
-    
-    // =========================================================================
-    // Time Signature Section (moved from StudioTab)
-    // =========================================================================
-    juce::GroupComponent timeSignatureGroup { "timeSignatureGroup", "Time Signature" };
-    
-    juce::Label timeSigValueLabel { "timeSigValue", "4/4" };
+    // ==========================================================================
+    // Time Signature Section
+    // ==========================================================================
+    juce::GroupComponent timeSignatureGroup { "timeSig", "Time Sig" };
+    juce::Label timeSigValueLabel { "timeSigVal", "4/4" };
     juce::ComboBox numeratorCombo;
     juce::Label slashLabel { "slash", "/" };
     juce::ComboBox denominatorCombo;
@@ -237,53 +226,47 @@ private:
     int timeSigNumerator = 4;
     int timeSigDenominator = 4;
     
-    // =========================================================================
-    // Metronome Section (moved from StudioTab)
-    // =========================================================================
-    juce::GroupComponent metronomeGroup { "metronomeGroup", "Metronome" };
-    juce::ToggleButton metronomeBtn { "Enable" };
+    // ==========================================================================
+    // Metronome Section
+    // ==========================================================================
+    juce::GroupComponent metronomeGroup { "metronome", "Metronome" };
+    juce::Label metronomeVolumeLabel { "metVol", "Vol" };
     juce::Slider metronomeVolumeSlider;
-    juce::Label metronomeVolumeLabel { "metVol", "Volume" };
+    juce::ToggleButton metronomeBtn { "Enable" };
     
-    // Custom gold look and feel for sliders
-    GoldSliderLookAndFeel goldSliderLookAndFeel;
+    // ==========================================================================
+    // File Chooser
+    // ==========================================================================
+    std::unique_ptr<juce::FileChooser> fileChooser;
     
-    // Green slider look and feel for metronome
-    GreenSliderLookAndFeel greenSliderLookAndFeel;
+    // ==========================================================================
+    // Methods
+    // ==========================================================================
+    void enforceDriverType();
+    void updateDeviceList();
+    void updateStatusLabel();
     
-    // Helper methods
-    void enforceDriverType(); 
-    void updateDeviceList(); 
     void updateMidiInputsList();
     void updateMidiOutputsList();
-    void updateStatusLabel();
-    void openMidiInputChannelSelector(MidiInputRow* row);
-    void openMidiOutputChannelSelector(MidiOutputRow* row);
     void updateMidiInputRowButton(MidiInputRow* row);
     void updateMidiOutputRowButton(MidiOutputRow* row);
+    void openMidiInputChannelSelector(MidiInputRow* row);
+    void openMidiOutputChannelSelector(MidiOutputRow* row);
     
-    // Tempo helpers
     void updateTempoDisplay();
-    void handleTapTempo();
     void updateTimeSigDisplay();
+    void handleTapTempo();
     
-    // Recording folder helpers
     void selectRecordingFolder();
     void updateRecordingFolderLabel();
-    
-    // Sampler folder helpers
     void selectSamplerFolder();
     void updateSamplerFolderLabel();
     
-    // Container folder helpers
-    void selectContainerFolder();
-    void updateContainerFolderLabel();
-    
-    // Default patch helpers
     void saveAsDefault();
     void clearDefault();
     void updateDefaultPatchLabel();
     
-    // MIDI reconnection
     void reconnectMidiDevices();
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSettingsTab)
 };

@@ -1,10 +1,12 @@
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_01_Formats.cpp
 // Plugin Format Initialization - VST3 + VST2 (manual load) + AU + LADSPA
 
 #include "PluginProcessor.h"
 
 juce::AudioDeviceManager* SubterraneumAudioProcessor::standaloneDeviceManager = nullptr;
+
+// FIX 3: Container counter initialization
+std::atomic<int> SubterraneumAudioProcessor::containerCounter{0};
 
 // =============================================================================
 // Plugin Format Initialization
@@ -17,7 +19,7 @@ void SubterraneumAudioProcessor::initializePluginFormats()
     #if JUCE_PLUGINHOST_VST3
     formatManager.addFormat(new juce::VST3PluginFormat());
     #endif
-    
+
     // =========================================================================
     // VST2 Format - Manual loading only (no background scanning)
     // Users load VST2 plugins via the "VST2 Plugin..." menu or L button
@@ -25,14 +27,14 @@ void SubterraneumAudioProcessor::initializePluginFormats()
     #if JUCE_PLUGINHOST_VST
     formatManager.addFormat(new juce::VSTPluginFormat());
     #endif
-    
+
     // =========================================================================
     // Audio Units (macOS only)
     // =========================================================================
     #if JUCE_PLUGINHOST_AU && JUCE_MAC
     formatManager.addFormat(new juce::AudioUnitPluginFormat());
     #endif
-    
+
     // =========================================================================
     // LADSPA (Linux only)
     // =========================================================================
@@ -81,5 +83,3 @@ juce::Colour SubterraneumAudioProcessor::getFormatColor(const juce::String& full
         return juce::Colour(0xFF9B59B6);  // Purple
     return juce::Colours::grey;
 }
-
-

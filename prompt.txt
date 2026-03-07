@@ -1,12 +1,10 @@
-continuing the colosseum - mini host\daw project. 
+continuing the Onstage - mini KARAOKE daw project. 
 
-root folder is located at D:\Workspace\Subterraneum_plugins_daw
+root folder is located at D:\Workspace\onstage_colosseum_upgrade
 
 juce 8 is located at D:\Workspace\JUCE
 
-asio sdk is located at D:\Workspace\ASIOSDK
-
-icon.ico located at D:\Workspace\Subterraneum_plugins_daw
+icon.ico located at D:\Workspace\onstage_colosseum_upgrade
 
 ASIO sample rate and buffer is externally controlled by the user's audio interface
 

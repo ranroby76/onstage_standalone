@@ -9,8 +9,6 @@
 
 #include "AudioSettingsTab.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
 
 class SubterraneumAudioProcessorEditor;
 
@@ -35,11 +33,6 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     controlPanelBtn.setVisible(false);
     #endif
     
-    addAndMakeVisible(reconnectMidiBtn);
-    reconnectMidiBtn.addListener(this);
-    reconnectMidiBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(80, 60, 20));
-    reconnectMidiBtn.setColour(juce::TextButton::textColourOffId, juce::Colour(255, 200, 80));
-    
     addAndMakeVisible(statusLabel);
     statusLabel.setFont(juce::Font(12.0f));
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
@@ -54,17 +47,6 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     recordingFolderLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     recordingFolderLabel.setJustificationType(juce::Justification::centredRight);
     updateRecordingFolderLabel();
-    
-    // Sampler folder button and label (next to recording folder)
-    addAndMakeVisible(samplerFolderBtn);
-    samplerFolderBtn.addListener(this);
-    samplerFolderBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(60, 80, 60));
-    
-    addAndMakeVisible(samplerFolderLabel);
-    samplerFolderLabel.setFont(juce::Font(11.0f));
-    samplerFolderLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    samplerFolderLabel.setJustificationType(juce::Justification::centredRight);
-    updateSamplerFolderLabel();
     
     // Default patch buttons
     addAndMakeVisible(saveDefaultBtn);
@@ -84,26 +66,6 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
     defaultPatchLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     defaultPatchLabel.setJustificationType(juce::Justification::centredRight);
     updateDefaultPatchLabel();
-    
-    // =========================================================================
-    // MIDI Inputs Group (Red Frame)
-    // =========================================================================
-    addAndMakeVisible(midiInputsGroup); 
-    midiInputsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colours::red); 
-    midiInputsGroup.setColour(juce::GroupComponent::textColourId, juce::Colours::red); 
-    
-    addAndMakeVisible(midiInputsViewport); 
-    midiInputsViewport.setViewedComponent(&midiInputsContent, false);
-    
-    // =========================================================================
-    // MIDI Outputs Group (Yellow/Gold Frame)
-    // =========================================================================
-    addAndMakeVisible(midiOutputsGroup);
-    midiOutputsGroup.setColour(juce::GroupComponent::outlineColourId, juce::Colour(0xffFFD700));
-    midiOutputsGroup.setColour(juce::GroupComponent::textColourId, juce::Colour(0xffFFD700));
-    
-    addAndMakeVisible(midiOutputsViewport);
-    midiOutputsViewport.setViewedComponent(&midiOutputsContent, false);
     
     // =========================================================================
     // Tempo Section Setup (moved from StudioTab)
@@ -233,8 +195,7 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
             deviceManager->setAudioDeviceSetup(setup, false);
         }
         
-        updateMidiInputsList();
-        updateMidiOutputsList();
+        // OnStage: No MIDI routing (effects-only mode)
         updateDeviceList();
         updateStatusLabel();
         
@@ -252,18 +213,8 @@ AudioSettingsTab::AudioSettingsTab(SubterraneumAudioProcessor& p) : processor(p)
             }
         }
         
-        // Load saved sampler folder
-        juce::String savedSamplerFolder = userSettings->getValue("DefaultSamplerFolder", "");
-        if (savedSamplerFolder.isNotEmpty()) {
-            juce::File sampFolder(savedSamplerFolder);
-            if (sampFolder.exists()) {
-                ManualSamplerProcessor::setGlobalDefaultFolder(sampFolder);
-                AutoSamplerProcessor::setGlobalDefaultFolder(sampFolder);
-            }
-        }
     }
     updateRecordingFolderLabel();
-    updateSamplerFolderLabel();
 }
 
 AudioSettingsTab::~AudioSettingsTab() { 
@@ -304,13 +255,7 @@ void AudioSettingsTab::resized() {
     controlPanelBtn.setBounds(row1.removeFromLeft(100));
     #endif
     
-    row1.removeFromLeft(10);
-    reconnectMidiBtn.setBounds(row1.removeFromLeft(170));
-    
-    // Right side: Recording folder button + Sampler folder button
-    auto samplerBtn = row1.removeFromRight(155);
-    samplerFolderBtn.setBounds(samplerBtn);
-    row1.removeFromRight(5);
+    // Right side: Recording folder button only (OnStage: no MIDI reconnect or sampler)
     auto folderBtn = row1.removeFromRight(155);
     recordingFolderBtn.setBounds(folderBtn);
     
@@ -326,22 +271,15 @@ void AudioSettingsTab::resized() {
     // Status label on the left
     statusLabel.setBounds(row2);
     
-    driverArea.removeFromTop(2);
+    driverArea.removeFromTop(4);
     
-    // Third row: Sampler folder path label (right-aligned)
-    auto row3 = driverArea.removeFromTop(20);
-    auto samplerLabelArea = row3.removeFromRight(350);
-    samplerFolderLabel.setBounds(samplerLabelArea);
-    
-    driverArea.removeFromTop(2);
-    
-    // Fourth row: Default patch buttons (left) + label (right)
-    auto row4 = driverArea.removeFromTop(24);
-    saveDefaultBtn.setBounds(row4.removeFromLeft(130));
-    row4.removeFromLeft(5);
-    clearDefaultBtn.setBounds(row4.removeFromLeft(100));
-    row4.removeFromLeft(10);
-    defaultPatchLabel.setBounds(row4);
+    // Third row: Default patch buttons (left) + label (right)
+    auto row3 = driverArea.removeFromTop(24);
+    saveDefaultBtn.setBounds(row3.removeFromLeft(130));
+    row3.removeFromLeft(5);
+    clearDefaultBtn.setBounds(row3.removeFromLeft(100));
+    row3.removeFromLeft(10);
+    defaultPatchLabel.setBounds(row3);
     
     area.removeFromTop(10);
     
@@ -420,36 +358,12 @@ void AudioSettingsTab::resized() {
     // Slider takes remaining space
     metronomeVolumeSlider.setBounds(metronomeControlRow);
     
-    area.removeFromTop(10);
-    
-    // =========================================================================
-    // MIDI area - Split into two sections (left: inputs, right: outputs)
-    // =========================================================================
-    auto midiArea = area;
-    int midiSectionWidth = midiArea.getWidth() / 2 - 10;
-    
-    // MIDI Inputs (Left - Red Frame)
-    auto inputsArea = midiArea.removeFromLeft(midiSectionWidth);
-    midiInputsGroup.setBounds(inputsArea);
-    midiInputsViewport.setBounds(inputsArea.reduced(10, 25));
-    if (midiInputsContent.getHeight() > 0)
-        midiInputsContent.setSize(midiInputsViewport.getWidth() - 15, midiInputsContent.getHeight());
-    
-    midiArea.removeFromLeft(20);
-    
-    // MIDI Outputs (Right - Yellow/Gold Frame)
-    auto outputsArea = midiArea;
-    midiOutputsGroup.setBounds(outputsArea);
-    midiOutputsViewport.setBounds(outputsArea.reduced(10, 25));
-    if (midiOutputsContent.getHeight() > 0)
-        midiOutputsContent.setSize(midiOutputsViewport.getWidth() - 15, midiOutputsContent.getHeight()); 
+    // OnStage: No MIDI routing UI (effects-only mode)
 }
 
 void AudioSettingsTab::changeListenerCallback(juce::ChangeBroadcaster* source) { 
     if (source == deviceManager) { 
         updateDeviceList();
-        updateMidiInputsList();
-        updateMidiOutputsList();
         updateStatusLabel();
     } 
 }
@@ -508,39 +422,11 @@ void AudioSettingsTab::updateRecordingFolderLabel() {
 }
 
 void AudioSettingsTab::selectSamplerFolder() {
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Select Default Sampler Folder",
-        ManualSamplerProcessor::getEffectiveDefaultFolder(),
-        "");
-    
-    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-        [this, chooser](const juce::FileChooser& fc) {
-            auto result = fc.getResult();
-            if (result.exists() && result.isDirectory()) {
-                ManualSamplerProcessor::setGlobalDefaultFolder(result);
-                AutoSamplerProcessor::setGlobalDefaultFolder(result);
-                
-                // Save to settings
-                auto* userSettings = processor.appProperties.getUserSettings();
-                if (userSettings) {
-                    userSettings->setValue("DefaultSamplerFolder", result.getFullPathName());
-                    userSettings->saveIfNeeded();
-                }
-                
-                updateSamplerFolderLabel();
-            }
-        });
+    // Sampler tools removed from OnStage
 }
 
 void AudioSettingsTab::updateSamplerFolderLabel() {
-    auto folder = ManualSamplerProcessor::getEffectiveDefaultFolder();
-    juce::String path = folder.getFullPathName();
-    
-    if (path.length() > 45) {
-        path = "..." + path.substring(path.length() - 42);
-    }
-    
-    samplerFolderLabel.setText("Samp: " + path, juce::dontSendNotification);
+    // OnStage: Sampler tools removed (effects-only mode)
 }
 
 void AudioSettingsTab::saveAsDefault() {
@@ -737,113 +623,11 @@ void AudioSettingsTab::updateStatusLabel() {
 }
 
 void AudioSettingsTab::updateMidiInputsList() { 
-    midiInputRows.clear(); 
-    
-    for (auto* child : midiInputsContent.getChildren())
-        midiInputsContent.removeChildComponent(child);
-    
-    if (!deviceManager) return;
-    
-    auto midiInputs = juce::MidiInput::getAvailableDevices();
-    int y = 5;
-    int rowH = 28;
-    
-    for (const auto& device : midiInputs) {
-        auto row = std::make_unique<MidiInputRow>();
-        row->identifier = device.identifier;
-        row->deviceName = device.name;
-        
-        // Load saved channel mask
-        auto* userSettings = processor.appProperties.getUserSettings();
-        if (userSettings) {
-            juce::String maskKey = "MidiMask_" + device.identifier.replaceCharacters(" :/\\", "____");
-            row->channelMask = userSettings->getIntValue(maskKey, 0xFFFF);
-        } else {
-            row->channelMask = 0xFFFF;
-        }
-        
-        // Enable device if mask is non-zero
-        bool shouldEnable = (row->channelMask != 0);
-        if (deviceManager->isMidiInputDeviceEnabled(device.identifier) != shouldEnable) {
-            deviceManager->setMidiInputDeviceEnabled(device.identifier, shouldEnable);
-        }
-        
-        row->deviceNameLabel = std::make_unique<juce::Label>();
-        row->deviceNameLabel->setText(device.name, juce::dontSendNotification);
-        row->deviceNameLabel->setColour(juce::Label::textColourId, juce::Colours::white);
-        midiInputsContent.addAndMakeVisible(row->deviceNameLabel.get());
-        
-        row->channelButton = std::make_unique<juce::TextButton>();
-        auto* rowPtr = row.get();
-        row->channelButton->onClick = [this, rowPtr]() {
-            openMidiInputChannelSelector(rowPtr);
-        };
-        midiInputsContent.addAndMakeVisible(row->channelButton.get());
-        
-        updateMidiInputRowButton(row.get());
-        
-        row->deviceNameLabel->setBounds(5, y, 220, rowH);
-        row->channelButton->setBounds(230, y + 2, 80, rowH - 4);
-        
-        midiInputRows.push_back(std::move(row));
-        y += rowH;
-    }
-    midiInputsContent.setSize(320, std::max(y, 30));
-    
-    if (auto* p = getParentComponent()) p->resized();
-    else resized();
+    // OnStage: MIDI routing removed (effects-only mode)
 }
 
 void AudioSettingsTab::updateMidiOutputsList() {
-    midiOutputRows.clear();
-    
-    for (auto* child : midiOutputsContent.getChildren())
-        midiOutputsContent.removeChildComponent(child);
-    
-    if (!deviceManager) return;
-    
-    auto midiOutputs = juce::MidiOutput::getAvailableDevices();
-    int y = 5;
-    int rowH = 28;
-    
-    for (const auto& device : midiOutputs) {
-        auto row = std::make_unique<MidiOutputRow>();
-        row->identifier = device.identifier;
-        row->deviceName = device.name;
-        
-        // Load saved channel mask
-        auto* userSettings = processor.appProperties.getUserSettings();
-        if (userSettings) {
-            juce::String maskKey = "MidiOutMask_" + device.identifier.replaceCharacters(" :/\\", "____");
-            row->channelMask = userSettings->getIntValue(maskKey, 0);
-        } else {
-            row->channelMask = 0;
-        }
-        
-        row->deviceNameLabel = std::make_unique<juce::Label>();
-        row->deviceNameLabel->setText(device.name, juce::dontSendNotification);
-        row->deviceNameLabel->setColour(juce::Label::textColourId, juce::Colours::white);
-        midiOutputsContent.addAndMakeVisible(row->deviceNameLabel.get());
-        
-        row->channelButton = std::make_unique<juce::TextButton>();
-        auto* rowPtr = row.get();
-        row->channelButton->onClick = [this, rowPtr]() {
-            openMidiOutputChannelSelector(rowPtr);
-        };
-        midiOutputsContent.addAndMakeVisible(row->channelButton.get());
-        
-        updateMidiOutputRowButton(row.get());
-        
-        row->deviceNameLabel->setBounds(5, y, 220, rowH);
-        row->channelButton->setBounds(230, y + 2, 80, rowH - 4);
-        
-        midiOutputRows.push_back(std::move(row));
-        y += rowH;
-    }
-    midiOutputsContent.setSize(320, std::max(y, 30));
-    
-    if (auto* p = getParentComponent()) p->resized();
-    else resized();
+    // OnStage: MIDI routing removed (effects-only mode)
 }
 
 void AudioSettingsTab::updateMidiInputRowButton(MidiInputRow* row) {
@@ -1056,12 +840,6 @@ void AudioSettingsTab::buttonClicked(juce::Button* b) {
     else if (b == &recordingFolderBtn) {
         selectRecordingFolder();
     }
-    else if (b == &samplerFolderBtn) {
-        selectSamplerFolder();
-    }
-    else if (b == &reconnectMidiBtn) {
-        reconnectMidiDevices();
-    }
     else if (b == &saveDefaultBtn) {
         saveAsDefault();
     }
@@ -1075,57 +853,5 @@ void AudioSettingsTab::buttonClicked(juce::Button* b) {
 
 void AudioSettingsTab::reconnectMidiDevices()
 {
-    if (!deviceManager) return;
-    
-    // 1. Remember which MIDI inputs were enabled
-    std::vector<juce::String> enabledInputIds;
-    for (const auto& device : juce::MidiInput::getAvailableDevices()) {
-        if (deviceManager->isMidiInputDeviceEnabled(device.identifier))
-            enabledInputIds.push_back(device.identifier);
-    }
-    
-    // 2. Remember which MIDI outputs were active (from our stored rows)
-    std::vector<juce::String> enabledOutputIds;
-    for (const auto& row : midiOutputRows) {
-        if (row->channelMask != 0)
-            enabledOutputIds.push_back(row->identifier);
-    }
-    
-    // 3. Disable all MIDI inputs
-    for (const auto& device : juce::MidiInput::getAvailableDevices())
-        deviceManager->setMidiInputDeviceEnabled(device.identifier, false);
-    
-    // 4. Brief pause to let OS release handles
-    juce::Thread::sleep(100);
-    
-    // 5. Re-scan: getAvailableDevices() forces fresh enumeration
-    auto freshInputs = juce::MidiInput::getAvailableDevices();
-    auto freshOutputs = juce::MidiOutput::getAvailableDevices();
-    
-    // 6. Re-enable previously enabled inputs
-    for (const auto& device : freshInputs) {
-        for (const auto& id : enabledInputIds) {
-            if (device.identifier == id) {
-                deviceManager->setMidiInputDeviceEnabled(device.identifier, true);
-                break;
-            }
-        }
-    }
-    
-    // 7. Rebuild the UI lists (this also re-enables based on saved channel masks)
-    updateMidiInputsList();
-    updateMidiOutputsList();
-    updateStatusLabel();
-    
-    // 8. Flash the button text briefly to confirm
-    reconnectMidiBtn.setButtonText("Reconnected!");
-    reconnectMidiBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(20, 100, 20));
-    
-    auto safeThis = juce::Component::SafePointer<AudioSettingsTab>(this);
-    juce::Timer::callAfterDelay(1500, [safeThis]() {
-        if (safeThis) {
-            safeThis->reconnectMidiBtn.setButtonText("Reconnect MIDI Devices");
-            safeThis->reconnectMidiBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(80, 60, 20));
-        }
-    });
+    // OnStage: MIDI routing removed (effects-only mode)
 }

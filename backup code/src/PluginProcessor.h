@@ -1,6 +1,3 @@
-
-
-// #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor.h
 // CRITICAL FIX: NEVER call getPluginDescription() after construction!
 // Some plugins (like SOLO by Taqs.im) freeze when getPluginDescription() is called.
 // Solution: Query ONCE at construction using static helper, cache forever.
@@ -11,6 +8,7 @@
 
 #include <JuceHeader.h>
 #include "RegistrationManager.h"
+#include "MediaPlayerAccess.h"
 
 class SubterraneumAudioProcessorEditor;
 
@@ -555,12 +553,19 @@ public:
     static juce::Colour getFormatColor(const juce::String& formatName);
 
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
-    juce::AudioProcessorGraph::Node::Ptr audioInputNode, audioOutputNode, midiInputNode, midiOutputNode;
+    juce::AudioProcessorGraph::Node::Ptr audioInputNode, audioOutputNode;
+    juce::AudioProcessorGraph::Node::Ptr playbackNode;  // Fixed node — media player audio source
     juce::KnownPluginList knownPluginList;
     juce::AudioPluginFormatManager formatManager;
     juce::ApplicationProperties appProperties;
     juce::ApplicationProperties pluginProperties;  // Separate file for plugin scan data
     juce::PropertiesFile::Options options;
+
+    // =========================================================================
+    // Media Player — VLC-based playback for karaoke/live performance
+    // =========================================================================
+    MediaPlayerType mediaPlayer;
+    MediaPlayerType& getMediaPlayer() { return mediaPlayer; }
 
     void saveAudioSettings();
     void loadAudioSettings();
@@ -628,6 +633,9 @@ public:
     
     static juce::AudioDeviceManager* standaloneDeviceManager;
     
+    // FIX 3: Container counter for auto-numbering ("Container 1", "Container 2", etc.)
+    static std::atomic<int> containerCounter;
+    
     juce::MidiKeyboardState keyboardState;
     
     void updateHardwareMidiChannelMasks();
@@ -653,7 +661,7 @@ private:
     // =========================================================================
     // CRITICAL FIX: Per-instance tracking (NOT static!)
     // =========================================================================
-    int lastHardwareMidiMask = 0x0001;
+    std::atomic<int> lastHardwareMidiMask { 0x0001 };  // Written from UI thread (reset) + audio thread (update)
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubterraneumAudioProcessor)
 };

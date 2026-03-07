@@ -15,7 +15,7 @@
 
 void RegistrationManager::checkRegistration() {
     juce::File licenseFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                             .getChildFile("Colosseum").getChildFile("colosseum_license.key");
+                             .getChildFile("Fanan").getChildFile("OnStage").getChildFile("onstage_license.key");
     
     if (licenseFile.existsAsFile()) {
         juce::String savedSerial = licenseFile.loadFileAsString().trim();
@@ -43,11 +43,11 @@ bool RegistrationManager::tryRegister(const juce::String& serialInput) {
         if (inputNum == expected) {
             // Save license file
             juce::File appData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                                 .getChildFile("Colosseum");
+                                 .getChildFile("Fanan").getChildFile("OnStage");
             if (!appData.exists()) 
                 appData.createDirectory();
             
-            juce::File licenseFile = appData.getChildFile("colosseum_license.key");
+            juce::File licenseFile = appData.getChildFile("onstage_license.key");
             licenseFile.replaceWithText(cleanInput);
             
             registered = true;
@@ -102,14 +102,12 @@ int RegistrationManager::getMachineIDNumber() {
 long long RegistrationManager::calculateExpectedSerial() {
     long long id = getMachineIDNumber();
     
-    constexpr long long k = 0xA5B7;
-    constexpr long long c[] = { 47752LL, 42421LL, 41440LL, 42421LL, 33031LL };
-    
-    long long result = id + (c[0] ^ k);
-    result = result * (c[1] ^ k);
-    result = result + (c[2] ^ k);
-    result = result * (c[3] ^ k);
-    result = result - (c[4] ^ k);
+    // OnStage serial formula: (((((ID+8401)*2)+1289)*2)-9090)
+    long long result = id + 8401LL;
+    result = result * 2;
+    result = result + 1289LL;
+    result = result * 2;
+    result = result - 9090LL;
     return result;
 }
 

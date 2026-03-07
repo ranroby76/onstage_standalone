@@ -147,22 +147,3 @@ private:
     }
 };
 
-
-
---------------------------------------------------------------------------------
-File: src/RegistrationManager.cpp
-Size: 5.35 KB
---------------------------------------------------------------------------------
-
-#include "RegistrationManager.h"
-
-#if JUCE_WINDOWS
-#include <windows.h>
-#endif
-
-#if JUCE_LINUX
-#include <fstream>
-#include <string>
-#endif
-
-void RegistrationManager::checkRegistration() {

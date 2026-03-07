@@ -34,16 +34,11 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
     sortCombo.setSelectedId(processor.sortPluginsByVendor ? 2 : 1, juce::dontSendNotification);
     sortCombo.addListener(this);
 
-    instBtn.setRadioGroupId(101);
-    effectBtn.setRadioGroupId(101);
-    allBtn.setRadioGroupId(101);
-    allBtn.setToggleState(true, juce::dontSendNotification);
-    instBtn.addListener(this);
+    // OnStage: Effects-only mode — no instrument/all toggles needed
+    // effectBtn is always active (effects-only filter)
+    effectBtn.setToggleState(true, juce::dontSendNotification);
     effectBtn.addListener(this);
-    allBtn.addListener(this);
-    addAndMakeVisible(instBtn);
     addAndMakeVisible(effectBtn);
-    addAndMakeVisible(allBtn);
     
     expandAllBtn.setTooltip("Expand All");
     expandAllBtn.addListener(this);
@@ -104,10 +99,8 @@ PluginManagerTab::PluginManagerTab(SubterraneumAudioProcessor& p)
         "- Use 'Add Defaults' for standard locations\n\n"
         "FILTERS\n"
         "---------------------------------------------\n"
-        "- INSTRUMENTS: Show only VSTi plugins\n"
-        "- EFFECTS: Show only effect plugins\n"
-        "- ALL: Show everything\n"
-        "- Sort By: Organize by Type or Vendor\n\n"
+        "OnStage shows only effect plugins.\n"
+        "Sort By: Organize by Type or Vendor\n\n"
         "VISIBILITY (Eye Icon)\n"
         "---------------------------------------------\n"
         "Click the eye icon next to any plugin to\n"
@@ -192,9 +185,8 @@ void PluginManagerTab::resized() {
     sortLabel.setBounds(topRow.removeFromLeft(60));
     sortCombo.setBounds(topRow.removeFromLeft(100));
     topRow.removeFromLeft(20);
-    instBtn.setBounds(topRow.removeFromLeft(110));
+    // OnStage: Effects-only mode — show "Effects" label only
     effectBtn.setBounds(topRow.removeFromLeft(80));
-    allBtn.setBounds(topRow.removeFromLeft(50));
     topRow.removeFromLeft(20);
     expandAllBtn.setBounds(topRow.removeFromLeft(30));
     collapseAllBtn.setBounds(topRow.removeFromLeft(30));
@@ -246,7 +238,8 @@ void PluginManagerTab::comboBoxChanged(juce::ComboBox* cb) {
 }
 
 void PluginManagerTab::buttonClicked(juce::Button* b) {
-    if (b == &instBtn || b == &effectBtn || b == &allBtn) {
+    if (b == &effectBtn) {
+        // OnStage: Effects-only mode — this is just a label, but rebuild if clicked
         buildTree();
     } else if (b == &expandAllBtn) {
         expandAllItems();
@@ -438,10 +431,54 @@ void PluginManagerTab::buildTree() {
     
     auto types = processor.knownPluginList.getTypes();
     
+    // Helper lambda to aggressively detect instruments even when isInstrument is false
+    auto looksLikeInstrument = [](const juce::PluginDescription& p) -> bool {
+        juce::String catLower = p.category.toLowerCase();
+        juce::String nameLower = p.name.toLowerCase();
+        return catLower.contains("instrument") ||
+               catLower.contains("synth") ||
+               catLower.contains("sampler") ||
+               catLower.contains("drum") ||
+               catLower.contains("piano") ||
+               catLower.contains("organ") ||
+               catLower.contains("bass") ||
+               catLower.contains("string") ||
+               catLower.contains("brass") ||
+               catLower.contains("wood") ||
+               catLower.contains("choir") ||
+               catLower.contains("vocal") ||
+               catLower.contains("generator") ||
+               catLower == "vsti" ||
+               nameLower.contains("addictive") ||
+               nameLower.contains("kontakt") ||
+               nameLower.contains("omnisphere") ||
+               nameLower.contains("serum") ||
+               nameLower.contains("massive") ||
+               nameLower.contains("sylenth") ||
+               nameLower.contains("nexus") ||
+               nameLower.contains("spitfire") ||
+               nameLower.contains("native instruments") ||
+               nameLower.contains("aas ") ||
+               nameLower.contains("chromaphone") ||
+               nameLower.contains("lounge lizard") ||
+               nameLower.contains("strum") ||
+               nameLower.contains("ultra analog") ||
+               nameLower.contains("tassman") ||
+               nameLower.contains("session ") ||
+               nameLower.contains("drummic") ||
+               nameLower.contains("ezdrummer") ||
+               nameLower.contains("superior drummer") ||
+               nameLower.contains("bfd") ||
+               nameLower.contains("steven slate") ||
+               nameLower.contains("get good drums");
+    };
+    
     juce::Array<juce::PluginDescription> filtered;
     for (const auto& p : types) {
-        if (instBtn.getToggleState() && !p.isInstrument) continue;
-        if (effectBtn.getToggleState() && p.isInstrument) continue;
+        // OnStage: Always filter out instruments — effects only
+        if (p.isInstrument) continue;
+        // Aggressive filter for plugins that look like instruments
+        if (looksLikeInstrument(p)) continue;
         filtered.add(p);
     }
     
@@ -475,23 +512,16 @@ void PluginManagerTab::buildTree() {
             root->addSubItem(vendorItem);
         }
     } else {
-        auto* instrFolder = new PluginTreeItem("Instruments", false);
+        // OnStage: Effects-only — no instruments folder
         auto* effectFolder = new PluginTreeItem("Effects", false);
-        instrFolder->parentTab = this;
         effectFolder->parentTab = this;
         
         for (const auto& p : filtered) {
             auto* item = new PluginTreeItem(p.name, p, false);
             item->parentTab = this;
             item->hiddenFromMenus = isPluginHidden(p);
-            if (p.isInstrument)
-                instrFolder->addSubItem(item);
-            else
-                effectFolder->addSubItem(item);
+            effectFolder->addSubItem(item);
         }
-        
-        if (instrFolder->getNumSubItems() > 0) root->addSubItem(instrFolder);
-        else delete instrFolder;
         
         if (effectFolder->getNumSubItems() > 0) root->addSubItem(effectFolder);
         else delete effectFolder;

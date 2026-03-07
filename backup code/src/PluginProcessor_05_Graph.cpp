@@ -1,11 +1,9 @@
-
-
-// D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_05_Graph.cpp
+// #D:\Workspace\onstage_colosseum_upgrade\src\PluginProcessor_05_Graph.cpp
 // Graph Management and Node Management
-// CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
-// BUG FIX: Proper frozen state management for multi-mode switching
+// OnStage: No MIDI I/O nodes, added fixed Playback node
 
 #include "PluginProcessor.h"
+#include "PlaybackNode.h"
 
 // =============================================================================
 // Graph Management
@@ -19,8 +17,7 @@ void SubterraneumAudioProcessor::updateGraph() {
     
     audioInputNode = nullptr;
     audioOutputNode = nullptr;
-    midiInputNode = nullptr;
-    midiOutputNode = nullptr;
+    playbackNode = nullptr;
     
     mainGraph->clear();
     
@@ -43,13 +40,13 @@ void SubterraneumAudioProcessor::updateGraph() {
 
     audioInputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
     audioOutputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
-    midiInputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
-    midiOutputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::midiOutputNode));
     
-    if (audioInputNode) { audioInputNode->properties.set("x", 20); audioInputNode->properties.set("y", 80); }
-    if (midiInputNode) { midiInputNode->properties.set("x", 600); midiInputNode->properties.set("y", 80); }
+    // OnStage: Fixed Playback node — media player audio source (non-deletable)
+    playbackNode = mainGraph->addNode(std::make_unique<PlaybackNode>(mediaPlayer));
+    
+    if (audioInputNode)  { audioInputNode->properties.set("x", 20);  audioInputNode->properties.set("y", 80); }
     if (audioOutputNode) { audioOutputNode->properties.set("x", 20); audioOutputNode->properties.set("y", 450); }
-    if (midiOutputNode) { midiOutputNode->properties.set("x", 600); midiOutputNode->properties.set("y", 450); }
+    if (playbackNode)    { playbackNode->properties.set("x", 600);   playbackNode->properties.set("y", 80); }
     
     suspendProcessing(false);
 }
@@ -67,16 +64,15 @@ void SubterraneumAudioProcessor::resetGraph() {
 void SubterraneumAudioProcessor::removeNode(juce::AudioProcessorGraph::NodeID nodeID) {
     if (!mainGraph) return;
     
-    // PROTECTION: Prevent deletion of I/O nodes
+    // PROTECTION: Prevent deletion of I/O nodes and Playback node
     auto* node = mainGraph->getNodeForId(nodeID);
     if (!node) return;
     
     if (node == audioInputNode.get() || 
         node == audioOutputNode.get() || 
-        node == midiInputNode.get() || 
-        node == midiOutputNode.get())
+        node == playbackNode.get())
     {
-        return; // Silently ignore deletion attempts on I/O nodes
+        return; // Silently ignore deletion attempts on fixed nodes
     }
     
     // =========================================================================
@@ -155,6 +151,9 @@ void SubterraneumAudioProcessor::resetBlacklist() {
         pluginSettings->saveIfNeeded();
     }
 }
+
+
+
 
 
 

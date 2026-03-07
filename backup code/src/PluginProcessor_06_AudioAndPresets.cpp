@@ -5,15 +5,8 @@
 #include "RegistrationManager.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
-#include "MidiMultiFilterProcessor.h"
 #include "ContainerProcessor.h"
 
 // =============================================================================
@@ -230,7 +223,7 @@ bool SubterraneumAudioProcessor::startRecording() {
     if (sampleRate <= 0) sampleRate = 44100.0;
     
     lastRecordingFile = juce::File::getSpecialLocation(juce::File::userMusicDirectory)
-                            .getNonexistentChildFile("Colosseum_Recording", ".wav");
+                            .getNonexistentChildFile("OnStage_Recording", ".wav");
     
     auto* wavFormat = new juce::WavAudioFormat();
     auto* outputStream = new juce::FileOutputStream(lastRecordingFile);
@@ -270,7 +263,7 @@ bool SubterraneumAudioProcessor::hasEditor() const { return true; }
 // =============================================================================
 // Plugin Info
 // =============================================================================
-const juce::String SubterraneumAudioProcessor::getName() const { return "Colosseum"; }
+const juce::String SubterraneumAudioProcessor::getName() const { return "OnStage"; }
 bool SubterraneumAudioProcessor::acceptsMidi() const { return true; }
 bool SubterraneumAudioProcessor::producesMidi() const { return true; }
 bool SubterraneumAudioProcessor::isMidiEffect() const { return false; }
@@ -285,7 +278,7 @@ void SubterraneumAudioProcessor::changeProgramName(int index, const juce::String
 // State
 // =============================================================================
 void SubterraneumAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
-    juce::XmlElement xml("SubterraneumState");
+    juce::XmlElement xml("OnStageState");
     copyXmlToBinary(xml, destData);
 }
 
@@ -318,8 +311,8 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
         for (auto* node : mainGraph->getNodes()) {
             if (node != audioInputNode.get() &&
                 node != audioOutputNode.get() &&
-                node != midiInputNode.get() &&
-                node != midiOutputNode.get()) {
+                node != playbackNode.get()) {
+
                 toRemove.push_back(node->nodeID);
             }
         }
@@ -343,14 +336,6 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
                     nodeIdMap[oldId] = audioOutputNode->nodeID;
                     audioOutputNode->properties.set("x", x);
                     audioOutputNode->properties.set("y", y);
-                } else if (type == "MidiInput" && midiInputNode) {
-                    nodeIdMap[oldId] = midiInputNode->nodeID;
-                    midiInputNode->properties.set("x", x);
-                    midiInputNode->properties.set("y", y);
-                } else if (type == "MidiOutput" && midiOutputNode) {
-                    nodeIdMap[oldId] = midiOutputNode->nodeID;
-                    midiOutputNode->properties.set("x", x);
-                    midiOutputNode->properties.set("y", y);
                 }
             }
         }
@@ -371,15 +356,8 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
                     
                     if (toolName == "SimpleConnector")       toolProc = std::make_unique<SimpleConnectorProcessor>();
                     else if (toolName == "StereoMeter")      toolProc = std::make_unique<StereoMeterProcessor>();
-                    else if (toolName == "MidiMonitor")       toolProc = std::make_unique<MidiMonitorProcessor>();
                     else if (toolName == "Recorder")          toolProc = std::make_unique<RecorderProcessor>();
-                    else if (toolName == "ManualSampler")     toolProc = std::make_unique<ManualSamplerProcessor>();
-                    else if (toolName == "AutoSampler")       toolProc = std::make_unique<AutoSamplerProcessor>(mainGraph.get(), this);
-                    else if (toolName == "MidiPlayer")        toolProc = std::make_unique<MidiPlayerProcessor>();
-                    else if (toolName == "CCStepper")         toolProc = std::make_unique<CCStepperProcessor>();
                     else if (toolName == "TransientSplitter") toolProc = std::make_unique<TransientSplitterProcessor>();
-                    else if (toolName == "Latcher")            toolProc = std::make_unique<LatcherProcessor>();
-                    else if (toolName == "MidiMultiFilter")     toolProc = std::make_unique<MidiMultiFilterProcessor>();
                     else if (toolName == "Container") {
                         auto container = std::make_unique<ContainerProcessor>();
                         container->setParentProcessor(this);
@@ -550,7 +528,7 @@ void SubterraneumAudioProcessor::loadUserPreset(const juce::File& file) {
 }
 
 void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
-    juce::XmlElement root("SubterraneumPatch");
+    juce::XmlElement root("OnStagePatch");
     
     root.setAttribute("multiMode", instrumentSelectorMultiMode);
     root.setAttribute("audioInputEnabled", audioInputEnabled.load());
@@ -573,23 +551,14 @@ void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
         if (isIO) {
             if (node == audioInputNode.get()) nodeXml->setAttribute("type", "AudioInput");
             else if (node == audioOutputNode.get()) nodeXml->setAttribute("type", "AudioOutput");
-            else if (node == midiInputNode.get()) nodeXml->setAttribute("type", "MidiInput");
-            else if (node == midiOutputNode.get()) nodeXml->setAttribute("type", "MidiOutput");
             else nodeXml->setAttribute("type", "IO");
         } else {
             // Check if this is a system tool (non-plugin processor)
             juce::String toolName;
             if (dynamic_cast<SimpleConnectorProcessor*>(proc))        toolName = "SimpleConnector";
             else if (dynamic_cast<StereoMeterProcessor*>(proc))       toolName = "StereoMeter";
-            else if (dynamic_cast<MidiMonitorProcessor*>(proc))       toolName = "MidiMonitor";
             else if (dynamic_cast<RecorderProcessor*>(proc))          toolName = "Recorder";
-            else if (dynamic_cast<ManualSamplerProcessor*>(proc))     toolName = "ManualSampler";
-            else if (dynamic_cast<AutoSamplerProcessor*>(proc))       toolName = "AutoSampler";
-            else if (dynamic_cast<MidiPlayerProcessor*>(proc))        toolName = "MidiPlayer";
-            else if (dynamic_cast<CCStepperProcessor*>(proc))         toolName = "CCStepper";
             else if (dynamic_cast<TransientSplitterProcessor*>(proc)) toolName = "TransientSplitter";
-            else if (dynamic_cast<LatcherProcessor*>(proc))           toolName = "Latcher";
-            else if (dynamic_cast<MidiMultiFilterProcessor*>(proc))   toolName = "MidiMultiFilter";
             else if (dynamic_cast<ContainerProcessor*>(proc))         toolName = "Container";
             
             if (toolName.isNotEmpty()) {
@@ -645,7 +614,7 @@ void SubterraneumAudioProcessor::saveUserPreset(const juce::File& file) {
 // =============================================================================
 juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
 {
-    juce::XmlElement root("SubterraneumPatch");
+    juce::XmlElement root("OnStagePatch");
     
     root.setAttribute("multiMode", instrumentSelectorMultiMode);
     root.setAttribute("audioInputEnabled", audioInputEnabled.load());
@@ -668,23 +637,14 @@ juce::String SubterraneumAudioProcessor::serializeGraphToXml() const
         if (isIO) {
             if (node == audioInputNode.get()) nodeXml->setAttribute("type", "AudioInput");
             else if (node == audioOutputNode.get()) nodeXml->setAttribute("type", "AudioOutput");
-            else if (node == midiInputNode.get()) nodeXml->setAttribute("type", "MidiInput");
-            else if (node == midiOutputNode.get()) nodeXml->setAttribute("type", "MidiOutput");
             else nodeXml->setAttribute("type", "IO");
         } else {
             // Check if this is a system tool (non-plugin processor)
             juce::String toolName;
             if (dynamic_cast<SimpleConnectorProcessor*>(proc))   toolName = "SimpleConnector";
             else if (dynamic_cast<StereoMeterProcessor*>(proc))  toolName = "StereoMeter";
-            else if (dynamic_cast<MidiMonitorProcessor*>(proc))  toolName = "MidiMonitor";
             else if (dynamic_cast<RecorderProcessor*>(proc))     toolName = "Recorder";
-            else if (dynamic_cast<ManualSamplerProcessor*>(proc)) toolName = "ManualSampler";
-            else if (dynamic_cast<AutoSamplerProcessor*>(proc))  toolName = "AutoSampler";
-            else if (dynamic_cast<MidiPlayerProcessor*>(proc))   toolName = "MidiPlayer";
-            else if (dynamic_cast<CCStepperProcessor*>(proc))    toolName = "CCStepper";
             else if (dynamic_cast<TransientSplitterProcessor*>(proc)) toolName = "TransientSplitter";
-            else if (dynamic_cast<LatcherProcessor*>(proc))           toolName = "Latcher";
-            else if (dynamic_cast<MidiMultiFilterProcessor*>(proc))   toolName = "MidiMultiFilter";
             else if (dynamic_cast<ContainerProcessor*>(proc))         toolName = "Container";
             
             if (toolName.isNotEmpty()) {
@@ -754,8 +714,8 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr,
         for (auto* node : mainGraph->getNodes()) {
             if (node != audioInputNode.get() &&
                 node != audioOutputNode.get() &&
-                node != midiInputNode.get() &&
-                node != midiOutputNode.get()) {
+                node != playbackNode.get()) {
+
                 toRemove.push_back(node->nodeID);
             }
         }
@@ -780,14 +740,6 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr,
                     nodeIdMap[oldId] = audioOutputNode->nodeID;
                     audioOutputNode->properties.set("x", x);
                     audioOutputNode->properties.set("y", y);
-                } else if (type == "MidiInput" && midiInputNode) {
-                    nodeIdMap[oldId] = midiInputNode->nodeID;
-                    midiInputNode->properties.set("x", x);
-                    midiInputNode->properties.set("y", y);
-                } else if (type == "MidiOutput" && midiOutputNode) {
-                    nodeIdMap[oldId] = midiOutputNode->nodeID;
-                    midiOutputNode->properties.set("x", x);
-                    midiOutputNode->properties.set("y", y);
                 }
             }
         }
@@ -809,15 +761,8 @@ void SubterraneumAudioProcessor::restoreGraphFromXml(const juce::String& xmlStr,
                     
                     if (toolName == "SimpleConnector")       toolProc = std::make_unique<SimpleConnectorProcessor>();
                     else if (toolName == "StereoMeter")      toolProc = std::make_unique<StereoMeterProcessor>();
-                    else if (toolName == "MidiMonitor")       toolProc = std::make_unique<MidiMonitorProcessor>();
                     else if (toolName == "Recorder")          toolProc = std::make_unique<RecorderProcessor>();
-                    else if (toolName == "ManualSampler")     toolProc = std::make_unique<ManualSamplerProcessor>();
-                    else if (toolName == "AutoSampler")       toolProc = std::make_unique<AutoSamplerProcessor>(mainGraph.get(), this);
-                    else if (toolName == "MidiPlayer")        toolProc = std::make_unique<MidiPlayerProcessor>();
-                    else if (toolName == "CCStepper")         toolProc = std::make_unique<CCStepperProcessor>();
                     else if (toolName == "TransientSplitter") toolProc = std::make_unique<TransientSplitterProcessor>();
-                    else if (toolName == "Latcher")            toolProc = std::make_unique<LatcherProcessor>();
-                    else if (toolName == "MidiMultiFilter")     toolProc = std::make_unique<MidiMultiFilterProcessor>();
                     else if (toolName == "Container")           toolProc = std::make_unique<ContainerProcessor>();
                     
                     if (toolProc) {

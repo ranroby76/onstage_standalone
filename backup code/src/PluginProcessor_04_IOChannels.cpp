@@ -1,4 +1,5 @@
 // I/O Channel Management
+// OnStage: Effects-only mode - no MIDI I/O nodes
 
 #include "PluginProcessor.h"
 
@@ -21,7 +22,6 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
             outputChannelNames = device->getOutputChannelNames();
             numIns = inputChannelNames.size();
             numOuts = outputChannelNames.size();
-            
         }
     }
     
@@ -30,11 +30,9 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
 
     mainGraph->setPlayConfigDetails(numIns, numOuts, getSampleRate(), getBlockSize());
     
-    // Save positions of I/O nodes
+    // Save positions of audio I/O nodes
     float audioInX = 20, audioInY = 80;
     float audioOutX = 20, audioOutY = 450;
-    float midiInX = 600, midiInY = 80;
-    float midiOutX = 600, midiOutY = 450;
     
     if (audioInputNode) {
         audioInX = (float)audioInputNode->properties.getWithDefault("x", 50.0);
@@ -43,14 +41,6 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
     if (audioOutputNode) {
         audioOutX = (float)audioOutputNode->properties.getWithDefault("x", 800.0);
         audioOutY = (float)audioOutputNode->properties.getWithDefault("y", 300.0);
-    }
-    if (midiInputNode) {
-        midiInX = (float)midiInputNode->properties.getWithDefault("x", 50.0);
-        midiInY = (float)midiInputNode->properties.getWithDefault("y", 150.0);
-    }
-    if (midiOutputNode) {
-        midiOutX = (float)midiOutputNode->properties.getWithDefault("x", 800.0);
-        midiOutY = (float)midiOutputNode->properties.getWithDefault("y", 150.0);
     }
     
     // FIX: Store old audio I/O node IDs to identify their connections
@@ -85,7 +75,7 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
         }
     }
     
-    // Remove ONLY audio I/O nodes (MIDI I/O nodes are NOT touched)
+    // Remove audio I/O nodes
     if (audioInputNode) mainGraph->removeNode(audioInputNode->nodeID);
     if (audioOutputNode) mainGraph->removeNode(audioOutputNode->nodeID);
     
@@ -93,19 +83,9 @@ void SubterraneumAudioProcessor::updateIOChannelCount() {
     audioInputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
     audioOutputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
     
-    // Create MIDI I/O nodes ONLY if they don't exist yet (first time setup)
-    if (!midiInputNode) {
-        midiInputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::midiInputNode));
-    }
-    if (!midiOutputNode) {
-        midiOutputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::midiOutputNode));
-    }
-    
     // Restore positions
     if (audioInputNode) { audioInputNode->properties.set("x", audioInX); audioInputNode->properties.set("y", audioInY); }
     if (audioOutputNode) { audioOutputNode->properties.set("x", audioOutX); audioOutputNode->properties.set("y", audioOutY); }
-    if (midiInputNode) { midiInputNode->properties.set("x", midiInX); midiInputNode->properties.set("y", midiInY); }
-    if (midiOutputNode) { midiOutputNode->properties.set("x", midiOutX); midiOutputNode->properties.set("y", midiOutY); }
     
     // Restore all saved connections
     for (const auto& saved : connectionsToRestore) {

@@ -1,4 +1,6 @@
+
 #include "GraphCanvas.h"
+#include "ContainerProcessor.h"
 
 void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& componentPos)
 {
@@ -11,22 +13,58 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
     auto* cache = getCachedNodeType(pin.nodeID);
     bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
     bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
-    bool isMidiInput   = cache ? cache->isMidiInput   : (node == processor.midiInputNode.get());
-    bool isMidiOutput  = cache ? cache->isMidiOutput  : (node == processor.midiOutputNode.get());
+
+    // FIX 4: Check if this is a container node - show container name with pin info
+    auto* containerProc = dynamic_cast<ContainerProcessor*>(node->getProcessor());
+    if (containerProc)
+    {
+        if (pin.isMidi)
+        {
+            text = containerProc->getContainerName() + (pin.isInput ? " MIDI In" : " MIDI Out");
+        }
+        else
+        {
+            text = containerProc->getContainerName() + (pin.isInput ? " In" : " Out")
+                   + " Ch " + juce::String(pin.pinIndex + 1);
+        }
+
+        auto screenBounds = getScreenBounds();
+        juce::Point<int> tooltipScreenPos(
+            screenBounds.getX() + (int)componentPos.x + 10,
+            screenBounds.getY() + (int)componentPos.y + 10
+        );
+
+        auto* content = new StatusToolTip(text, isActive);
+        juce::CallOutBox::launchAsynchronously(
+            std::unique_ptr<juce::Component>(content),
+            juce::Rectangle<int>(tooltipScreenPos.x, tooltipScreenPos.y, 1, 1),
+            nullptr);
+        return;
+    }
 
     if (pin.isMidi)
     {
-        if (isMidiInput) text = "MIDI Input";
-        else if (isMidiOutput) text = "MIDI Output";
-        else text = pin.isInput ? "MIDI In" : "MIDI Out";
+        // FIX 4: Check if this is a container's inner I/O node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString();
+        else
+            text = pin.isInput ? "MIDI In" : "MIDI Out";
     }
     else if (isAudioInput && !pin.isInput)
     {
-        text = processor.getDeviceInputChannelName(pin.pinIndex);
+        // FIX 4: Check if this is a container's inner audio input node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString() + " Ch " + juce::String(pin.pinIndex + 1);
+        else
+            text = processor.getDeviceInputChannelName(pin.pinIndex);
     }
     else if (isAudioOutput && pin.isInput)
     {
-        text = processor.getDeviceOutputChannelName(pin.pinIndex);
+        // FIX 4: Check if this is a container's inner audio output node
+        if (auto nameVar = node->properties["ioNodeName"])
+            text = nameVar.toString() + " Ch " + juce::String(pin.pinIndex + 1);
+        else
+            text = processor.getDeviceOutputChannelName(pin.pinIndex);
     }
     else
     {
@@ -50,7 +88,7 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
     // componentPos is relative to this GraphCanvas component
     auto screenBounds = getScreenBounds();
     juce::Point<int> tooltipScreenPos(
-        screenBounds.getX() + (int)componentPos.x + 10, 
+        screenBounds.getX() + (int)componentPos.x + 10,
         screenBounds.getY() + (int)componentPos.y + 10
     );
 
@@ -63,14 +101,10 @@ void GraphCanvas::showPinInfo(const PinID& pin, const juce::Point<float>& compon
 
 void GraphCanvas::showWireMenu(const juce::AudioProcessorGraph::Connection& conn, const juce::Point<float>& componentPos)
 {
-    // FIX: Use getActiveGraph() instead of processor.mainGraph so this works in containers
-    auto* ag = getActiveGraph();
-    if (!ag) return;
-    
     juce::String text = conn.source.isMIDI() ? "MIDI Connection" : "Audio Connection";
 
     // Check if sidechain connection
-    auto* dstNode = ag->getNodeForId(conn.destination.nodeID);
+    auto* dstNode = processor.mainGraph->getNodeForId(conn.destination.nodeID);
     if (dstNode && !conn.source.isMIDI())
     {
         auto* cache = getCachedNodeType(conn.destination.nodeID);
@@ -84,26 +118,21 @@ void GraphCanvas::showWireMenu(const juce::AudioProcessorGraph::Connection& conn
     }
 
     bool isActive = false;
-    auto* src = ag->getNodeForId(conn.source.nodeID);
-    auto* dst = ag->getNodeForId(conn.destination.nodeID);
+    auto* src = processor.mainGraph->getNodeForId(conn.source.nodeID);
+    auto* dst = processor.mainGraph->getNodeForId(conn.destination.nodeID);
     if (src && dst)
         isActive = (!src->isBypassed() && !dst->isBypassed());
 
     auto* content = new StatusToolTip(text, isActive, [this, conn]()
     {
-        // FIX: Use getActiveGraph() for deletion too
-        if (auto* graph = getActiveGraph())
-        {
-            graph->removeConnection(conn);
-            refreshCache();  // FIX: Rebuild cache so deletion is visible immediately
-            markDirty();
-        }
+        processor.mainGraph->removeConnection(conn);
+        markDirty();
     });
 
     // FIX 1: Convert component coordinates to screen coordinates properly
     auto screenBounds = getScreenBounds();
     juce::Point<int> tooltipScreenPos(
-        screenBounds.getX() + (int)componentPos.x + 10, 
+        screenBounds.getX() + (int)componentPos.x + 10,
         screenBounds.getY() + (int)componentPos.y + 10
     );
 

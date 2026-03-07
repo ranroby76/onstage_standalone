@@ -1,8 +1,7 @@
-
 // #D:\Workspace\Subterraneum_plugins_daw\src\PluginProcessor_03_SettingsAndListener.cpp
 // MIDI CHANNEL DUPLICATION: Hardware MIDI duplicated to selected channels for layering
-// Default: 0xFFFF (ALL channels) = pass-through unchanged
-// When specific channels selected (e.g., 2,3,4): Duplicates incoming MIDI to those channels
+// When specific channels selected (e.g., 1,2,3,4): Duplicates incoming MIDI to those channels
+// ALL channels selected (0xFFFF): Duplicates to all 16 channels
 // CRITICAL FIX: Use isInstrument() instead of getPluginDescription().isInstrument
 
 #include "PluginProcessor.h"
@@ -13,14 +12,14 @@
 void SubterraneumAudioProcessor::saveAudioSettings() {
     auto* userSettings = appProperties.getUserSettings();
     if (!userSettings) return;
-    
+
     juce::String deviceName = "";
     if (standaloneDeviceManager) {
         if (auto* device = standaloneDeviceManager->getCurrentAudioDevice()) {
             deviceName = device->getName();
         }
     }
-    
+
     userSettings->setValue("AudioDeviceName", deviceName);
     userSettings->saveIfNeeded();
     savedAudioDeviceName = deviceName;
@@ -32,7 +31,7 @@ void SubterraneumAudioProcessor::loadAudioSettings() {
         savedAudioDeviceName = "";
         return;
     }
-    
+
     if (!userSettings->containsKey("AudioDeviceName")) {
         userSettings->setValue("AudioDeviceName", "");
         userSettings->saveIfNeeded();
@@ -56,7 +55,7 @@ void SubterraneumAudioProcessor::changeListenerCallback(juce::ChangeBroadcaster*
     }
     else if (source == standaloneDeviceManager) {
         sendMidiPanicToAllInstruments();
-        
+
         juce::MessageManager::callAsync([this]() {
             updateIOChannelCount();
         });
@@ -68,18 +67,15 @@ void SubterraneumAudioProcessor::changeListenerCallback(juce::ChangeBroadcaster*
 // =============================================================================
 void SubterraneumAudioProcessor::sendMidiPanicToAllInstruments() {
     if (!mainGraph) return;
-    
+
     suspendProcessing(true);
-    
+
     // =========================================================================
     // REMOVED: Dangerous sendAllNotesOffToPlugin() calls
     // Problem: Calls processBlock() from non-audio thread → race condition → crash
     // Solution: Just suspending processing is sufficient - stops all sound
     // =========================================================================
-    
-    // No need to iterate and call sendAllNotesOffToPlugin() on each instrument
-    // Suspending processing already stops all audio and MIDI processing
-    
+
     suspendProcessing(false);
 }
 
@@ -88,25 +84,35 @@ void SubterraneumAudioProcessor::sendMidiPanicToAllInstruments() {
 // =============================================================================
 void SubterraneumAudioProcessor::updateHardwareMidiChannelMasks() {
     // =========================================================================
-    // THREAD-SAFE FIX: Build new map locally, then swap under suspension.
-    // Pre-compute combined mask as atomic so audio thread never touches the map.
+    // THREAD-SAFE: Build new map on UI thread, then atomically publish to audio thread.
+    //
+    // CRITICAL: Do NOT call suspendProcessing() here.
+    // suspendProcessing() from the message thread deadlocks with ASIO:
+    //   - message thread waits for audio device to stop
+    //   - audio thread may be waiting for message thread
+    // → freeze / crash
+    //
+    // This is safe WITHOUT suspension because:
+    //   - hardwareMidiChannelMasks is only ever read/written on the UI thread
+    //   - audio thread reads ONLY cachedCombinedHardwareMask (atomic)
+    //   - lastHardwareMidiMask is atomic, no lock needed
     // =========================================================================
-    
+
     std::map<juce::String, int> newMasks;
-    int newCombined = 0xFFFF;  // Default: all channels pass through
-    
+    int newCombined = 0xFFFF;  // Default: all channels
+
     if (standaloneDeviceManager) {
         auto* userSettings = appProperties.getUserSettings();
         if (userSettings) {
             auto midiInputs = juce::MidiInput::getAvailableDevices();
             bool hasAnyMask = false;
             int combined = 0;
-            
+
             for (auto& info : midiInputs) {
                 if (standaloneDeviceManager->isMidiInputDeviceEnabled(info.identifier)) {
                     juce::String maskKey = "MidiMask_" + info.identifier.replaceCharacters(" :/\\", "____");
                     int mask = userSettings->getIntValue(maskKey, 0xFFFF);
-                    
+
                     if (mask != 0) {
                         newMasks[info.identifier] = mask;
                         combined |= mask;
@@ -114,34 +120,34 @@ void SubterraneumAudioProcessor::updateHardwareMidiChannelMasks() {
                     }
                 }
             }
-            
+
             if (hasAnyMask)
                 newCombined = combined;
         }
     }
-    
-    // Swap under suspension — audio thread reads only the atomic, never the map
-    suspendProcessing(true);
+
+    // Publish: update atomic first so audio thread sees consistent state
     hardwareMidiChannelMasks.swap(newMasks);
     cachedCombinedHardwareMask.store(newCombined);
-    lastHardwareMidiMask = 0xFFFF;
-    suspendProcessing(false);
+    // Reset lastHardwareMidiMask so audio thread detects a change and sends
+    // note-offs to any channels that were just deselected
+    lastHardwareMidiMask.store(0xFFFF);
 }
 
 void SubterraneumAudioProcessor::applyHardwareMidiChannelFiltering(juce::MidiBuffer& midiMessages) {
     // THREAD-SAFE: Read only the pre-computed atomic — never touch the map on audio thread
     int combinedHardwareMask = cachedCombinedHardwareMask.load();
-    
+
     // Track mask changes for panic messages
-    bool maskChanged = (lastHardwareMidiMask != combinedHardwareMask);
-    int disabledChannels = lastHardwareMidiMask & (~combinedHardwareMask);
-    
-    if (maskChanged) {
-        lastHardwareMidiMask = combinedHardwareMask;
-    }
-    
-    // If all channels enabled (0xFFFF), pass through unchanged - no duplication needed
-    if (combinedHardwareMask == 0xFFFF) {
+    int prevMask = lastHardwareMidiMask.load();
+    bool maskChanged = (prevMask != combinedHardwareMask);
+    int disabledChannels = prevMask & (~combinedHardwareMask);
+
+    if (maskChanged)
+        lastHardwareMidiMask.store(combinedHardwareMask);
+
+    // No channels selected → block all MIDI, send panic to previously active channels
+    if (combinedHardwareMask == 0) {
         if (maskChanged && disabledChannels != 0) {
             for (int ch = 1; ch <= 16; ++ch) {
                 if ((disabledChannels >> (ch - 1)) & 1) {
@@ -150,42 +156,42 @@ void SubterraneumAudioProcessor::applyHardwareMidiChannelFiltering(juce::MidiBuf
                 }
             }
         }
+        midiMessages.clear();
         return;
     }
-    
-    // CHANNEL DUPLICATION MODE: Duplicate incoming MIDI to all selected channels
-    // Example: Keyboard sends Ch1, User selects Ch2,3,4 → Message duplicated to Ch2, Ch3, Ch4
+
+    // CHANNEL DUPLICATION MODE:
+    // Incoming MIDI (typically on Ch 1) is duplicated to every selected channel.
+    // Example: Ch1 input, channels 1-4 selected → message sent on Ch1, Ch2, Ch3, Ch4
+    // Example: ALL channels selected → message sent on all 16 channels
     juce::MidiBuffer duplicated;
-    
+
     for (const auto metadata : midiMessages) {
         auto msg = metadata.getMessage();
-        
+
         if (msg.getRawDataSize() > 0) {
             int statusByte = msg.getRawData()[0];
             bool isChannelMessage = (statusByte >= 0x80 && statusByte <= 0xEF);
-            
+
             if (isChannelMessage) {
-                // Duplicate this message to ALL selected channels in the mask
+                // Duplicate this message to every selected channel in the mask
                 for (int targetCh = 1; targetCh <= 16; ++targetCh) {
-                    bool channelSelected = (combinedHardwareMask >> (targetCh - 1)) & 1;
-                    
-                    if (channelSelected) {
-                        // Create a copy of the message on the target channel
+                    if ((combinedHardwareMask >> (targetCh - 1)) & 1) {
                         auto duplicatedMsg = msg;
                         duplicatedMsg.setChannel(targetCh);
                         duplicated.addEvent(duplicatedMsg, metadata.samplePosition);
                     }
                 }
             } else {
-                // Non-channel messages (SysEx, etc.) pass through unchanged
+                // Non-channel messages (SysEx, etc.) pass through once
                 duplicated.addEvent(msg, metadata.samplePosition);
             }
         } else {
             duplicated.addEvent(msg, metadata.samplePosition);
         }
     }
-    
-    // Send panic/note-offs to disabled channels if mask changed
+
+    // Send panic/note-offs to channels that were just deselected
     if (maskChanged && disabledChannels != 0) {
         for (int ch = 1; ch <= 16; ++ch) {
             if ((disabledChannels >> (ch - 1)) & 1) {
@@ -194,10 +200,6 @@ void SubterraneumAudioProcessor::applyHardwareMidiChannelFiltering(juce::MidiBuf
             }
         }
     }
-    
+
     midiMessages.swapWith(duplicated);
 }
-
-
-
-

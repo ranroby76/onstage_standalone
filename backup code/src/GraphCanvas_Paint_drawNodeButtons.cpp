@@ -1,7 +1,9 @@
+// #D:\Workspace\Subterraneum_plugins_daw\src\GraphCanvas_Paint_drawNodeButtons.cpp
 // =============================================================================
 // INSTRUCTIONS:
 // 1. Add this include to GraphCanvas_Paint.cpp (after #include "LatcherProcessor.h"):
 //        #include "MidiMultiFilterProcessor.h"
+//        #include "ContainerProcessor.h"
 //
 // 2. Replace the entire drawNodeButtons() function in GraphCanvas_Paint.cpp
 //    with the version below.
@@ -12,6 +14,15 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     auto nodeBounds = getNodeBounds(node);
     auto* cache = getCachedNodeType(node->nodeID);
     auto* proc = node->getProcessor();
+    
+    // =========================================================================
+    // FIX 2: Container nodes - M, CH, T, X buttons
+    // =========================================================================
+    if (dynamic_cast<ContainerProcessor*>(proc))
+    {
+        drawContainerButtons(g, node);
+        return;
+    }
     
     SimpleConnectorProcessor* simpleConnector = cache ? cache->simpleConnector 
                                                        : dynamic_cast<SimpleConnectorProcessor*>(proc);
@@ -313,18 +324,6 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
 
-    // L button (load/reload VST2) - VST2 plugin nodes only
-    if (meteringProc && meteringProc->isVST2())
-    {
-        auto loadRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-        g.setColour(juce::Colour(0xFF4DA6FF));  // Blue for VST2
-        g.fillRoundedRectangle(loadRect, 3.0f);
-        g.setColour(juce::Colours::black);
-        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-        g.drawText("L", loadRect, juce::Justification::centred);
-        btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-    }
-
     auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
     g.setColour(juce::Colours::darkred);
     g.fillRoundedRectangle(deleteRect, 3.0f);
@@ -333,3 +332,64 @@ void GraphCanvas::drawNodeButtons(juce::Graphics& g, juce::AudioProcessorGraph::
     g.drawText("X", deleteRect, juce::Justification::centred);
 }
 
+// =========================================================================
+// FIX 2: Container button drawing (M, CH, T, X)
+// =========================================================================
+void GraphCanvas::drawContainerButtons(juce::Graphics& g, juce::AudioProcessorGraph::Node* node)
+{
+    auto* container = dynamic_cast<ContainerProcessor*>(node->getProcessor());
+    if (!container) return;
+    
+    auto nodeBounds = getNodeBounds(node);
+    nodeBounds.removeFromTop(Style::nodeTitleHeight);
+    float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
+    float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
+
+    // M button (mute)
+    auto muteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+    g.setColour(container->isMuted() ? juce::Colours::red : juce::Colours::lightgreen);
+    g.fillRoundedRectangle(muteRect, 3.0f);
+    g.setColour(juce::Colours::black);
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    g.drawText("M", muteRect, juce::Justification::centred);
+    btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+    // CH button (MIDI channel selector)
+    auto chRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+    g.setColour(juce::Colours::orange.darker());
+    g.fillRoundedRectangle(chRect, 3.0f);
+    g.setColour(juce::Colours::black);
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+    
+    int mask = container->getMidiChannelMask();
+    juce::String text = "CH";
+    if (mask != 0) {
+        for (int i = 0; i < 16; ++i) {
+            if ((mask >> i) & 1) {
+                text = juce::String(i + 1);
+                break;
+            }
+        }
+    }
+    
+    g.drawText(text, chRect, juce::Justification::centred);
+    btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+    // T button (transport override)
+    bool synced = container->isTransportSynced();
+    auto transportRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+    g.setColour(synced ? juce::Colours::yellow.darker(0.4f) : juce::Colours::yellow);
+    g.fillRoundedRectangle(transportRect, 3.0f);
+    g.setColour(juce::Colours::black);
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    g.drawText("T", transportRect, juce::Justification::centred);
+    btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
+
+    // X button (delete)
+    auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
+    g.setColour(juce::Colours::darkred);
+    g.fillRoundedRectangle(deleteRect, 3.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    g.drawText("X", deleteRect, juce::Justification::centred);
+}

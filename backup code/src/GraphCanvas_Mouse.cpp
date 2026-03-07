@@ -9,20 +9,9 @@
 #include "GraphCanvas.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
-#include "CCStepperEditorComponent.h"
 #include "TransientSplitterProcessor.h"
 #include "TransientSplitterEditorComponent.h"
-#include "LatcherProcessor.h"
-#include "LatcherEditorComponent.h"
-#include "MidiMultiFilterProcessor.h"
-#include "MidiMultiFilterEditorComponent.h"
-#include "AutoSamplerEditorComponent.h"
 #include "MidiSelectors.h"
 #include "TransportOverrideComponent.h"
 #include "ContainerProcessor.h"
@@ -31,13 +20,13 @@
 // Helper: toggle bypass on whichever graph (main or container inner) is active.
 // processor.toggleBypass() only operates on mainGraph — this handles both.
 // =============================================================================
-static void toggleBypassOnGraph(juce::AudioProcessorGraph* ag, 
+static void toggleBypassOnGraph(juce::AudioProcessorGraph* ag,
                                 juce::AudioProcessorGraph::NodeID nodeID)
 {
     if (!ag) return;
     auto* node = ag->getNodeForId(nodeID);
     if (!node) return;
-    
+
     bool newBypassState = !node->isBypassed();
     if (auto* meteringProc = dynamic_cast<MeteringProcessor*>(node->getProcessor()))
         meteringProc->setFrozen(newBypassState);
@@ -75,12 +64,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         if (headerRect.contains(e.position))
         {
             if (!e.mods.isLeftButtonDown()) return;
-            
+
             const float btnH   = 30.0f;
             const float btnY   = (containerHeaderHeight - btnH) / 2.0f;
             const float margin = 8.0f;
             const float w      = (float)getWidth();
-            
+
             // ← Rack button
             auto rackBtnRect = juce::Rectangle<float>(margin, btnY, 80.0f, btnH);
             if (rackBtnRect.contains(e.position))
@@ -88,23 +77,23 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 diveOut();
                 return;
             }
-            
+
             // Save / Load buttons (right side)
             float saveX = w - margin - 65.0f;
             float loadX = saveX - margin - 65.0f;
-            
+
             auto saveRect = juce::Rectangle<float>(saveX, btnY, 65.0f, btnH);
             if (saveRect.contains(e.position) && !containerStack.empty())
             {
                 auto* containerProc = containerStack.back();
                 auto defaultFolder = ContainerProcessor::getEffectiveDefaultFolder();
                 defaultFolder.createDirectory();
-                
+
                 containerFileChooser = std::make_unique<juce::FileChooser>(
                     "Save Container Preset",
                     defaultFolder.getChildFile(containerProc->getContainerName() + ".container"),
                     "*.container");
-                
+
                 juce::Component::SafePointer<GraphCanvas> safeThis(this);
                 containerFileChooser->launchAsync(
                     juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
@@ -117,18 +106,18 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     });
                 return;
             }
-            
+
             auto loadRect = juce::Rectangle<float>(loadX, btnY, 65.0f, btnH);
             if (loadRect.contains(e.position) && !containerStack.empty())
             {
                 auto* containerProc = containerStack.back();
                 auto defaultFolder = ContainerProcessor::getEffectiveDefaultFolder();
-                
+
                 containerFileChooser = std::make_unique<juce::FileChooser>(
                     "Load Container Preset",
                     defaultFolder,
                     "*.container");
-                
+
                 juce::Component::SafePointer<GraphCanvas> safeThis(this);
                 containerFileChooser->launchAsync(
                     juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -149,7 +138,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     });
                 return;
             }
-            
+
             // Name label click — show AlertWindow to rename
             {
                 float nameX = margin + 80.0f + 12.0f;
@@ -159,7 +148,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 {
                     auto* containerProc = containerStack.back();
                     juce::Component::SafePointer<GraphCanvas> safeThis(this);
-                    
+
                     auto* alertWindow = new juce::AlertWindow(
                         "Rename Container",
                         "Enter a new name for this container:",
@@ -185,12 +174,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     return;
                 }
             }
-            
+
             // Anything else in the header — consume without acting
             return;
         }
     }
-    
+
     // =========================================================================
     // NEW: Check minimap and scrollbar hits FIRST (in local coords, not virtual)
     // =========================================================================
@@ -202,7 +191,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             navigateMinimapTo(e.position);
             return;
         }
-        
+
         if (isPointInHScrollbar(e.position))
         {
             isDraggingHScrollbar = true;
@@ -210,7 +199,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             scrollbarDragStartPan = panOffsetX;
             return;
         }
-        
+
         if (isPointInVScrollbar(e.position))
         {
             isDraggingVScrollbar = true;
@@ -219,7 +208,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             return;
         }
     }
-    
+
     auto pos = toVirtual(e.position);
     // Screen-space click position for popup menu placement
     auto screenClickPos = e.getScreenPosition();
@@ -234,11 +223,48 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             return;
         }
 
+        // NEW: If the clicked pin already has connections, disconnect the last one
+        // and drag from its other end — allows rewiring without going back to start
+        // FIX: Only apply to INPUT pins — output pins need to allow multi-wiring
+        PinID dragSourcePin = pinAtPos;
+        if (pinAtPos.isInput)
+        {
+            if (auto* ag = getActiveGraph())
+            {
+                juce::AudioProcessorGraph::Connection lastConn = {
+                    {juce::AudioProcessorGraph::NodeID(), 0},
+                    {juce::AudioProcessorGraph::NodeID(), 0}
+                };
+                bool foundConn = false;
+                for (auto& conn : ag->getConnections())
+                {
+                    bool matchesDst = (conn.destination.nodeID == pinAtPos.nodeID &&
+                                       conn.destination.channelIndex == pinAtPos.pinIndex);
+                    if (matchesDst)
+                    {
+                        lastConn = conn;
+                        foundConn = true;
+                        // Keep iterating — we want the last connection in the list
+                    }
+                }
+                if (foundConn)
+                {
+                    ag->removeConnection(lastConn);
+                    markDirty();
+                    // Drag from the source end of the removed connection
+                    dragSourcePin.nodeID    = lastConn.source.nodeID;
+                    dragSourcePin.pinIndex  = lastConn.source.channelIndex;
+                    dragSourcePin.isInput   = false;
+                    dragSourcePin.isMidi    = pinAtPos.isMidi;
+                }
+            }
+        }
+
         dragCable.active = true;
-        dragCable.sourcePin = pinAtPos;
+        dragCable.sourcePin = dragSourcePin;
         dragCable.currentDragPos = pos;
-        dragCable.dragColor = getPinColor(pinAtPos, getActiveGraph() ? getActiveGraph()->getNodeForId(pinAtPos.nodeID) : nullptr);
-        
+        dragCable.dragColor = getPinColor(dragSourcePin, getActiveGraph() ? getActiveGraph()->getNodeForId(dragSourcePin.nodeID) : nullptr);
+
         // CRITICAL FIX: Start high-frequency timer ONCE when drag begins
         startTimer(MouseInteractionTimerID, 16);  // 60 Hz for smooth dragging
         return;
@@ -256,7 +282,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         {
             if (auto* ag = getActiveGraph())
                 ag->removeConnection(connAtPos);
-            refreshCache();  // FIX: Rebuild cached connections so deletion is visible immediately
             markDirty();
             return;
         }
@@ -279,25 +304,32 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
         bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
         bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
-        
+        bool isPlayback    = cache ? cache->isPlayback    : (node == processor.playbackNode.get());
+
         // =========================================================================
         // TITLE BAR RIGHT-CLICK MENU (light gray area at top of node)
         // Available for all node types - provides Disconnect All and Delete options
+        // OnStage: PlaybackNode and I/O nodes cannot be deleted
         // =========================================================================
         auto titleBarArea = juce::Rectangle<float>(
-            nodeBounds.getX(), 
-            nodeBounds.getY(), 
-            nodeBounds.getWidth(), 
+            nodeBounds.getX(),
+            nodeBounds.getY(),
+            nodeBounds.getWidth(),
             Style::nodeTitleHeight
         );
-        
+
         if (e.mods.isRightButtonDown() && titleBarArea.contains(pos))
         {
+            // Skip delete menu for protected nodes
+            bool isProtectedNode = isAudioInput || isAudioOutput || isPlayback;
+            
             juce::PopupMenu menu;
             menu.addItem(1, "Disconnect All Wires");
-            menu.addSeparator();
-            menu.addItem(2, "Delete");
-            
+            if (!isProtectedNode) {
+                menu.addSeparator();
+                menu.addItem(2, "Delete");
+            }
+
             auto nodeID = node->nodeID;
             auto* capturedGraph = getActiveGraph();
             bool insideContainer = isInsideContainer();
@@ -328,17 +360,17 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                                 auto* recorderProc = dynamic_cast<RecorderProcessor*>(targetNode->getProcessor());
                                 if (recorderProc && recorderProc->isCurrentlyRecording())
                                     recorderProc->stopRecording();
-                                
+
                                 // Close plugin window if exists
                                 auto windowIt = activePluginWindows.find(nodeID);
                                 if (windowIt != activePluginWindows.end())
                                 {
                                     activePluginWindows.erase(windowIt);
                                 }
-                                
+
                                 // Disconnect all wires
                                 disconnectNode(targetNode);
-                                
+
                                 // Remove node from the correct graph
                                 if (insideContainer)
                                 {
@@ -359,97 +391,118 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 });
             return;
         }
-        
-        // SimpleConnector button handling (system tool)
-        SimpleConnectorProcessor* simpleConnector = cache ? cache->simpleConnector 
+
+        // SimpleConnector button handling (system tool) with Amp Slider
+        SimpleConnectorProcessor* simpleConnector = cache ? cache->simpleConnector
                                                            : dynamic_cast<SimpleConnectorProcessor*>(node->getProcessor());
         if (simpleConnector)
         {
             nodeBounds.removeFromTop(Style::nodeTitleHeight);
+            
+            // Amp slider area (matches paint code)
+            float sliderMargin = 6.0f;
+            float sliderHeight = 18.0f;
+            auto sliderAreaFull = nodeBounds.removeFromTop(sliderHeight + sliderMargin).reduced(sliderMargin, 0);
+            sliderAreaFull.removeFromTop(sliderMargin / 2);
+            auto sliderRect = sliderAreaFull.toFloat();
+            
+            // Button areas
             float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
             float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            
+
             // M button (Mute)
             auto muteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
             btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            
+
             // X button (Delete)
             auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
-            // Volume knob area (center of node content)
-            auto knobArea = nodeBounds.reduced(15, 10);
-            
+
             // Right-click: Show tooltips only
             if (e.mods.isRightButtonDown())
             {
-                
+                if (sliderRect.contains(pos))
+                {
+                    auto* tooltip = new StatusToolTip("Amp Slider - Drag left/right to adjust gain\nMiddle = 0dB (unity), Max = +35dB", true);
+                    juce::CallOutBox::launchAsynchronously(
+                        std::unique_ptr<juce::Component>(tooltip),
+                        juce::Rectangle<int>(screenClickPos.x + 10,
+                                             screenClickPos.y + 10, 1, 1),
+                        nullptr);
+                    return;
+                }
+
                 if (muteRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("M - Mute/Unmute audio output", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (deleteRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("X - Delete this connector module", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
-                if (knobArea.contains(pos))
-                {
-                    auto* tooltip = new StatusToolTip("Volume - Drag up/down to adjust gain (-inf to +25dB)", true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                    return;
-                }
-                
+
                 // Right-click elsewhere on node - no action (consistent with tooltip-only policy)
                 return;
             }
+
+            // Left-click: Handle slider and buttons
+            if (sliderRect.contains(pos))
+            {
+                // Calculate volume from click position (0.0 to 1.0)
+                float relativeX = (pos.x - sliderRect.getX()) / sliderRect.getWidth();
+                relativeX = juce::jlimit(0.0f, 1.0f, relativeX);
+                simpleConnector->setVolume(relativeX);
+                
+                // Start dragging for continuous adjustment
+                draggingConnectorSlider = true;
+                draggingConnectorNode = node;
+                draggingConnectorSliderRect = sliderRect;
+                startTimer(MouseInteractionTimerID, 16);
+                needsRepaint = true;
+                return;
+            }
             
-            // Left-click: Handle buttons
             if (muteRect.contains(pos))
             {
                 simpleConnector->toggleMute();
                 needsRepaint = true;
                 return;
             }
-            
+
             if (deleteRect.contains(pos))
             {
                 // CRITICAL FIX: Close window and disconnect wires BEFORE removing node
                 auto nodeID = node->nodeID;
-                
+
                 // Step 1: Close the plugin window if it exists
                 auto windowIt = activePluginWindows.find(nodeID);
                 if (windowIt != activePluginWindows.end())
                 {
                     activePluginWindows.erase(windowIt);
                 }
-                
+
                 // Step 2: Disconnect all wires connected to this node
                 disconnectNode(node);
-                
+
                 // Step 3: Now safely remove the node
                 removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
                 updateParentSelector();
                 markDirty();
                 return;
             }
-            
+
             // If clicking anywhere else on the node, start dragging
             draggingNodeID = node->nodeID;
             nodeDragOffset = pos - juce::Point<float>(
@@ -460,7 +513,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         }
 
         // =====================================================================
-        // Container button handling — E (dive in), CH (midi ch), M, T, X
+        // Container button handling — E (dive in), M, T, X
         // =====================================================================
         ContainerProcessor* containerProc = cache ? cache->container
                                                    : dynamic_cast<ContainerProcessor*>(node->getProcessor());
@@ -473,10 +526,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
             // E button (dive into container)
             auto editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-
-            // CH button (MIDI channel filter)
-            auto chRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
             btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
 
             // M button (mute)
@@ -502,11 +551,10 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                         nullptr);
                 };
 
-                if (editRect.contains(pos))    { launchTip("E - Dive into container (open internal graph)"); return; }
-                if (chRect.contains(pos))      { launchTip("CH - MIDI channel filter (select which channels this container receives)"); return; }
-                if (muteRect.contains(pos))    { launchTip("M - Mute/Unmute container audio output"); return; }
+                if (editRect.contains(pos))      { launchTip("E - Dive into container (open internal graph)"); return; }
+                if (muteRect.contains(pos))      { launchTip("M - Mute/Unmute container audio output"); return; }
                 if (transportRect.contains(pos)) { launchTip("T - Per-container transport override"); return; }
-                if (deleteRect.contains(pos))  { launchTip("X - Delete container from rack"); return; }
+                if (deleteRect.contains(pos))    { launchTip("X - Delete container from rack"); return; }
                 return;
             }
 
@@ -514,55 +562,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             if (editRect.contains(pos))
             {
                 diveIntoContainer(containerProc);
-                return;
-            }
-
-            if (chRect.contains(pos))
-            {
-                auto chButtonCenter = juce::Point<int>((int)(btnX - Style::bottomBtnWidth - Style::bottomBtnSpacing + Style::bottomBtnWidth / 2),
-                                                        (int)(btnY + Style::bottomBtnHeight / 2));
-
-                juce::MessageManager::callAsync([this, containerProc, chButtonCenter]() {
-                    auto* popup = new juce::Component();
-                    popup->setSize(180, 140);
-
-                    int currentMask = containerProc->getMidiChannelMask();
-
-                    for (int ch = 0; ch < 16; ++ch)
-                    {
-                        auto* btn = new juce::TextButton(juce::String(ch + 1));
-                        btn->setSize(38, 28);
-                        btn->setBounds(8 + (ch % 4) * 42, 8 + (ch / 4) * 32, 38, 28);
-
-                        bool active = (currentMask & (1 << ch)) != 0;
-                        btn->setColour(juce::TextButton::buttonColourId,
-                                       active ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
-                        btn->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-
-                        btn->onClick = [btn, containerProc, ch, this]() {
-                            int mask = containerProc->getMidiChannelMask();
-                            mask ^= (1 << ch);
-                            containerProc->setMidiChannelMask(mask);
-
-                            bool nowActive = (mask & (1 << ch)) != 0;
-                            btn->setColour(juce::TextButton::buttonColourId,
-                                           nowActive ? juce::Colours::cyan.darker() : juce::Colour(0xFF2A2A2A));
-                            needsRepaint = true;
-                        };
-
-                        popup->addAndMakeVisible(btn);
-                    }
-
-                    juce::Rectangle<int> targetArea(
-                        virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).x,
-                        virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).y,
-                        1, 1);
-
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(popup),
-                        targetArea,
-                        nullptr);
-                });
                 return;
             }
 
@@ -575,8 +574,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
 
             if (transportRect.contains(pos))
             {
-                containerProc->setTransportSynced(!containerProc->isTransportSynced());
-                needsRepaint = true;
+                showContainerTransportOverride(node);
                 return;
             }
 
@@ -603,89 +601,8 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         }
 
         // FIX: StereoMeter and MIDI Monitor button handling (system tools - X button only)
-        StereoMeterProcessor* stereoMeter = cache ? cache->stereoMeter 
+        StereoMeterProcessor* stereoMeter = cache ? cache->stereoMeter
                                                    : dynamic_cast<StereoMeterProcessor*>(node->getProcessor());
-        MidiMonitorProcessor* midiMonitor = cache ? cache->midiMonitor
-                                                   : dynamic_cast<MidiMonitorProcessor*>(node->getProcessor());
-        
-        if (stereoMeter || midiMonitor)
-        {
-            nodeBounds.removeFromTop(Style::nodeTitleHeight);
-            float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            
-            // X button (Delete) - ONLY button for these modules
-            auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
-            // Display area (for tooltip)
-            auto displayArea = nodeBounds.reduced(6, 4);
-            
-            // Right-click: Show tooltips only
-            if (e.mods.isRightButtonDown())
-            {
-                
-                if (deleteRect.contains(pos))
-                {
-                    juce::String tooltipText = stereoMeter ? "X - Delete Stereo Meter module" 
-                                                           : "X - Delete MIDI Monitor module";
-                    auto* tooltip = new StatusToolTip(tooltipText, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                    return;
-                }
-                
-                if (displayArea.contains(pos))
-                {
-                    juce::String tooltipText = stereoMeter 
-                        ? "Level Meters - Shows L/R audio levels with peak hold" 
-                        : "MIDI Display - Shows incoming MIDI messages by channel";
-                    auto* tooltip = new StatusToolTip(tooltipText, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                    return;
-                }
-                
-                // Right-click elsewhere on node - no action
-                return;
-            }
-            
-            // Left-click: Delete button
-            if (deleteRect.contains(pos))
-            {
-                // Close window and disconnect wires BEFORE removing node
-                auto nodeID = node->nodeID;
-                
-                // Step 1: Close window if exists
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                {
-                    activePluginWindows.erase(windowIt);
-                }
-                
-                // Step 2: Disconnect all wires
-                disconnectNode(node);
-                
-                // Step 3: Remove node
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-            
-            // If clicking anywhere else on the node, start dragging
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>(
-                (float)node->properties["x"],
-                (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
 
         // =========================================================================
         // RECORDER button handling (Record/Stop/Folder/Sync/Delete + Name editing)
@@ -700,13 +617,13 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             auto contentArea = nodeBounds;
             contentArea.removeFromTop(Style::nodeTitleHeight);  // Skip title bar
             auto recorderArea = contentArea.reduced(8, 6);
-            
+
             // ROW 1: Name textbox (full width)
             auto nameRow = recorderArea.removeFromTop(24);
             auto nameBoxArea = nameRow.reduced(0, 2);
-            
+
             recorderArea.removeFromTop(4);
-            
+
             // ROW 2: Record/Stop/Folder buttons (44px each + 4px gaps)
             auto controlRow = recorderArea.removeFromTop(44);
             auto recordBtnArea = controlRow.removeFromLeft(44).reduced(3);
@@ -714,80 +631,80 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             auto stopBtnArea = controlRow.removeFromLeft(44).reduced(3);
             controlRow.removeFromLeft(4);
             auto folderBtnArea = controlRow.removeFromLeft(44).reduced(3);
-            
+
             // Skip time row
             recorderArea.removeFromTop(4);
             recorderArea.removeFromTop(28);  // Time row
             recorderArea.removeFromTop(4);
-            
+
             // SYNC button at bottom
             auto syncRow = recorderArea.removeFromBottom(26);
             auto syncArea = syncRow.reduced(20, 2);
-            
+
             // Right-click: Show tooltips for buttons or context menu
             if (e.mods.isRightButtonDown())
             {
-                
+
                 // Record button tooltip
                 if (recordBtnArea.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("Record - Start recording audio to file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Stop button tooltip
                 if (stopBtnArea.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("Stop - Stop recording and save file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Folder button tooltip
                 if (folderBtnArea.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("Open Folder - Open recording folder in file explorer", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Name box tooltip
                 if (nameBoxArea.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("Recording Name - Click to edit filename prefix", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Sync toggle tooltip
                 if (syncArea.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("Sync Mode - When ON, all synced recorders start/stop together", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // X button tooltip
                 float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
                 float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
@@ -797,18 +714,18 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     auto* tooltip = new StatusToolTip("X - Delete recorder module", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Right-click elsewhere on recorder - no action (tooltip-only policy)
                 return;
             }
-            
+
             // Left-click: Handle buttons
-            
+
             // Name textbox click - open name editor
             if (nameBoxArea.contains(pos))
             {
@@ -818,7 +735,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 editor->selectAll();
                 editor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(45, 45, 50));
                 editor->setColour(juce::TextEditor::textColourId, juce::Colours::white);
-                
+
                 // Capture recorder pointer for lambda
                 auto* recPtr = recorder;
                 editor->onReturnKey = [editor, recPtr]() {
@@ -830,7 +747,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     if (auto* callout = editor->findParentComponentOfClass<juce::CallOutBox>())
                         callout->dismiss();
                 };
-                
+
                 juce::CallOutBox::launchAsynchronously(
                     std::unique_ptr<juce::Component>(editor),
                     juce::Rectangle<int>(
@@ -840,7 +757,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     nullptr);
                 return;
             }
-            
+
             // Sync toggle click
             if (syncArea.contains(pos))
             {
@@ -848,7 +765,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 needsRepaint = true;
                 return;
             }
-            
+
             // Record button click
             if (recordBtnArea.contains(pos))
             {
@@ -859,7 +776,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 needsRepaint = true;
                 return;
             }
-            
+
             // Stop button click
             if (stopBtnArea.contains(pos))
             {
@@ -870,40 +787,40 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 needsRepaint = true;
                 return;
             }
-            
+
             // Folder button click - open recording folder
             if (folderBtnArea.contains(pos))
             {
                 recorder->openRecordingFolder();
                 return;
             }
-            
+
             // X button (Delete) - bottom left corner
             float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
             float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
             auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
+
             if (deleteRect.contains(pos))
             {
                 // Stop recording if active before deleting
                 if (recorder->isCurrentlyRecording())
                     recorder->stopRecording();
-                
+
                 auto nodeID = node->nodeID;
-                
+
                 auto windowIt = activePluginWindows.find(nodeID);
                 if (windowIt != activePluginWindows.end())
                 {
                     activePluginWindows.erase(windowIt);
                 }
-                
+
                 disconnectNode(node);
                 removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
                 updateParentSelector();
                 markDirty();
                 return;
             }
-            
+
             // If clicking anywhere else on the node, start dragging
             draggingNodeID = node->nodeID;
             nodeDragOffset = pos - juce::Point<float>(
@@ -919,108 +836,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // MANUAL SAMPLER button handling (ARM, Name editing, Folder, Delete)
         // =========================================================================
-        ManualSamplerProcessor* manualSampler = cache ? cache->manualSampler
-                                                       : dynamic_cast<ManualSamplerProcessor*>(node->getProcessor());
-        if (manualSampler)
-        {
-            auto contentArea = nodeBounds;
-            contentArea.removeFromTop(Style::nodeTitleHeight);
-            auto recArea = contentArea.reduced(8, 6);
-            
-            // ROW 1: Name box
-            auto nameRow = recArea.removeFromTop(24);
-            nameRow.removeFromRight(70); // file count
-            auto nameBoxArea = nameRow.reduced(0, 2);
-            recArea.removeFromTop(4);
-            
-            // ROW 2: ARM button
-            auto controlRow = recArea.removeFromTop(44);
-            auto armBtnArea = controlRow.removeFromLeft(50).reduced(3);
-            
-            // X button at very bottom
-            float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            
-            // F button (folder)
-            auto folderRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-                
-                if (nameBoxArea.contains(pos))  { launchTip("Family Name - Click to edit filename prefix"); return; }
-                if (armBtnArea.contains(pos))   { launchTip("ARM - Arm/disarm MIDI-triggered recording"); return; }
-                if (folderRect.contains(pos))   { launchTip("F - Open recording folder in file explorer"); return; }
-                if (deleteRect.contains(pos))   { launchTip("X - Delete this Manual Sampler module"); return; }
-                return;
-            }
-            
-            if (nameBoxArea.contains(pos))
-            {
-                auto* editor = new juce::TextEditor();
-                editor->setSize(300, 24);
-                editor->setText(manualSampler->getFamilyName());
-                editor->selectAll();
-                editor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(45, 45, 50));
-                editor->setColour(juce::TextEditor::textColourId, juce::Colours::white);
-                auto* sampPtr = manualSampler;
-                editor->onReturnKey = [editor, sampPtr]() {
-                    sampPtr->setFamilyName(editor->getText());
-                    if (auto* callout = editor->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                editor->onEscapeKey = [editor]() {
-                    if (auto* callout = editor->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                juce::CallOutBox::launchAsynchronously(
-                    std::unique_ptr<juce::Component>(editor),
-                    juce::Rectangle<int>(virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).x,
-                                         virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).y, 1, 1),
-                    nullptr);
-                return;
-            }
-            
-            if (armBtnArea.contains(pos))
-            {
-                manualSampler->setArmed(!manualSampler->getArmed());
-                needsRepaint = true;
-                return;
-            }
-            
-            if (folderRect.contains(pos))
-            {
-                manualSampler->openRecordingFolder();
-                return;
-            }
-            
-            if (deleteRect.contains(pos))
-            {
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-            
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END MANUAL SAMPLER button handling
         // =========================================================================
@@ -1028,140 +843,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // AUTO SAMPLER button handling (Start/Stop, E editor, Name, Folder, Delete)
         // =========================================================================
-        AutoSamplerProcessor* autoSampler = cache ? cache->autoSampler
-                                                    : dynamic_cast<AutoSamplerProcessor*>(node->getProcessor());
-        if (autoSampler)
-        {
-            auto contentArea = nodeBounds;
-            contentArea.removeFromTop(Style::nodeTitleHeight);
-            auto recArea = contentArea.reduced(8, 6);
-            
-            // ROW 1: Name box
-            auto nameRow = recArea.removeFromTop(24);
-            nameRow.removeFromRight(90); // progress
-            auto nameBoxArea = nameRow.reduced(0, 2);
-            recArea.removeFromTop(4);
-            
-            // ROW 2: Start/Stop button
-            auto controlRow = recArea.removeFromTop(44);
-            auto startBtnArea = controlRow.removeFromLeft(50).reduced(3);
-            
-            // Bottom buttons: E (editor) + F (folder) + X (delete)
-            float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            
-            auto editorRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto folderRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-                
-                if (nameBoxArea.contains(pos))   { launchTip("Family Name - Click to edit filename prefix for samples"); return; }
-                if (startBtnArea.contains(pos))  { launchTip("Start/Stop - Begin or halt the auto sampling sequence"); return; }
-                if (editorRect.contains(pos))    { launchTip("E - Open note/velocity editor and SFZ settings"); return; }
-                if (folderRect.contains(pos))    { launchTip("F - Open recording folder in file explorer"); return; }
-                if (deleteRect.contains(pos))    { launchTip("X - Delete this Auto Sampler module"); return; }
-                return;
-            }
-            
-            if (nameBoxArea.contains(pos))
-            {
-                auto* editor = new juce::TextEditor();
-                editor->setSize(300, 24);
-                editor->setText(autoSampler->getFamilyName());
-                editor->selectAll();
-                editor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(45, 45, 50));
-                editor->setColour(juce::TextEditor::textColourId, juce::Colours::white);
-                auto* sampPtr = autoSampler;
-                editor->onReturnKey = [editor, sampPtr]() {
-                    sampPtr->setFamilyName(editor->getText());
-                    if (auto* callout = editor->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                editor->onEscapeKey = [editor]() {
-                    if (auto* callout = editor->findParentComponentOfClass<juce::CallOutBox>())
-                        callout->dismiss();
-                };
-                juce::CallOutBox::launchAsynchronously(
-                    std::unique_ptr<juce::Component>(editor),
-                    juce::Rectangle<int>(virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).x,
-                                         virtualToScreen(nameBoxArea.getCentreX(), nameBoxArea.getCentreY()).y, 1, 1),
-                    nullptr);
-                return;
-            }
-            
-            if (startBtnArea.contains(pos))
-            {
-                if (autoSampler->isRunning())
-                    autoSampler->stopAutoSampling();
-                else
-                {
-                    if (!autoSampler->startAutoSampling())
-                    {
-                        juce::String err = autoSampler->getLastError();
-                        if (err.contains("Connect"))
-                        {
-                            // No valid chain - show error tooltip
-                            auto* tooltip = new StatusToolTip(err, false);
-                            juce::CallOutBox::launchAsynchronously(
-                                std::unique_ptr<juce::Component>(tooltip),
-                                juce::Rectangle<int>(screenClickPos.x,
-                                                     screenClickPos.y, 1, 1),
-                                nullptr);
-                        }
-                        else
-                        {
-                            // No notes configured - open the editor
-                            showAutoSamplerEditor(autoSampler);
-                        }
-                    }
-                }
-                needsRepaint = true;
-                return;
-            }
-            
-            if (editorRect.contains(pos))
-            {
-                showAutoSamplerEditor(autoSampler);
-                return;
-            }
-            
-            if (folderRect.contains(pos))
-            {
-                autoSampler->openRecordingFolder();
-                return;
-            }
-            
-            if (deleteRect.contains(pos))
-            {
-                if (autoSampler->isRunning()) autoSampler->stopAutoSampling();
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-            
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END AUTO SAMPLER button handling
         // =========================================================================
@@ -1170,211 +851,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // MIDI PLAYER button handling
         // All hit areas computed exactly as in Paint (after title bar removal)
         // =========================================================================
-        MidiPlayerProcessor* midiPlayer = cache ? cache->midiPlayer
-                                                  : dynamic_cast<MidiPlayerProcessor*>(node->getProcessor());
-        if (midiPlayer)
-        {
-            // --- Compute layout IDENTICALLY to GraphCanvas_Paint.cpp ---
-            // In Paint: bounds already has title removed, then reduced(8,6)
-            auto contentBounds = nodeBounds;
-            contentBounds.removeFromTop(Style::nodeTitleHeight);
-            auto area = contentBounds.reduced(8, 6);
-
-            // TOP ROW: filename + load + info
-            auto topRow = area.removeFromTop(26);
-            auto infoBtnArea = topRow.removeFromRight(34);
-            topRow.removeFromRight(4);
-            auto loadBtnArea = topRow.removeFromRight(68);
-            topRow.removeFromRight(6);
-
-            area.removeFromTop(6);
-
-            // MIDDLE ROW: transport + BPM + channel dots
-            auto controlRow = area.removeFromTop(44);
-            auto playBtnArea = controlRow.removeFromLeft(50).reduced(3);
-            controlRow.removeFromLeft(4);
-            auto stopBtnArea = controlRow.removeFromLeft(50).reduced(3);
-            controlRow.removeFromLeft(4);
-            auto loopBtnArea = controlRow.removeFromLeft(50).reduced(3);
-            controlRow.removeFromLeft(10);
-            auto bpmArea = controlRow.removeFromLeft(60);
-            controlRow.removeFromLeft(4);
-            auto syncBtnArea = controlRow.removeFromLeft(32).reduced(2, 6);
-
-            area.removeFromTop(6);
-
-            // BOTTOM: time + slider
-            auto bottomArea = area;
-            bottomArea.removeFromTop(16); // time row
-            bottomArea.removeFromTop(4);
-            auto sliderArea = bottomArea.reduced(0, 1);
-            float trackX = sliderArea.getX() + 6;
-            float trackW = sliderArea.getWidth() - 12;
-
-            // E + X buttons (from drawNodeButtons: after title removal)
-            float btnY = contentBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float btnX = contentBounds.getX() + Style::bottomBtnMargin;
-            auto editBtnArea = juce::Rectangle<float>(btnX - 4, btnY - 4, 28, 28);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto deleteBtnArea = juce::Rectangle<float>(btnX - 4, btnY - 4, 28, 28);
-
-            // Right-click: Show tooltips
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-                
-                if (editBtnArea.contains(pos))   { launchTip("E - Open channel info / mute table"); return; }
-                if (deleteBtnArea.contains(pos)) { launchTip("X - Delete this MIDI Player module"); return; }
-                if (playBtnArea.contains(pos))   { launchTip("Play - Start MIDI file playback"); return; }
-                if (stopBtnArea.contains(pos))   { launchTip("Stop - Stop playback and reset position"); return; }
-                if (loopBtnArea.contains(pos))   { launchTip("Loop - Toggle loop playback on/off"); return; }
-                if (bpmArea.contains(pos))       { launchTip("BPM - Drag up/down to set manual tempo"); return; }
-                if (syncBtnArea.contains(pos))   { launchTip("SYNC - Sync tempo to master clock"); return; }
-                if (loadBtnArea.contains(pos))   { launchTip("Load - Browse and load a .mid file"); return; }
-                if (infoBtnArea.contains(pos))   { launchTip("Info - Show MIDI file channel summary"); return; }
-                return;
-            }
-
-            // ---- HIT TESTING (E/X first, then others) ----
-
-            // E button (channel info/mute popup)
-            if (editBtnArea.contains(pos))
-            {
-                showMidiPlayerChannelInfo(midiPlayer);
-                return;
-            }
-
-            // X button (delete)
-            if (deleteBtnArea.contains(pos))
-            {
-                midiPlayer->stop();
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-
-            // LOAD button
-            if (loadBtnArea.contains(pos))
-            {
-                juce::File startDir = lastBrowsedDirectory.isDirectory()
-                    ? lastBrowsedDirectory
-                    : juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-
-                midiFileChooser = std::make_unique<juce::FileChooser>(
-                    "Select MIDI File",
-                    startDir,
-                    "*.mid;*.midi;*.MID;*.MIDI");
-
-                juce::Component::SafePointer<GraphCanvas> safeThis(this);
-                auto* playerPtr = midiPlayer;
-
-                midiFileChooser->launchAsync(
-                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                    [safeThis, playerPtr](const juce::FileChooser& fc)
-                    {
-                        if (!safeThis) return;
-                        auto result = fc.getResult();
-                        if (result.existsAsFile())
-                        {
-                            safeThis->lastBrowsedDirectory = result.getParentDirectory();
-                            safeThis->saveLastBrowsedDirectory();
-                            playerPtr->loadFile(result);
-                            safeThis->needsRepaint = true;
-                        }
-                    });
-                return;
-            }
-
-            // Top E button (info/channel editor)
-            if (infoBtnArea.contains(pos))
-            {
-                showMidiPlayerChannelInfo(midiPlayer);
-                return;
-            }
-
-            // PLAY/PAUSE
-            if (playBtnArea.contains(pos))
-            {
-                if (midiPlayer->isPlaying()) midiPlayer->pause();
-                else midiPlayer->play();
-                needsRepaint = true;
-                return;
-            }
-
-            // STOP
-            if (stopBtnArea.contains(pos))
-            {
-                midiPlayer->stop();
-                needsRepaint = true;
-                return;
-            }
-
-            // LOOP toggle
-            if (loopBtnArea.contains(pos))
-            {
-                midiPlayer->setLooping(!midiPlayer->isLooping());
-                needsRepaint = true;
-                return;
-            }
-
-            // SYNC button
-            if (syncBtnArea.contains(pos))
-            {
-                midiPlayer->setSyncToMaster(!midiPlayer->isSyncToMaster());
-                needsRepaint = true;
-                return;
-            }
-
-            // BPM drag (drag only, no toggle)
-            if (bpmArea.contains(pos))
-            {
-                // Dragging BPM disables sync
-                if (midiPlayer->isSyncToMaster())
-                {
-                    midiPlayer->setSyncToMaster(false);
-                    midiPlayer->setTempoOverride(true);
-                    midiPlayer->setTempoOverrideBpm(midiPlayer->getCurrentBpm());
-                }
-                midiBpmDragging = true;
-                midiBpmDragPlayer = midiPlayer;
-                midiBpmDragStartY = pos.y;
-                midiBpmDragStartValue = midiPlayer->getTempoOverrideBpm();
-                needsRepaint = true;
-                return;
-            }
-
-            // Slider seek
-            if (sliderArea.contains(pos))
-            {
-                float normalised = juce::jlimit(0.0f, 1.0f, (pos.x - trackX) / trackW);
-                midiPlayer->setPositionNormalized((double)normalised);
-                midiSliderDragging = true;
-                midiSliderDragPlayer = midiPlayer;
-                midiSliderTrackX = trackX;
-                midiSliderTrackW = trackW;
-                needsRepaint = true;
-                return;
-            }
-
-            // Fall through: drag node
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END MIDI PLAYER button handling
         // =========================================================================
@@ -1382,101 +858,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // STEP SEQ button handling (Play/Stop, BPM drag, Sync, E editor, Delete)
         // =========================================================================
-        CCStepperProcessor* ccStepper = cache ? cache->ccStepper
-                                                : dynamic_cast<CCStepperProcessor*>(node->getProcessor());
-        if (ccStepper)
-        {
-            auto stepSeqContent = nodeBounds;
-            stepSeqContent.removeFromTop(Style::nodeTitleHeight);
-            auto ssArea = stepSeqContent.reduced(8, 6);
-
-            // TOP ROW hit areas (must match Paint.cpp layout exactly)
-            auto ssTopRow = ssArea.removeFromTop(28);
-            auto ssPlayBtnArea = ssTopRow.removeFromLeft(50).reduced(2);
-            ssTopRow.removeFromLeft(6);
-            auto ssBpmArea = ssTopRow.removeFromLeft(70);
-            ssTopRow.removeFromLeft(4);
-            auto ssSyncBtnArea = ssTopRow.removeFromLeft(32).reduced(1, 3);
-
-            // Bottom buttons (E + X)
-            float ssBtnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float ssBtnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            auto ssEditRect = juce::Rectangle<float>(ssBtnX, ssBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            ssBtnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto ssDeleteRect = juce::Rectangle<float>(ssBtnX, ssBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-                
-                if (ssEditRect.contains(pos))    { launchTip("E - Open CC Step Sequencer editor"); return; }
-                if (ssDeleteRect.contains(pos))  { launchTip("X - Delete this Step Sequencer module"); return; }
-                if (ssPlayBtnArea.contains(pos)) { launchTip("Play/Stop - Toggle sequencer playback"); return; }
-                if (ssBpmArea.contains(pos))     { launchTip("BPM - Drag up/down to set manual tempo"); return; }
-                if (ssSyncBtnArea.contains(pos)) { launchTip("SYNC - Sync tempo to master clock"); return; }
-                return;
-            }
-
-            // FIX: Check bottom buttons BEFORE other areas
-            if (ssEditRect.contains(pos))
-            {
-                showStepSeqEditor(node);
-                return;
-            }
-
-            if (ssDeleteRect.contains(pos))
-            {
-                ccStepper->stop();
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-
-            // PLAY/STOP
-            if (ssPlayBtnArea.contains(pos))
-            {
-                ccStepper->togglePlayStop();
-                needsRepaint = true;
-                return;
-            }
-
-            // SYNC button
-            if (ssSyncBtnArea.contains(pos))
-            {
-                ccStepper->setSyncToMasterBpm(!ccStepper->isSyncToMasterBpm());
-                needsRepaint = true;
-                return;
-            }
-
-            // BPM drag start (only if not synced to master)
-            if (ssBpmArea.contains(pos) && !ccStepper->isSyncToMasterBpm())
-            {
-                stepSeqBpmDragging = true;
-                stepSeqBpmDragProcessor = ccStepper;
-                stepSeqBpmDragStartY = pos.y;
-                stepSeqBpmDragStartValue = ccStepper->getBpm();
-                needsRepaint = true;
-                return;
-            }
-
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END STEP SEQ button handling
         // =========================================================================
@@ -1540,68 +921,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // MIDI MULTI FILTER button handling (E, P, X buttons)
         // =========================================================================
-        MidiMultiFilterProcessor* midiMultiFilter = dynamic_cast<MidiMultiFilterProcessor*>(node->getProcessor());
-        if (midiMultiFilter)
-        {
-            nodeBounds.removeFromTop(Style::nodeTitleHeight);
-            float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-
-            auto mmfEditRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto mmfPassRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto mmfDeleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-
-                if (mmfEditRect.contains(pos))   { launchTip("E - Open MIDI Multi Filter editor"); return; }
-                if (mmfPassRect.contains(pos))    { launchTip("P - Pass-through (bypass all filtering, yellow when active)"); return; }
-                if (mmfDeleteRect.contains(pos))  { launchTip("X - Delete this MIDI Multi Filter"); return; }
-                return;
-            }
-
-            if (mmfEditRect.contains(pos))
-            {
-                showMidiMultiFilterEditor(node);
-                return;
-            }
-
-            if (mmfPassRect.contains(pos))
-            {
-                midiMultiFilter->passThrough = !midiMultiFilter->passThrough;
-                needsRepaint = true;
-                repaint();
-                return;
-            }
-
-            if (mmfDeleteRect.contains(pos))
-            {
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END MIDI MULTI FILTER button handling
         // =========================================================================
@@ -1609,102 +928,6 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
         // =========================================================================
         // LATCHER button handling (E editor, X delete, All Off, pad clicks)
         // =========================================================================
-        LatcherProcessor* latcher = dynamic_cast<LatcherProcessor*>(node->getProcessor());
-        if (latcher)
-        {
-            auto latcherContent = nodeBounds;
-            latcherContent.removeFromTop(Style::nodeTitleHeight);
-            auto lArea = latcherContent.reduced(8, 6);
-
-            // "All Off" button — upper right of content area
-            float allOffW = 42.0f;
-            float allOffH = 16.0f;
-            auto allOffRect = juce::Rectangle<float>(
-                lArea.getRight() - allOffW, lArea.getY(), allOffW, allOffH);
-
-            // Grid area (below All Off, above bottom buttons)
-            auto lGridArea = lArea;
-            lGridArea.removeFromTop(allOffH + 2.0f);
-            lGridArea.removeFromBottom(Style::bottomBtnHeight + Style::bottomBtnMargin + 2);
-
-            // Bottom buttons (E + X)
-            float lBtnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
-            float lBtnX = nodeBounds.getX() + Style::bottomBtnMargin;
-            auto lEditRect = juce::Rectangle<float>(lBtnX, lBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            lBtnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            auto lDeleteRect = juce::Rectangle<float>(lBtnX, lBtnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-
-            if (e.mods.isRightButtonDown())
-            {
-                auto launchTip = [&](const juce::String& text) {
-                    auto* tooltip = new StatusToolTip(text, true);
-                    juce::CallOutBox::launchAsynchronously(
-                        std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10,
-                                             screenClickPos.y + 10, 1, 1),
-                        nullptr);
-                };
-
-                if (allOffRect.contains(pos))   { launchTip("All Off - Release all latched pads"); return; }
-                if (lEditRect.contains(pos))     { launchTip("E - Open Latcher pad editor"); return; }
-                if (lDeleteRect.contains(pos))   { launchTip("X - Delete this Latcher module"); return; }
-                if (lGridArea.contains(pos))     { launchTip("Click pads to toggle latch on/off"); return; }
-                return;
-            }
-
-            // All Off button
-            if (allOffRect.contains(pos))
-            {
-                latcher->allNotesOff();
-                needsRepaint = true;
-                repaint();
-                return;
-            }
-
-            // Check bottom buttons BEFORE grid
-            if (lEditRect.contains(pos))
-            {
-                showLatcherEditor(node);
-                return;
-            }
-
-            if (lDeleteRect.contains(pos))
-            {
-                latcher->allNotesOff();
-                auto nodeID = node->nodeID;
-                auto windowIt = activePluginWindows.find(nodeID);
-                if (windowIt != activePluginWindows.end())
-                    activePluginWindows.erase(windowIt);
-                disconnectNode(node);
-                removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
-                updateParentSelector();
-                markDirty();
-                return;
-            }
-
-            // PAD GRID clicks - toggle pads directly from the node
-            if (lGridArea.contains(pos))
-            {
-                float padW = lGridArea.getWidth() / 4.0f;
-                float padH = lGridArea.getHeight() / 4.0f;
-
-                int col = (int)((pos.x - lGridArea.getX()) / padW);
-                int row = (int)((pos.y - lGridArea.getY()) / padH);
-                col = juce::jlimit(0, 3, col);
-                row = juce::jlimit(0, 3, row);
-                int padIndex = row * 4 + col;
-
-                latcher->togglePadFromUI(padIndex);
-                needsRepaint = true;
-                repaint();
-                return;
-            }
-
-            draggingNodeID = node->nodeID;
-            nodeDragOffset = pos - juce::Point<float>((float)node->properties["x"], (float)node->properties["y"]);
-            startTimer(MouseInteractionTimerID, 16);
-            return;
-        }
         // =========================================================================
         // END LATCHER button handling
         // =========================================================================
@@ -1728,127 +951,127 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             bool hasPassBtn = !isInstrument && meteringProc;
             bool hasTransportBtn = (meteringProc != nullptr);
             bool hasLoadBtn = meteringProc && meteringProc->isVST2();
-            
+
             if (hasEditBtn)
             {
                 editRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
                 btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
             }
-            
+
             if (hasChBtn)
             {
                 chRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
                 btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
             }
-            
+
             muteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
             btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
-            
+
             if (hasPassBtn)
             {
                 passRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
                 btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
             }
-            
+
             if (hasTransportBtn)
             {
                 transportRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
                 btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
             }
-            
+
             if (hasLoadBtn)
             {
                 loadRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
                 btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
             }
-            
+
             deleteRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth, Style::bottomBtnHeight);
-            
+
             // Right-click: Show tooltips only
             if (e.mods.isRightButtonDown())
             {
-                
+
                 if (hasEditBtn && editRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("E - Open plugin editor window", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (hasChBtn && chRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("CH - MIDI channel filter (select which channels this instrument receives)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (muteRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("M - Mute/Bypass plugin (yellow when muted)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (hasPassBtn && passRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("P - Pass-through mode (bypass processing, pass audio through)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (hasTransportBtn && transportRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("T - Per-plugin transport override (custom tempo/time signature)", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (hasLoadBtn && loadRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("L - Load/Replace VST2 plugin from file", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 if (deleteRect.contains(pos))
                 {
                     auto* tooltip = new StatusToolTip("X - Delete plugin from rack", true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
                 }
-                
+
                 // Right-click elsewhere on plugin node - no action (tooltip-only policy)
                 return;
             }
-            
+
             // Left-click: Handle button actions
             if (hasEditBtn && editRect.contains(pos))
             {
@@ -1892,17 +1115,17 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             {
                 // CRITICAL FIX: Close window and disconnect wires BEFORE removing node
                 auto nodeID = node->nodeID;
-                
+
                 // Step 1: Close the plugin window if it exists
                 auto windowIt = activePluginWindows.find(nodeID);
                 if (windowIt != activePluginWindows.end())
                 {
                     activePluginWindows.erase(windowIt);
                 }
-                
+
                 // Step 2: Disconnect all wires connected to this node
                 disconnectNode(node);
-                
+
                 // Step 3: Now safely remove the node
                 removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
                 updateParentSelector();
@@ -1923,26 +1146,26 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
 
             auto toggleRect = juce::Rectangle<float>(btnX, btnY, Style::bottomBtnWidth * 1.5f, Style::bottomBtnHeight);
-            
+
             // +/- bus buttons (only inside container, audio nodes only)
             float pmBtnW = Style::bottomBtnWidth;
             float pmBtnH = Style::bottomBtnHeight;
             float addX   = btnX + Style::bottomBtnWidth * 1.5f + Style::bottomBtnSpacing * 2.0f;
             auto addRect = juce::Rectangle<float>(addX, btnY, pmBtnW, pmBtnH);
             auto subRect = juce::Rectangle<float>(addX + pmBtnW + Style::bottomBtnSpacing, btnY, pmBtnW, pmBtnH);
-            
+
             // Right-click: Show tooltip only
             if (e.mods.isRightButtonDown())
             {
                 if (toggleRect.contains(pos))
                 {
-                    juce::String tooltipText = isAudioInput 
+                    juce::String tooltipText = isAudioInput
                         ? "ON/OFF - Enable/Disable audio input from hardware"
                         : "ON/OFF - Enable/Disable audio output to hardware";
                     auto* tooltip = new StatusToolTip(tooltipText, true);
                     juce::CallOutBox::launchAsynchronously(
                         std::unique_ptr<juce::Component>(tooltip),
-                        juce::Rectangle<int>(screenClickPos.x + 10, 
+                        juce::Rectangle<int>(screenClickPos.x + 10,
                                              screenClickPos.y + 10, 1, 1),
                         nullptr);
                     return;
@@ -1964,7 +1187,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 // Right-click elsewhere on I/O node - no action
                 return;
             }
-            
+
             // Left-click: Toggle ON/OFF
             if (toggleRect.contains(pos))
             {
@@ -1972,12 +1195,12 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                 needsRepaint = true;
                 return;
             }
-            
+
             // Left-click: +/- bus buttons inside container
             if (isInsideContainer() && !containerStack.empty())
             {
                 auto* containerProc = containerStack.back();
-                
+
                 if (addRect.contains(pos))
                 {
                     processor.suspendProcessing(true);
@@ -1990,7 +1213,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
                     needsRepaint = true;
                     return;
                 }
-                
+
                 if (subRect.contains(pos))
                 {
                     processor.suspendProcessing(true);
@@ -2019,7 +1242,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
             nodeDragOffset = pos - juce::Point<float>(
                 (float)node->properties["x"],
                 (float)node->properties["y"]);
-            
+
             // CRITICAL FIX: Start high-frequency timer ONCE when drag begins
             startTimer(MouseInteractionTimerID, 16);  // 60 Hz for smooth dragging
         }
@@ -2028,7 +1251,7 @@ void GraphCanvas::mouseDown(const juce::MouseEvent& e)
     {
         // FIX #3: Store right-click position for new node placement
         lastRightClickPos = pos;
-        
+
         // Empty canvas - show add plugin menu
         showPluginMenu();
     }
@@ -2048,50 +1271,54 @@ void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juc
     auto* cache = getCachedNodeType(node->nodeID);
     MeteringProcessor* meteringProc = cache ? cache->meteringProc : dynamic_cast<MeteringProcessor*>(node->getProcessor());
     ContainerProcessor* containerProc = cache ? cache->container : dynamic_cast<ContainerProcessor*>(node->getProcessor());
-    
-    // Check if this is an I/O node
+
+    // Check if this is an I/O node or PlaybackNode (protected from deletion)
     bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
     bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
-    bool isMidiInput   = cache ? cache->isMidiInput   : (node == processor.midiInputNode.get());
-    bool isMidiOutput  = cache ? cache->isMidiOutput  : (node == processor.midiOutputNode.get());
-    bool isIONode = isAudioInput || isAudioOutput || isMidiInput || isMidiOutput;
+    bool isPlayback    = cache ? cache->isPlayback    : (node == processor.playbackNode.get());
+    bool isIONode = isAudioInput || isAudioOutput;
+    bool isProtectedNode = isIONode || isPlayback;
 
     juce::PopupMenu menu;
 
     // Only show "Open Editor" for regular plugins with editors
-    if (!isIONode && meteringProc && meteringProc->hasEditor())
+    if (!isProtectedNode && meteringProc && meteringProc->hasEditor())
     {
         menu.addItem(1, "Open Editor");
         menu.addSeparator();
     }
 
-    // Don't show mute/bypass for I/O nodes
-    if (!isIONode)
+    // Don't show mute/bypass for protected nodes
+    if (!isProtectedNode)
     {
         menu.addItem(2, "Mute/Bypass");
         menu.addSeparator();
     }
 
     menu.addItem(3, "Disconnect All Wires");
-    menu.addSeparator();
     
     // Container-specific menu items
     if (containerProc)
     {
+        menu.addSeparator();
         menu.addItem(20, "Dive Into Container");
         menu.addItem(21, "Rename Container...");
         menu.addSeparator();
         menu.addItem(22, "Save Container Preset...");
         menu.addItem(23, "Load Container Preset...");
-        menu.addSeparator();
     }
-    
-    menu.addItem(10, "Delete");
+
+    // OnStage: PlaybackNode and I/O nodes cannot be deleted
+    if (!isProtectedNode)
+    {
+        menu.addSeparator();
+        menu.addItem(10, "Delete");
+    }
 
     // Keep file chooser alive for async callbacks
     auto fileChooserPtr = std::make_shared<std::unique_ptr<juce::FileChooser>>();
-    
-    menu.showMenuAsync(juce::PopupMenu::Options(), 
+
+    menu.showMenuAsync(juce::PopupMenu::Options(),
         [this, node, meteringProc, containerProc, fileChooserPtr](int result)
         {
             if (result == 1 && meteringProc)
@@ -2112,17 +1339,17 @@ void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juc
             {
                 // CRITICAL FIX: Close window and disconnect wires BEFORE removing node
                 auto nodeID = node->nodeID;
-                
+
                 // Step 1: Close the plugin window if it exists
                 auto windowIt = activePluginWindows.find(nodeID);
                 if (windowIt != activePluginWindows.end())
                 {
                     activePluginWindows.erase(windowIt);
                 }
-                
+
                 // Step 2: Disconnect all wires connected to this node
                 disconnectNode(node);
-                
+
                 // Step 3: Now safely remove the node
                 removeNodeFromGraph(processor, getActiveGraph(), nodeID, isInsideContainer());
                 updateParentSelector();
@@ -2136,12 +1363,12 @@ void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juc
             else if (result == 21 && containerProc)
             {
                 auto currentName = containerProc->getContainerName();
-                auto* alertWindow = new juce::AlertWindow("Rename Container", 
+                auto* alertWindow = new juce::AlertWindow("Rename Container",
                     "Enter a new name for this container:", juce::MessageBoxIconType::QuestionIcon);
                 alertWindow->addTextEditor("name", currentName, "Name:");
                 alertWindow->addButton("OK", 1);
                 alertWindow->addButton("Cancel", 0);
-                
+
                 alertWindow->enterModalState(true, juce::ModalCallbackFunction::create(
                     [containerProc, alertWindow, this](int result) {
                         if (result == 1)
@@ -2161,12 +1388,12 @@ void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juc
             {
                 auto defaultFolder = ContainerProcessor::getEffectiveDefaultFolder();
                 defaultFolder.createDirectory();
-                
+
                 *fileChooserPtr = std::make_unique<juce::FileChooser>(
                     "Save Container Preset",
                     defaultFolder.getChildFile(containerProc->getContainerName() + ".container"),
                     "*.container");
-                
+
                 (*fileChooserPtr)->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                     [containerProc](const juce::FileChooser& fc) {
                         auto file = fc.getResult();
@@ -2177,12 +1404,12 @@ void GraphCanvas::showNodeContextMenu(juce::AudioProcessorGraph::Node* node, juc
             else if (result == 23 && containerProc)
             {
                 auto defaultFolder = ContainerProcessor::getEffectiveDefaultFolder();
-                
+
                 *fileChooserPtr = std::make_unique<juce::FileChooser>(
                     "Load Container Preset",
                     defaultFolder,
                     "*.container");
-                
+
                 (*fileChooserPtr)->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                     [containerProc, this](const juce::FileChooser& fc) {
                         auto file = fc.getResult();
@@ -2201,10 +1428,10 @@ void GraphCanvas::disconnectNode(juce::AudioProcessorGraph::Node* node)
 {
     auto* activeGraph = getActiveGraph();
     if (!node || !activeGraph) return;
-    
+
     // Get all connections
     auto connections = activeGraph->getConnections();
-    
+
     // Find and remove all connections involving this node
     for (const auto& conn : connections)
     {
@@ -2213,7 +1440,7 @@ void GraphCanvas::disconnectNode(juce::AudioProcessorGraph::Node* node)
             activeGraph->removeConnection(conn);
         }
     }
-    
+
     markDirty();
 }
 
@@ -2233,41 +1460,41 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
 {
     auto* ag = getActiveGraph();
     if (!draggedNode || !ag) return;
-    
+
     auto draggedBounds = getNodeBounds(draggedNode);
     float dragW = draggedBounds.getWidth();
     float dragH = draggedBounds.getHeight();
-    
+
     bool snappedX = false;
     bool snappedY = false;
     float bestSnapDistX = magneticSnapThreshold + 1.0f;
     float bestSnapDistY = magneticSnapThreshold + 1.0f;
     float snapX = x;
     float snapY = y;
-    
+
     // Collect connected node IDs
     auto nodeID = draggedNode->nodeID;
-    
+
     for (auto& conn : ag->getConnections())
     {
         juce::AudioProcessorGraph::NodeID otherID;
-        
+
         if (conn.source.nodeID == nodeID)
             otherID = conn.destination.nodeID;
         else if (conn.destination.nodeID == nodeID)
             otherID = conn.source.nodeID;
         else
             continue;
-        
+
         auto* otherNode = ag->getNodeForId(otherID);
         if (!otherNode) continue;
-        
+
         auto otherBounds = getNodeBounds(otherNode);
         float ox = otherBounds.getX();
         float oy = otherBounds.getY();
         float ow = otherBounds.getWidth();
         float oh = otherBounds.getHeight();
-        
+
         // --- Horizontal alignment (snap Y): top-to-top ---
         float distTopTop = std::abs(y - oy);
         if (distTopTop < bestSnapDistY && distTopTop < magneticSnapThreshold) {
@@ -2275,7 +1502,7 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
             snapY = oy;
             snappedY = true;
         }
-        
+
         // --- Horizontal alignment: center-to-center Y ---
         float dragCenterY = y + dragH * 0.5f;
         float otherCenterY = oy + oh * 0.5f;
@@ -2285,12 +1512,12 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
             snapY = otherCenterY - dragH * 0.5f;
             snappedY = true;
         }
-        
+
         // --- Vertical snap: right edge of dragged → left edge of other (flow: left→right) ---
         float dragRight = x + dragW;
         float gap1 = std::abs(dragRight - ox);             // snug against left
         float gap2 = std::abs(dragRight + 10.0f - ox);     // 10px gap
-        
+
         if (gap1 < bestSnapDistX && gap1 < magneticSnapThreshold) {
             bestSnapDistX = gap1;
             snapX = ox - dragW;
@@ -2301,12 +1528,12 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
             snapX = ox - dragW - 10.0f;
             snappedX = true;
         }
-        
+
         // --- Vertical snap: left edge of dragged → right edge of other (flow: right→left) ---
         float otherRight = ox + ow;
         float gap3 = std::abs(x - otherRight);
         float gap4 = std::abs(x - (otherRight + 10.0f));
-        
+
         if (gap3 < bestSnapDistX && gap3 < magneticSnapThreshold) {
             bestSnapDistX = gap3;
             snapX = otherRight;
@@ -2317,7 +1544,7 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
             snapX = otherRight + 10.0f;
             snappedX = true;
         }
-        
+
         // --- Vertical alignment: left-to-left (stacking) ---
         float distLeftLeft = std::abs(x - ox);
         if (distLeftLeft < bestSnapDistX && distLeftLeft < magneticSnapThreshold) {
@@ -2326,7 +1553,7 @@ void GraphCanvas::applyMagneticSnap(juce::AudioProcessorGraph::Node* draggedNode
             snappedX = true;
         }
     }
-    
+
     if (snappedX) x = snapX;
     if (snappedY) y = snapY;
 }
@@ -2341,7 +1568,7 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
         navigateMinimapTo(e.position);
         return;
     }
-    
+
     // =========================================================================
     // NEW: Scrollbar drag
     // =========================================================================
@@ -2355,7 +1582,7 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
             float thumbRatio = visW / virtualCanvasWidth;
             float thumbW = juce::jmax(20.0f, hBar.getWidth() * thumbRatio);
             float trackRange = hBar.getWidth() - thumbW;
-            
+
             float delta = e.position.x - scrollbarDragStartOffset;
             float panDelta = (delta / trackRange) * maxPan;
             panOffsetX = juce::jlimit(0.0f, maxPan, scrollbarDragStartPan + panDelta);
@@ -2363,7 +1590,7 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
         }
         return;
     }
-    
+
     if (isDraggingVScrollbar)
     {
         float visH = getVisibleHeight();
@@ -2374,7 +1601,7 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
             float thumbRatio = visH / virtualCanvasHeight;
             float thumbH = juce::jmax(20.0f, vBar.getHeight() * thumbRatio);
             float trackRange = vBar.getHeight() - thumbH;
-            
+
             float delta = e.position.y - scrollbarDragStartOffset;
             float panDelta = (delta / trackRange) * maxPan;
             panOffsetY = juce::jlimit(0.0f, maxPan, scrollbarDragStartPan + panDelta);
@@ -2382,7 +1609,7 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
         }
         return;
     }
-    
+
     // Drag-to-pan: move view by screen delta
     if (isPanning)
     {
@@ -2393,36 +1620,27 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
         repaint();
         return;
     }
-    
-    if (midiSliderDragging && midiSliderDragPlayer)
+
+
+
+    // Step Seq BPM drag
+
+    // =========================================================================
+    // Connector/Amp slider drag
+    // =========================================================================
+    if (draggingConnectorSlider && draggingConnectorNode)
     {
         auto pos = toVirtual(e.position);
-        float normalised = juce::jlimit(0.0f, 1.0f, (pos.x - midiSliderTrackX) / midiSliderTrackW);
-        midiSliderDragPlayer->setPositionNormalized((double)normalised);
-        needsRepaint = true;
+        if (auto* simpleConnector = dynamic_cast<SimpleConnectorProcessor*>(draggingConnectorNode->getProcessor()))
+        {
+            float relativeX = (pos.x - draggingConnectorSliderRect.getX()) / draggingConnectorSliderRect.getWidth();
+            relativeX = juce::jlimit(0.0f, 1.0f, relativeX);
+            simpleConnector->setVolume(relativeX);
+            needsRepaint = true;
+        }
         return;
     }
-    
-    if (midiBpmDragging && midiBpmDragPlayer)
-    {
-        float deltaY = midiBpmDragStartY - e.position.y;  // Drag up = increase
-        double newBpm = midiBpmDragStartValue + deltaY * 0.5;  // 0.5 BPM per pixel
-        newBpm = juce::jlimit(20.0, 400.0, newBpm);
-        midiBpmDragPlayer->setTempoOverrideBpm(newBpm);
-        needsRepaint = true;
-        return;
-    }
-    
-    // Step Seq BPM drag
-    if (stepSeqBpmDragging && stepSeqBpmDragProcessor)
-    {
-        float deltaY = stepSeqBpmDragStartY - e.position.y;
-        double newBpm = stepSeqBpmDragStartValue + deltaY * 0.5;
-        stepSeqBpmDragProcessor->setBpm(newBpm);
-        needsRepaint = true;
-        return;
-    }
-    
+
     if (dragCable.active)
     {
         dragCable.currentDragPos = toVirtual(e.position);
@@ -2438,11 +1656,11 @@ void GraphCanvas::mouseDrag(const juce::MouseEvent& e)
             auto p = toVirtual(e.position) - nodeDragOffset;
             float clampedX = juce::jmax(10.0f, juce::jmin(p.x, virtualCanvasWidth  - Style::nodeWidth  - 10.0f));
             float clampedY = juce::jmax(10.0f, juce::jmin(p.y, virtualCanvasHeight - Style::nodeHeight - 10.0f));
-            
+
             // Magnetic snap: align with connected nodes when close
             if (!e.mods.isShiftDown())  // Hold Shift to disable snap
                 applyMagneticSnap(node, clampedX, clampedY);
-            
+
             node->properties.set("x", clampedX);
             node->properties.set("y", clampedY);
             needsRepaint = true;
@@ -2474,35 +1692,25 @@ void GraphCanvas::mouseUp(const juce::MouseEvent& e)
         repaint();
         return;
     }
-    
+
     // End drag-to-pan
     if (isPanning)
     {
         isPanning = false;
         setMouseCursor(juce::MouseCursor::NormalCursor);
     }
-    
-    if (midiSliderDragging)
+
+    // End connector slider drag
+    if (draggingConnectorSlider)
     {
-        midiSliderDragging = false;
-        midiSliderDragPlayer = nullptr;
-        needsRepaint = true;
+        draggingConnectorSlider = false;
+        draggingConnectorNode = nullptr;
+        markDirty();  // Save state after slider adjustment
     }
-    
-    if (midiBpmDragging)
-    {
-        midiBpmDragging = false;
-        midiBpmDragPlayer = nullptr;
-        needsRepaint = true;
-    }
-    
-    if (stepSeqBpmDragging)
-    {
-        stepSeqBpmDragging = false;
-        stepSeqBpmDragProcessor = nullptr;
-        needsRepaint = true;
-    }
-    
+
+
+
+
     if (dragCable.active)
     {
         auto hovered = findPinAt(toVirtual(e.position));
@@ -2514,7 +1722,7 @@ void GraphCanvas::mouseUp(const juce::MouseEvent& e)
     }
 
     draggingNodeID = juce::AudioProcessorGraph::NodeID();
-    
+
     // CRITICAL FIX: Return to main timer when drag ends (managed by MainTimerID)
     // Note: MainTimerID timer is always running, no need to restart
     // MouseInteractionTimerID will automatically be managed by timerCallback
@@ -2527,14 +1735,14 @@ void GraphCanvas::mouseDoubleClick(const juce::MouseEvent& e)
     // Prevent spurious opens when hovering/dragging
     if (dragCable.active || draggingNodeID.uid != 0)
         return;
-        
+
     // Don't open if double-clicking on pins or connections
     if (findPinAt(toVirtual(e.position)).isValid())
         return;
-        
+
     if (getConnectionAt(toVirtual(e.position)).source.nodeID.uid != 0)
         return;
-    
+
     // FIX: Don't open plugin windows for I/O nodes (Audio In/Out, MIDI In/Out)
     // Double-clicking these nodes should do nothing - prevents them from disappearing
     if (auto* node = findNodeAt(toVirtual(e.position)))
@@ -2542,34 +1750,22 @@ void GraphCanvas::mouseDoubleClick(const juce::MouseEvent& e)
         auto* cache = getCachedNodeType(node->nodeID);
         bool isAudioInput  = cache ? cache->isAudioInput  : (node == processor.audioInputNode.get());
         bool isAudioOutput = cache ? cache->isAudioOutput : (node == processor.audioOutputNode.get());
-        bool isMidiInput   = cache ? cache->isMidiInput   : (node == processor.midiInputNode.get());
-        bool isMidiOutput  = cache ? cache->isMidiOutput  : (node == processor.midiOutputNode.get());
-        
+        bool isMidiInput   = cache ? cache->isMidiInput   : false;  // OnStage: No MIDI I/O nodes
+        bool isMidiOutput  = cache ? cache->isMidiOutput  : false;
+
         // Exclude I/O nodes from double-click plugin window opening
         if (isAudioInput || isAudioOutput || isMidiInput || isMidiOutput)
             return;
-        
+
         // Exclude system tool nodes (they have their own UI, not plugin editors)
         auto* proc = node->getProcessor();
         if (dynamic_cast<SimpleConnectorProcessor*>(proc)
             || dynamic_cast<StereoMeterProcessor*>(proc)
-            || dynamic_cast<MidiMonitorProcessor*>(proc)
             || dynamic_cast<RecorderProcessor*>(proc)
-            || dynamic_cast<ManualSamplerProcessor*>(proc)
-            || dynamic_cast<AutoSamplerProcessor*>(proc)
-            || dynamic_cast<MidiPlayerProcessor*>(proc)
-            || dynamic_cast<CCStepperProcessor*>(proc)
             || dynamic_cast<TransientSplitterProcessor*>(proc)
-            || dynamic_cast<LatcherProcessor*>(proc))
+            || dynamic_cast<ContainerProcessor*>(proc))
             return;
-        
-        // Double-click container → dive into its inner graph
-        if (auto* container = dynamic_cast<ContainerProcessor*>(proc))
-        {
-            diveIntoContainer(container);
-            return;
-        }
-            
+
         // Safe to open plugin window for regular plugin nodes
         openPluginWindow(node);
     }
@@ -2578,45 +1774,45 @@ void GraphCanvas::mouseDoubleClick(const juce::MouseEvent& e)
 // MIDI Channel Filter Window - Shows channel selector UI for instruments
 void GraphCanvas::showMidiChannelFilter(juce::AudioProcessorGraph::Node* node) {
     if (!node) return;
-    
+
     auto* meteringProc = dynamic_cast<MeteringProcessor*>(node->getProcessor());
     if (!meteringProc) return;
-    
+
     if (!meteringProc->getInnerPlugin()) return;
-    
+
     // =========================================================================
     // CRITICAL FIX: Use isInstrument() instead of getPluginDescription()
     // getPluginDescription() freezes some plugins when called!
     // =========================================================================
     if (!meteringProc->isInstrument()) return;
-    
+
     // Get node bounds to position popup near the CH button
     auto nodeBounds = getNodeBounds(node);
     nodeBounds.removeFromTop(Style::nodeTitleHeight);
     float btnY = nodeBounds.getBottom() - Style::bottomBtnMargin - Style::bottomBtnHeight;
     float btnX = nodeBounds.getX() + Style::bottomBtnMargin;
-    
+
     // Adjust for E button if it exists
     if (meteringProc->hasEditor()) {
         btnX += Style::bottomBtnWidth + Style::bottomBtnSpacing;
     }
-    
+
     // CH button position in component coordinates
     auto chButtonCenter = juce::Point<int>((int)(btnX + Style::bottomBtnWidth / 2), (int)(btnY + Style::bottomBtnHeight / 2));
-    
+
     // Use MessageManager::callAsync to ensure UI operations happen on message thread
     juce::MessageManager::callAsync([this, meteringProc, chButtonCenter]() {
         auto* selector = new MidiChannelSelector(meteringProc, [this]() {
             // Callback when mask changes - trigger repaint if needed
             needsRepaint = true;
         });
-        
+
         // Convert to screen coordinates
         juce::Rectangle<int> targetArea(
-            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).x, 
-            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).y, 
+            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).x,
+            virtualToScreen((float)chButtonCenter.x, (float)chButtonCenter.y).y,
             1, 1);
-        
+
         juce::CallOutBox::launchAsynchronously(
             std::unique_ptr<juce::Component>(selector),
             targetArea,
@@ -2630,15 +1826,38 @@ void GraphCanvas::showMidiChannelFilter(juce::AudioProcessorGraph::Node* node) {
 void GraphCanvas::showTransportOverride(juce::AudioProcessorGraph::Node* node)
 {
     if (!node) return;
-    
+
     auto* proc = node->getProcessor();
     auto* meteringProc = dynamic_cast<MeteringProcessor*>(proc);
     if (!meteringProc) return;
-    
+
     auto* transportComp = new TransportOverrideComponent(meteringProc);
-    
+
     auto nodeBounds = getNodeBounds(node);
-    
+
+    juce::CallOutBox::launchAsynchronously(
+        std::unique_ptr<juce::Component>(transportComp),
+        juce::Rectangle<int>(
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
+            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getY()).y,
+            1, 1),
+        nullptr);
+}
+
+// =========================================================================
+// Container Transport Override popup
+// =========================================================================
+void GraphCanvas::showContainerTransportOverride(juce::AudioProcessorGraph::Node* node)
+{
+    if (!node) return;
+
+    auto* containerProc = dynamic_cast<ContainerProcessor*>(node->getProcessor());
+    if (!containerProc) return;
+
+    auto* transportComp = new ContainerTransportOverrideComponent(containerProc);
+
+    auto nodeBounds = getNodeBounds(node);
+
     juce::CallOutBox::launchAsynchronously(
         std::unique_ptr<juce::Component>(transportComp),
         juce::Rectangle<int>(
@@ -2668,7 +1887,7 @@ juce::File GraphCanvas::getVST2DefaultFolder() const
             }
         }
     }
-    
+
     // Platform defaults
     #if JUCE_WINDOWS
     juce::File defaultDir("C:\\Program Files\\VstPlugins");
@@ -2688,179 +1907,10 @@ juce::File GraphCanvas::getVST2DefaultFolder() const
 // MIDI Player Channel Info Popup
 // Shows a table of channel numbers and their assigned instruments
 // =========================================================================
-void GraphCanvas::showMidiPlayerChannelInfo(MidiPlayerProcessor* midiPlayer)
-{
-    if (!midiPlayer) return;
-    
-    auto& table = midiPlayer->getChannelInfoTable();
-    
-    int rowH = 26;
-    int headerH = 28;
-    int tableW = 420;
-    int rows = (int)table.size();
-    if (rows == 0) rows = 1;
-    int totalH = headerH + rows * rowH + 12;
-    
-    // Interactive panel with mute toggles
-    struct MutePanel : public juce::Component
-    {
-        std::vector<MidiPlayerProcessor::ChannelInfo> info;
-        MidiPlayerProcessor* player = nullptr;
-        
-        void paint(juce::Graphics& g) override
-        {
-            g.fillAll(juce::Colour(30, 30, 38));
-            
-            int y = 4;
-            int headerH = 24;
-            int muteColX = 4;
-            int muteColW = 30;
-            int chX = muteColX + muteColW + 4;
-            
-            // Header
-            g.setColour(juce::Colour(50, 50, 65));
-            g.fillRect(4, y, getWidth() - 8, headerH);
-            
-            g.setColour(juce::Colours::white);
-            g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-            g.drawText("M",          muteColX, y, muteColW, headerH, juce::Justification::centred);
-            g.drawText("CH",         chX,  y, 32,  headerH, juce::Justification::centredLeft);
-            g.drawText("PRG",        chX + 36, y, 40,  headerH, juce::Justification::centredLeft);
-            g.drawText("BANK",       chX + 80, y, 50,  headerH, juce::Justification::centredLeft);
-            g.drawText("INSTRUMENT", chX + 134, y, 160, headerH, juce::Justification::centredLeft);
-            g.drawText("NOTES",      chX + 302, y, 50, headerH, juce::Justification::centredRight);
-            
-            y += headerH;
-            
-            if (info.empty())
-            {
-                g.setColour(juce::Colours::grey);
-                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::italic)));
-                g.drawText("No instruments found", 0, y, getWidth(), 26, juce::Justification::centred);
-                return;
-            }
-            
-            int rowH = 26;
-            for (int i = 0; i < (int)info.size(); i++)
-            {
-                auto& ch = info[i];
-                bool muted = player ? player->isChannelMuted(ch.channel) : false;
-                
-                // Alternate row background
-                if (i % 2 == 1) {
-                    g.setColour(juce::Colour(38, 38, 48));
-                    g.fillRect(4, y, getWidth() - 8, rowH);
-                }
-                
-                // Muted row overlay
-                if (muted) {
-                    g.setColour(juce::Colour(60, 20, 20).withAlpha(0.3f));
-                    g.fillRect(4, y, getWidth() - 8, rowH);
-                }
-                
-                // Mute toggle button
-                auto muteRect = juce::Rectangle<int>(muteColX + 4, y + 3, muteColW - 8, rowH - 6);
-                g.setColour(muted ? juce::Colour(180, 50, 50) : juce::Colour(50, 70, 50));
-                g.fillRoundedRectangle(muteRect.toFloat(), 3.0f);
-                g.setColour(muted ? juce::Colours::white : juce::Colour(80, 180, 80));
-                g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-                g.drawText(muted ? "M" : "", muteRect, juce::Justification::centred);
-                if (!muted) {
-                    // Draw small speaker icon / active indicator
-                    g.setColour(juce::Colour(80, 180, 80));
-                    auto dot = muteRect.toFloat().withSizeKeepingCentre(6, 6);
-                    g.fillEllipse(dot);
-                }
-                
-                // Channel number
-                bool isDrums = (ch.channel == 9);
-                g.setColour(muted ? juce::Colour(100, 60, 60) : (isDrums ? juce::Colour(255, 160, 40) : juce::Colour(80, 200, 120)));
-                g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
-                g.drawText(juce::String(ch.channel + 1), chX, y, 32, rowH, juce::Justification::centredLeft);
-                
-                // Program number
-                g.setColour(muted ? juce::Colour(100, 100, 110) : juce::Colour(180, 180, 200));
-                g.setFont(juce::Font(juce::FontOptions(11.0f)));
-                if (ch.program >= 0)
-                    g.drawText(juce::String(ch.program), chX + 36, y, 40, rowH, juce::Justification::centredLeft);
-                else
-                    g.drawText("--", chX + 36, y, 40, rowH, juce::Justification::centredLeft);
-                
-                // Bank
-                if (ch.bankMSB > 0 || ch.bankLSB > 0)
-                    g.drawText(juce::String(ch.bankMSB) + "/" + juce::String(ch.bankLSB),
-                               chX + 80, y, 50, rowH, juce::Justification::centredLeft);
-                else
-                    g.drawText("0/0", chX + 80, y, 50, rowH, juce::Justification::centredLeft);
-                
-                // Instrument name
-                g.setColour(muted ? juce::Colour(120, 100, 100) : (isDrums ? juce::Colour(255, 200, 120) : juce::Colours::white));
-                g.setFont(juce::Font(juce::FontOptions(11.0f)));
-                g.drawText(ch.instrumentName, chX + 134, y, 160, rowH, juce::Justification::centredLeft, true);
-                
-                // Note count
-                g.setColour(muted ? juce::Colour(80, 80, 90) : juce::Colour(140, 140, 160));
-                g.setFont(juce::Font(juce::FontOptions(10.0f)));
-                g.drawText(juce::String(ch.noteCount), chX + 302, y, 50, rowH, juce::Justification::centredRight);
-                
-                y += rowH;
-            }
-        }
-        
-        void mouseDown(const juce::MouseEvent& e) override
-        {
-            if (!player || info.empty()) return;
-            
-            int headerH = 24;
-            int rowH = 26;
-            int muteColX = 4;
-            int muteColW = 30;
-            
-            int clickY = (int)e.position.y - 4 - headerH;
-            if (clickY < 0) return;
-            
-            int rowIndex = clickY / rowH;
-            if (rowIndex < 0 || rowIndex >= (int)info.size()) return;
-            
-            // Check if click is in mute column
-            if (e.position.x >= muteColX && e.position.x <= muteColX + muteColW)
-            {
-                int ch = info[rowIndex].channel;
-                player->setChannelMuted(ch, !player->isChannelMuted(ch));
-                repaint();
-            }
-        }
-    };
-    
-    auto* mutePanel = new MutePanel();
-    mutePanel->info = table;
-    mutePanel->player = midiPlayer;
-    mutePanel->setSize(tableW, totalH);
-    
-    auto screenBounds = getScreenBounds();
-    juce::CallOutBox::launchAsynchronously(
-        std::unique_ptr<juce::Component>(mutePanel),
-        juce::Rectangle<int>(screenBounds.getX() + getWidth() / 2,
-                             screenBounds.getY() + getHeight() / 2, 1, 1),
-        nullptr);
-}
 
 // =========================================================================
 // Auto Sampler Editor popup
 // =========================================================================
-void GraphCanvas::showAutoSamplerEditor(AutoSamplerProcessor* autoSampler)
-{
-    if (!autoSampler) return;
-    
-    auto* editorComp = new AutoSamplerEditorComponent(autoSampler);
-    
-    auto screenBounds = getScreenBounds();
-    juce::CallOutBox::launchAsynchronously(
-        std::unique_ptr<juce::Component>(editorComp),
-        juce::Rectangle<int>(screenBounds.getX() + getWidth() / 2,
-                             screenBounds.getY() + getHeight() / 2, 1, 1),
-        nullptr);
-}
 
 // =========================================================================
 // Load VST2 plugin from file browser → create new node at position
@@ -2869,7 +1919,7 @@ void GraphCanvas::loadVST2Plugin(juce::Point<float> position)
 {
     #if JUCE_PLUGINHOST_VST
     auto startFolder = getVST2DefaultFolder();
-    
+
     #if JUCE_WINDOWS
     juce::String filter = "*.dll";
     #elif JUCE_MAC
@@ -2877,33 +1927,33 @@ void GraphCanvas::loadVST2Plugin(juce::Point<float> position)
     #else
     juce::String filter = "*.so";
     #endif
-    
+
     vst2FileChooser = std::make_unique<juce::FileChooser>(
         "Select VST2 Plugin",
         startFolder,
         filter);
-    
+
     juce::Component::SafePointer<GraphCanvas> safeThis(this);
     auto nodePos = position;
-    
+
     vst2FileChooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [safeThis, nodePos](const juce::FileChooser& fc)
         {
             if (!safeThis) return;
-            
+
             auto result = fc.getResult();
             if (!result.exists()) return;
-            
+
             // Save last browsed directory
             safeThis->lastBrowsedDirectory = result.getParentDirectory();
             safeThis->saveLastBrowsedDirectory();
-            
+
             // Use VSTPluginFormat to scan this single file for descriptions
             juce::VSTPluginFormat vstFormat;
             juce::OwnedArray<juce::PluginDescription> descriptions;
             vstFormat.findAllTypesForFile(descriptions, result.getFullPathName());
-            
+
             if (descriptions.size() == 0)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -2912,17 +1962,17 @@ void GraphCanvas::loadVST2Plugin(juce::Point<float> position)
                     "Could not identify a valid VST2 plugin in:\n" + result.getFullPathName());
                 return;
             }
-            
+
             // Use first description (most plugins have exactly one)
             auto& desc = *descriptions[0];
-            
+
             juce::String error;
             auto instance = safeThis->processor.formatManager.createPluginInstance(
                 desc,
                 safeThis->processor.getSampleRate(),
                 safeThis->processor.getBlockSize(),
                 error);
-            
+
             if (!instance)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -2931,17 +1981,18 @@ void GraphCanvas::loadVST2Plugin(juce::Point<float> position)
                     "Failed to load VST2 plugin:\n" + result.getFileName() + "\n\nError: " + error);
                 return;
             }
-            
+
             // Wrap in MeteringProcessor and add to active graph
             auto meteringProc = std::make_unique<MeteringProcessor>(std::move(instance));
             auto* ag1 = safeThis->getActiveGraph();
             auto nodePtr = ag1 ? ag1->addNode(std::move(meteringProc))
                                : safeThis->processor.mainGraph->addNode(std::move(meteringProc));
-            
+
             if (nodePtr)
             {
                 nodePtr->properties.set("x", (double)nodePos.x);
                 nodePtr->properties.set("y", (double)nodePos.y);
+                nodePtr->properties.set("manuallyLoaded", true);  // FIX 1: Mark for L button
                 safeThis->updateParentSelector();
                 safeThis->markDirty();
             }
@@ -2957,13 +2008,13 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
 {
     #if JUCE_PLUGINHOST_VST
     if (!node) return;
-    
+
     auto oldNodeID = node->nodeID;
     float posX = (float)(double)node->properties["x"];
     float posY = (float)(double)node->properties["y"];
-    
+
     auto startFolder = getVST2DefaultFolder();
-    
+
     #if JUCE_WINDOWS
     juce::String filter = "*.dll";
     #elif JUCE_MAC
@@ -2971,32 +2022,32 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
     #else
     juce::String filter = "*.so";
     #endif
-    
+
     vst2FileChooser = std::make_unique<juce::FileChooser>(
         "Replace VST2 Plugin",
         startFolder,
         filter);
-    
+
     juce::Component::SafePointer<GraphCanvas> safeThis(this);
-    
+
     vst2FileChooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [safeThis, oldNodeID, posX, posY](const juce::FileChooser& fc)
         {
             if (!safeThis) return;
-            
+
             auto result = fc.getResult();
             if (!result.exists()) return;
-            
+
             // Save last browsed directory
             safeThis->lastBrowsedDirectory = result.getParentDirectory();
             safeThis->saveLastBrowsedDirectory();
-            
+
             // Scan the selected file
             juce::VSTPluginFormat vstFormat;
             juce::OwnedArray<juce::PluginDescription> descriptions;
             vstFormat.findAllTypesForFile(descriptions, result.getFullPathName());
-            
+
             if (descriptions.size() == 0)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -3005,14 +2056,14 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
                     "Could not identify a valid VST2 plugin in:\n" + result.getFullPathName());
                 return;
             }
-            
+
             juce::String error;
             auto instance = safeThis->processor.formatManager.createPluginInstance(
                 *descriptions[0],
                 safeThis->processor.getSampleRate(),
                 safeThis->processor.getBlockSize(),
                 error);
-            
+
             if (!instance)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -3021,7 +2072,7 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
                     "Failed to load VST2 plugin:\n" + result.getFileName() + "\n\nError: " + error);
                 return;
             }
-            
+
             // Delete old node from the active graph
             auto* reloadAg = safeThis->getActiveGraph();
             if (!reloadAg) reloadAg = safeThis->processor.mainGraph.get();
@@ -3031,7 +2082,7 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
                 auto windowIt = safeThis->activePluginWindows.find(oldNodeID);
                 if (windowIt != safeThis->activePluginWindows.end())
                     safeThis->activePluginWindows.erase(windowIt);
-                
+
                 safeThis->disconnectNode(oldNode);
                 if (safeThis->isInsideContainer())
                 {
@@ -3044,11 +2095,11 @@ void GraphCanvas::reloadVST2Node(juce::AudioProcessorGraph::Node* node)
                     safeThis->processor.removeNode(oldNodeID);
                 }
             }
-            
+
             // Create new node at same position
             auto meteringProc = std::make_unique<MeteringProcessor>(std::move(instance));
             auto nodePtr = reloadAg->addNode(std::move(meteringProc));
-            
+
             if (nodePtr)
             {
                 nodePtr->properties.set("x", (double)posX);
@@ -3068,7 +2119,7 @@ void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
 {
     #if JUCE_PLUGINHOST_VST3
     auto startFolder = getVST3DefaultFolder();
-    
+
     #if JUCE_WINDOWS
     juce::String filter = "*.vst3";
     #elif JUCE_MAC
@@ -3076,33 +2127,33 @@ void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
     #else
     juce::String filter = "*.vst3";
     #endif
-    
+
     pluginFileChooser = std::make_unique<juce::FileChooser>(
         "Select VST3 Plugin",
         startFolder,
         filter);
-    
+
     juce::Component::SafePointer<GraphCanvas> safeThis(this);
     auto nodePos = position;
-    
+
     pluginFileChooser->launchAsync(
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
         [safeThis, nodePos](const juce::FileChooser& fc)
         {
             if (!safeThis) return;
-            
+
             auto result = fc.getResult();
             if (!result.exists()) return;
-            
+
             // Save last browsed directory
             safeThis->lastBrowsedDirectory = result.getParentDirectory();
             safeThis->saveLastBrowsedDirectory();
-            
+
             // Use VST3PluginFormat to scan this single file for descriptions
             juce::VST3PluginFormat vst3Format;
             juce::OwnedArray<juce::PluginDescription> descriptions;
             vst3Format.findAllTypesForFile(descriptions, result.getFullPathName());
-            
+
             if (descriptions.size() == 0)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -3111,7 +2162,7 @@ void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
                     "Could not identify a valid VST3 plugin in:\n" + result.getFullPathName());
                 return;
             }
-            
+
             // If multiple types found (e.g. instrument + effect variants), let user choose
             juce::PluginDescription* chosen = descriptions[0];
             if (descriptions.size() > 1)
@@ -3119,14 +2170,14 @@ void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
                 // For now, use the first one — could show a popup later
                 DBG("VST3 has " + juce::String(descriptions.size()) + " types, using first: " + descriptions[0]->name);
             }
-            
+
             juce::String error;
             auto instance = safeThis->processor.formatManager.createPluginInstance(
                 *chosen,
                 safeThis->processor.getSampleRate(),
                 safeThis->processor.getBlockSize(),
                 error);
-            
+
             if (!instance)
             {
                 juce::NativeMessageBox::showMessageBoxAsync(
@@ -3135,17 +2186,18 @@ void GraphCanvas::loadVST3Plugin(juce::Point<float> position)
                     "Failed to load VST3 plugin:\n" + result.getFileName() + "\n\nError: " + error);
                 return;
             }
-            
+
             // Wrap in MeteringProcessor and add to active graph
             auto meteringProc = std::make_unique<MeteringProcessor>(std::move(instance));
             auto* ag2 = safeThis->getActiveGraph();
             auto nodePtr = ag2 ? ag2->addNode(std::move(meteringProc))
                                : safeThis->processor.mainGraph->addNode(std::move(meteringProc));
-            
+
             if (nodePtr)
             {
                 nodePtr->properties.set("x", (double)nodePos.x);
                 nodePtr->properties.set("y", (double)nodePos.y);
+                nodePtr->properties.set("manuallyLoaded", true);  // FIX 1: Mark for L button
                 safeThis->updateParentSelector();
                 safeThis->markDirty();
             }
@@ -3172,7 +2224,7 @@ juce::File GraphCanvas::getVST3DefaultFolder() const
             }
         }
     }
-    
+
     #if JUCE_WINDOWS
     return juce::File("C:\\Program Files\\Common Files\\VST3");
     #elif JUCE_MAC
@@ -3185,25 +2237,6 @@ juce::File GraphCanvas::getVST3DefaultFolder() const
 // =============================================================================
 // Step Seq Editor Popup
 // =============================================================================
-void GraphCanvas::showStepSeqEditor(juce::AudioProcessorGraph::Node* node)
-{
-    if (!node) return;
-
-    auto* ccStepper = dynamic_cast<CCStepperProcessor*>(node->getProcessor());
-    if (!ccStepper) return;
-
-    auto* editorComp = new CCStepperEditorComponent(ccStepper);
-
-    auto nodeBounds = getNodeBounds(node);
-
-    juce::CallOutBox::launchAsynchronously(
-        std::unique_ptr<juce::Component>(editorComp),
-        juce::Rectangle<int>(
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getY()).y,
-            1, 1),
-        nullptr);
-}
 
 void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
 {
@@ -3238,41 +2271,7 @@ void GraphCanvas::showTransientSplitterEditor(TransientSplitterProcessor* proc)
         nullptr);
 }
 
-void GraphCanvas::showMidiMultiFilterEditor(juce::AudioProcessorGraph::Node* node)
-{
-    if (!node) return;
-    auto* mmf = dynamic_cast<MidiMultiFilterProcessor*>(node->getProcessor());
-    if (!mmf) return;
 
-    auto* editorComp = mmf->createEditor();
-    auto nodeBounds = getNodeBounds(node);
-
-    juce::CallOutBox::launchAsynchronously(
-        std::unique_ptr<juce::Component>(editorComp),
-        juce::Rectangle<int>(
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).y,
-            1, 1),
-        nullptr);
-}
-
-void GraphCanvas::showLatcherEditor(juce::AudioProcessorGraph::Node* node)
-{
-    if (!node) return;
-    auto* latcher = dynamic_cast<LatcherProcessor*>(node->getProcessor());
-    if (!latcher) return;
-
-    auto* editorComp = new LatcherEditorComponent(latcher);
-    auto nodeBounds = getNodeBounds(node);
-
-    juce::CallOutBox::launchAsynchronously(
-        std::unique_ptr<juce::Component>(editorComp),
-        juce::Rectangle<int>(
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).x,
-            virtualToScreen(nodeBounds.getCentreX(), nodeBounds.getCentreY()).y,
-            1, 1),
-        nullptr);
-}
 
 // =============================================================================
 // NEW: Mouse Wheel — scroll canvas or zoom
@@ -3285,31 +2284,31 @@ void GraphCanvas::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
     {
         float zoomDelta = wheel.deltaY * 0.15f;
         float newZoom = juce::jlimit(0.10f, 2.0f, zoomLevel + zoomDelta);
-        
+
         if (std::abs(newZoom - zoomLevel) > 0.001f)
         {
             // Zoom toward mouse position: keep the virtual point under cursor fixed
             auto mouseVirtual = toVirtual(e.position);
-            
+
             zoomLevel = newZoom;
             // NOTE: No setTransform() — zoom is paint-level only
-            
+
             // Adjust pan so mouseVirtual stays under cursor
             // virtual = pixel/zoom + pan → pan = virtual - pixel/zoom
             panOffsetX = mouseVirtual.x - e.position.x / zoomLevel;
             panOffsetY = mouseVirtual.y - e.position.y / zoomLevel;
             clampPanOffset();
-            
+
             repaint();
             if (auto* parent = getParentComponent())
                 parent->repaint();
         }
         return;
     }
-    
+
     // Scroll speed in virtual canvas units
     float scrollSpeed = 120.0f;
-    
+
     if (e.mods.isShiftDown())
     {
         // Shift + wheel = horizontal scroll
@@ -3333,27 +2332,24 @@ void GraphCanvas::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWhe
 void GraphCanvas::navigateMinimapTo(juce::Point<float> localClickPos)
 {
     auto mmRect = getMinimapRect();
-    
+
     // Convert click position to virtual canvas position
     float relX = (localClickPos.x - mmRect.getX()) / mmRect.getWidth();
     float relY = (localClickPos.y - mmRect.getY()) / mmRect.getHeight();
-    
+
     relX = juce::jlimit(0.0f, 1.0f, relX);
     relY = juce::jlimit(0.0f, 1.0f, relY);
-    
+
     float targetVirtualX = relX * virtualCanvasWidth;
     float targetVirtualY = relY * virtualCanvasHeight;
-    
+
     // Center the viewport on the clicked position
     float visW = getVisibleWidth();
     float visH = getVisibleHeight();
-    
+
     panOffsetX = targetVirtualX - visW * 0.5f;
     panOffsetY = targetVirtualY - visH * 0.5f;
     clampPanOffset();
-    
+
     repaint();
 }
-
-
-

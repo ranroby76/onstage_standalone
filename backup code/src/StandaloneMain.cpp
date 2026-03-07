@@ -1,14 +1,15 @@
-// #D:\Workspace\Subterraneum_plugins_daw\src\StandaloneMain.cpp
+// #D:\Workspace\onstage_colosseum_upgrade\src\StandaloneMain.cpp
 // FIX: Added --scan-plugin mode for out-of-process plugin scanning
 // When launched with --scan-plugin <path> <format> <outputFile>,
 // runs in headless mode: loads one plugin, writes metadata, exits.
-// DEBUG: Logs to Desktop\colosseum_child_startup.txt
+// DEBUG: Logs to Desktop\onstage_child_startup.txt
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "PluginScanWorker.h"
 #include "OutOfProcessScanner.h"
+#include "OnStageDialog.h"
 
 // =============================================================================
 // Debug logger for child process startup
@@ -16,7 +17,7 @@
 static void logChild(const juce::String& message)
 {
     juce::File logFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
-                            .getChildFile("colosseum_child_startup.txt");
+                            .getChildFile("onstage_child_startup.txt");
     logFile.appendText(juce::Time::getCurrentTime().toString(true, true) + " | " + message + "\n");
 }
 
@@ -25,7 +26,7 @@ class SubterraneumApplication : public juce::JUCEApplication
 public:
     SubterraneumApplication() {}
 
-    const juce::String getApplicationName() override { return "Colosseum"; }
+    const juce::String getApplicationName() override { return "OnStage"; }
     const juce::String getApplicationVersion() override { return "1.0.0"; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
@@ -38,7 +39,7 @@ public:
         
         // =================================================================
         // OUT-OF-PROCESS SCAN MODE
-        // Usage: Colosseum --scan-plugin <pluginPath> <formatName> <outputFile>
+        // Usage: OnStage --scan-plugin <pluginPath> <formatName> <outputFile>
         // Runs headless: loads one plugin, writes JSON metadata, exits.
         // =================================================================
         if (commandLine.contains("--scan-plugin"))
@@ -160,8 +161,8 @@ public:
                 
                 auto result = juce::AlertWindow::showYesNoCancelBox(
                     juce::MessageBoxIconType::WarningIcon,
-                    "Colosseum - Recovery",
-                    "Colosseum didn't shut down properly last time.\n"
+                    "OnStage - Recovery",
+                    "OnStage didn't shut down properly last time.\n"
                     "This is often caused by an audio driver issue.\n\n"
                     "Would you like to start with safe audio settings?\n\n"
                     "Yes = Start with no audio device (safe)\n"
@@ -289,23 +290,21 @@ public:
         
         void confirmAndQuit()
         {
-            juce::AlertWindow::showOkCancelBox(
-                juce::MessageBoxIconType::QuestionIcon,
-                "Exit Colosseum",
+            OnStageDialog::showOkCancel(
+                "Exit OnStage",
                 "Are you sure you want to exit?",
-                "Yes",
-                "No",
+                "Yes", "No",
                 this,
-                juce::ModalCallbackFunction::create([](int result)
+                [](bool confirmed)
                 {
-                    if (result == 1)
+                    if (confirmed)
                     {
                         if (auto* app = juce::JUCEApplicationBase::getInstance())
                         {
                             app->quit();
                         }
                     }
-                })
+                }
             );
         }
 

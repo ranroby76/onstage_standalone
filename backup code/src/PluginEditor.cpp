@@ -1,23 +1,15 @@
 // FIX: Plugin Browser Panel is now a fixed 240px panel on the right side of content
-// No toggle button - always visible on Rack tab, hidden on other tabs
-// FIX: Removed Studio tab - tempo/metronome moved to AudioSettingsTab
-// FIX: Added Recorder to onToolDropped handler
-// FIX: Removed yellow right panel - utility buttons relocated to left green panel
-// FIX: Added MIDI Panic button under Keys button
-// FIX: Added Latcher and MidiMultiFilter to onToolDropped handler
+// FIX: Removed Studio tab, Instrument Selector, Virtual Keyboard
+// FIX: Added Media tab
+// FIX: Removed Mixer tab - gain controls moved to Connector/Amp nodes
+// Remaining system tools in onToolDropped: Connector, StereoMeter, Recorder, TransientSplitter, VST2/VST3
 
 #include "PluginEditor.h"
 #include "SimpleConnectorProcessor.h"
 #include "StereoMeterProcessor.h"
-#include "MidiMonitorProcessor.h"
 #include "RecorderProcessor.h"
-#include "ManualSamplerProcessor.h"
-#include "AutoSamplerProcessor.h"
-#include "MidiPlayerProcessor.h"
-#include "CCStepperProcessor.h"
 #include "TransientSplitterProcessor.h"
-#include "LatcherProcessor.h"
-#include "MidiMultiFilterProcessor.h"
+#include "OnStageDialog.h"
 
 #if JUCE_WINDOWS
 #include <windows.h>
@@ -34,12 +26,11 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     : AudioProcessorEditor(&p), 
       audioProcessor(p), 
       graphCanvas(p), 
-      mixerView(p),
       audioSettingsTab(p), 
       pluginManagerTab(p),
       manualTab(p),
       registrationTab(p),
-      instrumentSelector(p)
+      mediaPage(p)
 {
     setSize(1920, 1080);
     
@@ -60,7 +51,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
         fananLogoFile = deployDir.getChildFile("fanan logo.png");
     }
     if (!fananLogoFile.existsAsFile()) {
-        fananLogoFile = juce::File("D:/Workspace/Subterraneum_plugins_daw/assets/fanan logo.png");
+        fananLogoFile = juce::File("D:/Workspace/onstage_colosseum_upgrade/assets/fanan logo.png");
     }
     
     juce::File colosseumLogoFile = assetsDir.getChildFile("colosseum_logo.png");
@@ -68,7 +59,7 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
         colosseumLogoFile = deployDir.getChildFile("colosseum_logo.png");
     }
     if (!colosseumLogoFile.existsAsFile()) {
-        colosseumLogoFile = juce::File("D:/Workspace/Subterraneum_plugins_daw/assets/colosseum_logo.png");
+        colosseumLogoFile = juce::File("D:/Workspace/onstage_colosseum_upgrade/assets/colosseum_logo.png");
     }
     
     if (fananLogoFile.existsAsFile()) {
@@ -82,20 +73,13 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     addAndMakeVisible(loadButton); loadButton.addListener(this);
     addAndMakeVisible(saveButton); saveButton.addListener(this);
     addAndMakeVisible(resetButton); resetButton.addListener(this);
-    addAndMakeVisible(keysButton); keysButton.addListener(this);
     
-    // NEW: MIDI Panic button - red color to stand out
+    // MIDI Panic button - red color to stand out
     panicButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
     panicButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     panicButton.setTooltip("Send All Notes Off to all instruments (stops stuck notes)");
     addAndMakeVisible(panicButton);
     panicButton.addListener(this);
-    
-    // Floating Mixer button (dark yellow, two-line label)
-    addAndMakeVisible(floatMixerButton);
-    floatMixerButton.addListener(this);
-    floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));  // dark yellow/goldenrod
-    floatMixerButton.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
     
     // ASIO LED and label
     addAndMakeVisible(asioLed);
@@ -165,25 +149,22 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
     zoomLabel.setColour(juce::Label::textColourId, juce::Colour(160, 160, 180));
     addAndMakeVisible(zoomLabel);
     
-    // Left green menu tab buttons - FIX: Only 6 buttons now (removed Studio)
+    // Left green menu tab buttons - FIX: 6 buttons now (removed Mixer)
     addAndMakeVisible(rackButton); rackButton.addListener(this);
-    addAndMakeVisible(mixerButton); mixerButton.addListener(this);
+    addAndMakeVisible(mediaButton); mediaButton.addListener(this);
     addAndMakeVisible(settingsButton); settingsButton.addListener(this);
     addAndMakeVisible(pluginsButton); pluginsButton.addListener(this);
     addAndMakeVisible(manualButton); manualButton.addListener(this);
     addAndMakeVisible(registerButton); registerButton.addListener(this);
     
-    addAndMakeVisible(instrumentSelector); 
-    instrumentSelector.updateList(); 
-    
-    // Setup tabs - FIX: Removed Studio tab (now only 6 tabs)
+    // Setup tabs - FIX: 6 tabs now (removed Mixer)
     tabs.setOutline(0);
     tabs.setTabBarDepth(0);
     tabs.setColour(juce::TabbedComponent::outlineColourId, juce::Colours::transparentBlack);
     
     tabs.addTab("Rack", Style::colBackground, &graphCanvas, false); 
-    tabs.addTab("Mixer", Style::colBackground, &mixerView, false);
-    tabs.addTab("Settings", Style::colBackground, &audioSettingsTab, false);  // Now includes tempo/metronome
+    tabs.addTab("Media", Style::colBackground, &mediaPage, false);
+    tabs.addTab("Settings", Style::colBackground, &audioSettingsTab, false);
     tabs.addTab("Plugins", Style::colBackground, &pluginManagerTab, false);
     tabs.addTab("Manual", Style::colBackground, &manualTab, false);
     tabs.addTab("Register", Style::colBackground, &registrationTab, false);
@@ -210,32 +191,11 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
             case SystemToolType::StereoMeter:
                 nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new StereoMeterProcessor()));
                 break;
-            case SystemToolType::MidiMonitor:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMonitorProcessor()));
-                break;
             case SystemToolType::Recorder:
                 nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new RecorderProcessor()));
                 break;
-            case SystemToolType::ManualSampler:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new ManualSamplerProcessor()));
-                break;
-            case SystemToolType::AutoSampler:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new AutoSamplerProcessor(audioProcessor.mainGraph.get(), &audioProcessor)));
-                break;
-            case SystemToolType::MidiPlayer:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiPlayerProcessor()));
-                break;
-            case SystemToolType::StepSeq:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new CCStepperProcessor()));
-                break;
             case SystemToolType::TransientSplitter:
                 nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new TransientSplitterProcessor()));
-                break;
-            case SystemToolType::Latcher:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new LatcherProcessor()));
-                break;
-            case SystemToolType::MidiMultiFilter:
-                nodePtr = audioProcessor.mainGraph->addNode(std::unique_ptr<juce::AudioProcessor>(new MidiMultiFilterProcessor()));
                 break;
             case SystemToolType::VST2Plugin:
                 // VST2 opens file chooser via GraphCanvas
@@ -280,7 +240,6 @@ SubterraneumAudioProcessorEditor::SubterraneumAudioProcessorEditor(SubterraneumA
 }
 
 SubterraneumAudioProcessorEditor::~SubterraneumAudioProcessorEditor() {
-    floatingMixerWindow.reset();  // Close floating mixer before destruction
     stopTimer();
 }
 
@@ -333,11 +292,6 @@ void SubterraneumAudioProcessorEditor::timerCallback() {
     cpuLabel.setText("CPU: " + juce::String(cpuPercent, 1) + "%", juce::dontSendNotification);
 }
 
-void SubterraneumAudioProcessorEditor::updateInstrumentSelector() { 
-    instrumentSelector.updateList(); 
-    resized();
-}
-
 bool SubterraneumAudioProcessorEditor::keyPressed(const juce::KeyPress& /*key*/) {
     // Keyboard shortcuts can be added here
     return false;
@@ -378,36 +332,14 @@ void SubterraneumAudioProcessorEditor::sendMidiPanic() {
     });
 }
 
-void SubterraneumAudioProcessorEditor::toggleFloatingMixer() {
-    if (floatingMixerWindow) {
-        // Close floating window
-        floatingMixerWindow.reset();
-        floatMixerButton.setButtonText("Floating\nMixer");
-        floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));
-    } else {
-        // Open floating mixer window
-        floatingMixerWindow = std::make_unique<FloatingMixerWindow>(audioProcessor);
-        floatingMixerWindow->onClose = [this]() {
-            // Defer cleanup to avoid deleting during callback
-            juce::MessageManager::callAsync([this]() {
-                floatingMixerWindow.reset();
-                floatMixerButton.setButtonText("Floating\nMixer");
-                floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffB8860B));
-            });
-        };
-        floatMixerButton.setButtonText("Dock\nMixer");
-        floatMixerButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff8B7500));
-    }
-}
-
 void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) { 
-    // FIX: Handle left menu tab buttons - now only 6 buttons (removed Studio)
+    // FIX: Handle left menu tab buttons - now 6 buttons (removed Mixer)
     if (b == &rackButton) {
         tabs.setCurrentTabIndex(0);
         updateTabButtonColors();
         updatePluginBrowserVisibility();
         resized();
-    } else if (b == &mixerButton) {
+    } else if (b == &mediaButton) {
         tabs.setCurrentTabIndex(1);
         updateTabButtonColors();
         updatePluginBrowserVisibility();
@@ -433,7 +365,7 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
         updatePluginBrowserVisibility();
         resized();
     } else if (b == &loadButton) { 
-        fileChooser = std::make_unique<juce::FileChooser>("Load Patch", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.subt");
+        fileChooser = std::make_unique<juce::FileChooser>("Load Patch", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.ons");
         fileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) { 
             auto file = fc.getResult(); 
             if (file != juce::File()) { 
@@ -443,42 +375,38 @@ void SubterraneumAudioProcessorEditor::buttonClicked(juce::Button* b) {
                 // Sync zoom to loaded preset value
                 zoomSlider.setValue((double)audioProcessor.rackZoomLevel, juce::sendNotificationSync);
                 repaint(); 
-                updateInstrumentSelector(); 
             } 
         });
     } else if (b == &saveButton) { 
-        fileChooser = std::make_unique<juce::FileChooser>("Save Patch", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.subt");
+        fileChooser = std::make_unique<juce::FileChooser>("Save Patch", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.ons");
         fileChooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) { 
             auto file = fc.getResult(); 
             if (file != juce::File()) { 
-                if (!file.hasFileExtension(".subt")) 
-                    file = file.withFileExtension(".subt");
+                if (!file.hasFileExtension(".ons")) 
+                    file = file.withFileExtension(".ons");
                 audioProcessor.saveUserPreset(file); 
             } 
         });
     } else if (b == &resetButton) { 
-        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Reset", "Reset the entire application to initial state?", 
-            "Yes", "No", nullptr, juce::ModalCallbackFunction::create([this](int result) { 
-                if (result == 1) { 
+        OnStageDialog::showOkCancel(
+            "Reset",
+            "Reset the entire application to initial state?",
+            "Yes", "No",
+            this,
+            [this](bool confirmed) {
+                if (confirmed) { 
                     graphCanvas.closeAllPluginWindows();
                     audioProcessor.resetGraph(); 
                     graphCanvas.refreshCache();
                     // Reset zoom to default
                     audioProcessor.rackZoomLevel = 1.0f;
                     zoomSlider.setValue(1.0, juce::sendNotificationSync);
-                    updateInstrumentSelector(); 
                     repaint(); 
                 } 
-        }));
-    } else if (b == &keysButton) { 
-        if (keyboardWindow == nullptr) 
-            keyboardWindow = std::make_unique<VirtualKeyboardWindow>(audioProcessor);
-        keyboardWindow->setVisible(!keyboardWindow->isVisible());
+            });
     } else if (b == &panicButton) {
         // NEW: Handle panic button
         sendMidiPanic();
-    } else if (b == &floatMixerButton) {
-        toggleFloatingMixer();
     }
 }
 
@@ -504,21 +432,30 @@ void SubterraneumAudioProcessorEditor::paint(juce::Graphics& g) {
     }
     
     if (colosseumLogo.isValid()) {
-        float aspectRatio = (float)colosseumLogo.getWidth() / (float)colosseumLogo.getHeight();
-        int colosseumWidth = (int)(logoHeight * aspectRatio);
+        // Original size: 1128x273, aspect ratio ~4.13
+        // Scale to fit header height while maintaining aspect ratio
+        float srcAspect = (float)colosseumLogo.getWidth() / (float)colosseumLogo.getHeight();
+        int colosseumHeight = logoHeight;
+        int colosseumWidth = (int)(colosseumHeight * srcAspect);
+        
+        // Center in header area
         int centerArea = getWidth() - Style::leftMenuWidth;
         int colosseumX = Style::leftMenuWidth + (centerArea - colosseumWidth) / 2;
-        g.drawImage(colosseumLogo, colosseumX, logoY, colosseumWidth, logoHeight, 
-                    0, 0, colosseumLogo.getWidth(), colosseumLogo.getHeight());
+        int colosseumY = logoY + (logoHeight - colosseumHeight) / 2;
+        
+        // Draw with proper source and destination rectangles
+        g.drawImage(colosseumLogo, 
+                    colosseumX, colosseumY, colosseumWidth, colosseumHeight,
+                    0, 0, colosseumLogo.getWidth(), colosseumLogo.getHeight(),
+                    false);  // Don't use filtering that might distort
     }
     
-    // Draw footer background
-    g.setColour(juce::Colours::black.withAlpha(0.8f));
-    g.fillRect(Style::leftMenuWidth, getHeight() - Style::instrHeaderHeight, 
-               getWidth() - Style::leftMenuWidth, Style::instrHeaderHeight);
-    
-    // Draw left green menu
-    g.setColour(Style::colLeftMenu);
+    // Draw left gold gradient menu
+    juce::ColourGradient goldGradient(
+        Style::colLeftMenuTop, 0.0f, 0.0f,
+        Style::colLeftMenuBottom, 0.0f, (float)getHeight(),
+        false);
+    g.setGradientFill(goldGradient);
     g.fillRect(0, 0, Style::leftMenuWidth, getHeight());
     
     // Draw white separator line between tab buttons and utility buttons
@@ -535,7 +472,7 @@ void SubterraneumAudioProcessorEditor::paint(juce::Graphics& g) {
         g.fillRect(getWidth() - pluginBrowserWidth, 
                    Style::mainHeaderHeight, 
                    pluginBrowserWidth, 
-                   getHeight() - Style::mainHeaderHeight - Style::instrHeaderHeight);
+                   getHeight() - Style::mainHeaderHeight);
     }
 }
 
@@ -551,7 +488,7 @@ void SubterraneumAudioProcessorEditor::resized() {
     int leftGap = 5;
     rackButton.setBounds(leftMenu.removeFromTop(leftBtnH).reduced(8, 4));
     leftMenu.removeFromTop(leftGap);
-    mixerButton.setBounds(leftMenu.removeFromTop(leftBtnH).reduced(8, 4));
+    mediaButton.setBounds(leftMenu.removeFromTop(leftBtnH).reduced(8, 4));
     leftMenu.removeFromTop(leftGap);
     settingsButton.setBounds(leftMenu.removeFromTop(leftBtnH).reduced(8, 4));
     leftMenu.removeFromTop(leftGap);
@@ -573,11 +510,7 @@ void SubterraneumAudioProcessorEditor::resized() {
     leftMenu.removeFromTop(utilGap);
     resetButton.setBounds(leftMenu.removeFromTop(utilBtnH).reduced(8, 3));
     leftMenu.removeFromTop(utilGap);
-    keysButton.setBounds(leftMenu.removeFromTop(utilBtnH).reduced(8, 3));
-    leftMenu.removeFromTop(utilGap);
     panicButton.setBounds(leftMenu.removeFromTop(utilBtnH).reduced(8, 3));
-    leftMenu.removeFromTop(utilGap);
-    floatMixerButton.setBounds(leftMenu.removeFromTop(utilBtnH * 2).reduced(8, 3));
     
     auto mainHeader = area.removeFromTop(Style::mainHeaderHeight); 
     
@@ -614,10 +547,6 @@ void SubterraneumAudioProcessorEditor::resized() {
     zoomSlider.setBounds(zoomX, headerCenterY - zoomSliderHeight / 2 + 4, zoomSliderWidth, zoomSliderHeight);
     zoomLabel.setBounds(zoomX, headerCenterY - labelHeight - 2, zoomSliderWidth, labelHeight);
     
-    // Footer - instrument selector
-    auto footer = area.removeFromBottom(Style::instrHeaderHeight);
-    instrumentSelector.setBounds(footer);
-    
     // =========================================================================
     // Plugin Browser Panel - Fixed 240px on right side of content (Rack tab only)
     // =========================================================================
@@ -631,18 +560,16 @@ void SubterraneumAudioProcessorEditor::resized() {
         }
     }
     
-    // Main tabs area (what's left after header/footer/menus/browser panel)
+    // Main tabs area (what's left after header/menus/browser panel)
     tabs.setBounds(area);
     
     // Update visibility based on current tab
     updatePluginBrowserVisibility();
     
     // =========================================================================
-    // FIX: Keep browser panel and instrument selector on top of zoomed canvas
-    // setTransform(scale) on GraphCanvas can overflow its bounds — these must
-    // always render in front so zoom doesn't cover them
+    // FIX: Keep browser panel on top of zoomed canvas
+    // setTransform(scale) on GraphCanvas can overflow its bounds
     // =========================================================================
-    instrumentSelector.toFront(false);
     if (pluginBrowserPanel)
         pluginBrowserPanel->toFront(false);
 }
@@ -650,9 +577,9 @@ void SubterraneumAudioProcessorEditor::resized() {
 void SubterraneumAudioProcessorEditor::updateTabButtonColors() {
     int currentTab = tabs.getCurrentTabIndex();
     
-    // FIX: Only 6 buttons now (removed studioButton)
-    juce::TextButton* tabButtons[] = { &rackButton, &mixerButton, &settingsButton, 
-                                       &pluginsButton, &manualButton, &registerButton };
+    // FIX: 6 buttons now (removed mixerButton)
+    juce::TextButton* tabButtons[] = { &rackButton, &mediaButton,
+                                       &settingsButton, &pluginsButton, &manualButton, &registerButton };
     
     for (int i = 0; i < 6; ++i) {
         if (i == currentTab) {
@@ -672,19 +599,4 @@ void SubterraneumAudioProcessorEditor::mouseDown(const juce::MouseEvent& e)
 {
     juce::AudioProcessorEditor::mouseDown(e);
 }
-
-// VirtualKeyboardWindow Implementation
-SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::VirtualKeyboardWindow(SubterraneumAudioProcessor& p) 
-    : DocumentWindow("Virtual Keyboard", juce::Colours::black, DocumentWindow::allButtons), 
-      keyboardComp(p.keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard) 
-{ 
-    setSize(600, 100);
-    setUsingNativeTitleBar(true); 
-    setContentOwned(&keyboardComp, false);
-    setAlwaysOnTop(true);
-}
-
-SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::~VirtualKeyboardWindow() {}
-void SubterraneumAudioProcessorEditor::VirtualKeyboardWindow::closeButtonPressed() { setVisible(false); }
-
 
